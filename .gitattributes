@@ -1,0 +1,24 @@
+# 저장소에는 LF로 저장하고, 체크아웃 시 각 OS 관례를 따른다.
+* text=auto eol=lf
+
+# 셸 스크립트는 항상 LF
+*.sh text eol=lf
+
+# Windows 배치 파일은 항상 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 바이너리 — 변환하지 않는다
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.mp3 binary
+*.wav binary
+*.moc3 binary
+
+# GitHub 언어 통계에서 제외 — 생성물과 문서
+package-lock.json linguist-generated=true
+docs/** linguist-documentation=true

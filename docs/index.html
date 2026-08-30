@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>보리 (Bori) — 로컬 실행형 AI 버추얼 스트리머</title>
+<meta name="description" content="Live2D 캐릭터가 시청자 채팅에 LLM으로 답하고, 음성·표정·모션·립싱크로 반응하며 OBS로 송출되는 로컬 AI 버추얼 스트리머 방송 시스템.">
+<meta property="og:title" content="보리 (Bori) — 로컬 실행형 AI 버추얼 스트리머">
+<meta property="og:description" content="채팅 수집부터 LLM 응답, 음성 합성, Live2D 연출, OBS 송출까지 연결한 실시간 방송 파이프라인.">
+<meta property="og:type" content="website">
+<style>
+:root{
+  --bg:#fbfbfd; --bg-elev:#ffffff; --bg-sunken:#f2f2f6;
+  --fg:#16161a; --fg-muted:#5b5b66; --fg-faint:#8a8a96;
+  --line:#e3e3ea; --line-strong:#d0d0da;
+  --accent:#6a4de0; --accent-soft:#efeaff; --accent-fg:#ffffff;
+  --warn-bg:#fff6e8; --warn-line:#f0d9b0; --warn-fg:#6b4a10;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --radius:14px; --maxw:920px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0e0e12; --bg-elev:#17171d; --bg-sunken:#121217;
+    --fg:#ececf1; --fg-muted:#a4a4b2; --fg-faint:#74748a;
+    --line:#26262f; --line-strong:#33333f;
+    --accent:#9d86ff; --accent-soft:#221b3d; --accent-fg:#0e0e12;
+    --warn-bg:#2a2113; --warn-line:#4a3a1c; --warn-fg:#e8c98a;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#fbfbfd; --bg-elev:#ffffff; --bg-sunken:#f2f2f6;
+  --fg:#16161a; --fg-muted:#5b5b66; --fg-faint:#8a8a96;
+  --line:#e3e3ea; --line-strong:#d0d0da;
+  --accent:#6a4de0; --accent-soft:#efeaff; --accent-fg:#ffffff;
+  --warn-bg:#fff6e8; --warn-line:#f0d9b0; --warn-fg:#6b4a10;
+}
+:root[data-theme="dark"]{
+  --bg:#0e0e12; --bg-elev:#17171d; --bg-sunken:#121217;
+  --fg:#ececf1; --fg-muted:#a4a4b2; --fg-faint:#74748a;
+  --line:#26262f; --line-strong:#33333f;
+  --accent:#9d86ff; --accent-soft:#221b3d; --accent-fg:#0e0e12;
+  --warn-bg:#2a2113; --warn-line:#4a3a1c; --warn-fg:#e8c98a;
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:var(--sans); font-size:16px; line-height:1.75;
+  letter-spacing:-0.003em; overflow-x:hidden;
+}
+.wrap{max-width:var(--maxw); margin:0 auto; padding:0 24px}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline}
+h1,h2,h3{line-height:1.3; letter-spacing:-0.02em; margin:0}
+code{font-family:var(--mono); font-size:.86em; background:var(--bg-sunken);
+  border:1px solid var(--line); border-radius:5px; padding:.12em .38em}
+
+/* ---- header ---- */
+.topbar{
+  position:sticky; top:0; z-index:20; backdrop-filter:blur(12px);
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  border-bottom:1px solid var(--line);
+}
+.topbar .wrap{display:flex; align-items:center; gap:16px; height:56px}
+.brand{font-weight:680; font-size:15px; letter-spacing:-0.01em}
+.topbar nav{margin-left:auto; display:flex; gap:20px; align-items:center}
+.topbar nav a{color:var(--fg-muted); font-size:14px; font-weight:500}
+.topbar nav a:hover{color:var(--fg); text-decoration:none}
+#themeBtn{
+  background:none; border:1px solid var(--line-strong); color:var(--fg-muted);
+  border-radius:8px; padding:5px 10px; font:inherit; font-size:13px; cursor:pointer;
+}
+#themeBtn:hover{color:var(--fg); border-color:var(--fg-faint)}
+@media(max-width:640px){ .topbar nav a[data-optional]{display:none} }
+
+/* ---- hero ---- */
+.hero{padding:72px 0 44px; border-bottom:1px solid var(--line)}
+.eyebrow{
+  display:inline-block; font-size:12.5px; font-weight:600; letter-spacing:.06em;
+  color:var(--accent); background:var(--accent-soft);
+  border-radius:999px; padding:5px 13px; margin-bottom:22px;
+}
+.hero h1{font-size:clamp(30px,5.4vw,45px); font-weight:700; margin-bottom:18px}
+.lead{font-size:clamp(16.5px,2.2vw,19px); color:var(--fg-muted); max-width:60ch; margin:0 0 14px}
+.meta{color:var(--fg-faint); font-size:14.5px; margin:0}
+.cta{display:flex; flex-wrap:wrap; gap:11px; margin-top:30px}
+.btn{
+  display:inline-flex; align-items:center; gap:8px;
+  border-radius:10px; padding:11px 19px; font-size:14.5px; font-weight:600;
+  border:1px solid var(--line-strong); color:var(--fg); background:var(--bg-elev);
+  transition:transform .12s ease, border-color .12s ease;
+}
+.btn:hover{text-decoration:none; transform:translateY(-1px); border-color:var(--fg-faint)}
+.btn-primary{background:var(--accent); color:var(--accent-fg); border-color:var(--accent)}
+.btn-primary:hover{border-color:var(--accent); opacity:.92}
+
+/* ---- sections ---- */
+section{padding:60px 0; border-bottom:1px solid var(--line)}
+section:last-of-type{border-bottom:none}
+.kicker{
+  font-size:12.5px; font-weight:640; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--fg-faint); margin:0 0 10px;
+}
+section > .wrap > h2{font-size:clamp(22px,3.2vw,27px); font-weight:700; margin-bottom:16px}
+section p{color:var(--fg-muted); max-width:64ch}
+section p strong{color:var(--fg); font-weight:640}
+
+/* ---- screenshot ---- */
+figure{margin:0}
+.shot{
+  border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;
+  background:var(--bg-sunken); line-height:0;
+}
+.shot img{width:100%; height:auto; display:block}
+figcaption{color:var(--fg-faint); font-size:13.5px; margin-top:12px; line-height:1.6}
+
+/* ---- pipeline ---- */
+.pipe{
+  display:flex; flex-wrap:wrap; align-items:center; gap:9px;
+  background:var(--bg-sunken); border:1px solid var(--line);
+  border-radius:var(--radius); padding:20px; margin:26px 0 0;
+}
+.pipe span{
+  background:var(--bg-elev); border:1px solid var(--line-strong);
+  border-radius:8px; padding:7px 12px; font-size:13.5px; font-weight:560; white-space:nowrap;
+}
+.pipe i{color:var(--fg-faint); font-style:normal; font-size:13px}
+
+/* ---- cards ---- */
+.grid{display:grid; gap:14px; margin-top:26px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(268px,1fr))}
+.card{
+  background:var(--bg-elev); border:1px solid var(--line);
+  border-radius:var(--radius); padding:22px;
+}
+.card h3{font-size:16px; font-weight:660; margin-bottom:9px}
+.card p{font-size:14.5px; line-height:1.7; margin:0; color:var(--fg-muted); max-width:none}
+.card .where{
+  display:block; margin-top:12px; font-family:var(--mono);
+  font-size:12px; color:var(--fg-faint); word-break:break-all;
+}
+a.card{display:block; color:inherit}
+a.card:hover{text-decoration:none; border-color:var(--accent)}
+a.card:hover h3{color:var(--accent)}
+
+/* ---- table ---- */
+.tablewrap{overflow-x:auto; margin-top:24px; border:1px solid var(--line); border-radius:var(--radius)}
+table{border-collapse:collapse; width:100%; font-size:14.5px; min-width:460px}
+th,td{text-align:left; padding:12px 18px; border-bottom:1px solid var(--line); vertical-align:top}
+thead th{background:var(--bg-sunken); font-weight:640; font-size:13px; color:var(--fg-muted); white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td:first-child{font-weight:580; white-space:nowrap; color:var(--fg)}
+td:last-child{color:var(--fg-muted)}
+
+/* ---- list ---- */
+ul.plain{list-style:none; padding:0; margin:22px 0 0}
+ul.plain li{
+  padding:13px 0 13px 22px; border-bottom:1px solid var(--line);
+  color:var(--fg-muted); font-size:15px; position:relative; line-height:1.7;
+}
+ul.plain li:last-child{border-bottom:none}
+ul.plain li::before{
+  content:""; position:absolute; left:2px; top:22px;
+  width:5px; height:5px; border-radius:50%; background:var(--fg-faint);
+}
+ul.plain li b{color:var(--fg); font-weight:620}
+
+/* ---- notice ---- */
+.notice{
+  background:var(--warn-bg); border:1px solid var(--warn-line);
+  border-radius:var(--radius); padding:20px 22px; margin-top:26px;
+}
+.notice p{color:var(--warn-fg); margin:0; font-size:14.5px; max-width:none}
+.notice p + p{margin-top:9px}
+
+/* ---- video ---- */
+.video-frame{
+  position:relative; padding-top:56.25%; border-radius:var(--radius);
+  overflow:hidden; border:1px solid var(--line); background:var(--bg-sunken);
+}
+.video-frame iframe{position:absolute; inset:0; width:100%; height:100%; border:0}
+
+/* ---- footer ---- */
+footer{padding:44px 0 60px; color:var(--fg-faint); font-size:13.5px}
+footer p{margin:0 0 7px; color:inherit; max-width:none}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <span class="brand">보리 (Bori)</span>
+    <nav>
+      <a href="#about">개요</a>
+      <a href="#features" data-optional>구현</a>
+      <a href="#docs">문서</a>
+      <a href="#status" data-optional>한계</a>
+      <button id="themeBtn" type="button" aria-label="테마 전환">테마</button>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <span class="eyebrow">개인 프로젝트 · 2026.06 — 진행 중</span>
+    <h1>로컬 실행형 AI 버추얼 스트리머</h1>
+    <p class="lead">
+      Live2D 캐릭터가 시청자 채팅에 LLM으로 답하고, 음성·표정·모션·시선·립싱크로 반응하며
+      OBS로 송출되는 방송 시스템이다. 기획부터 설계·구현·검증까지 1인이 진행했다.
+    </p>
+    <p class="meta">TypeScript · React 19 · Node.js · Electron · Live2D Cubism SDK · OBS WebSocket</p>
+    <div class="cta" id="ctaRow">
+      <a class="btn btn-primary" href="https://github.com/Yumesa2025/bori-ai-vtuber">저장소 보기</a>
+      <a class="btn" href="#docs">설계 문서</a>
+    </div>
+  </div>
+</div>
+
+<section id="shot">
+  <div class="wrap">
+    <figure>
+      <div class="shot">
+        <img src="./assets/broadcast-screen.png" alt="방송 화면. 중앙에 Live2D 캐릭터가 렌더링되고 오른쪽에 채팅 패널이 있다." loading="lazy">
+      </div>
+      <figcaption>
+        프로덕션 빌드로 실행한 방송 화면. 1920×1080 기준으로 구성되며 OBS Browser Source로 그대로 송출된다.
+        캐릭터 레이어는 WebGL 캔버스이고 채팅 패널과 말풍선은 그 위에 얹힌 React 레이어다.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="video" hidden>
+  <div class="wrap">
+    <p class="kicker">Demo</p>
+    <h2>시연 영상</h2>
+    <p>채팅 입력부터 응답 생성, 음성 재생, 표정·모션 실행까지의 실제 동작이다.</p>
+    <div class="grid"><div class="video-frame"><iframe id="videoFrame" title="시연 영상" allowfullscreen
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe></div></div>
+  </div>
+</section>
+
+<section id="about">
+  <div class="wrap">
+    <p class="kicker">Overview</p>
+    <h2>무엇을 만들었나</h2>
+    <p>
+      한 대의 로컬 머신에서 전부 돌아가는 AI 버추얼 스트리머다. 서버, 방송 화면, 관리자 앱이 모두
+      <code>127.0.0.1</code>에서 동작하며 외부 호스팅이나 클라우드 인프라를 쓰지 않는다.
+      시청자 채팅이 들어오면 아래 파이프라인을 거쳐 답변과 연출이 만들어진다.
+    </p>
+    <div class="pipe">
+      <span>채팅 수집</span><i>→</i>
+      <span>안전성 차단</span><i>→</i>
+      <span>규칙 / LLM / 폴백</span><i>→</i>
+      <span>출력 검증</span><i>→</i>
+      <span>음성 합성</span><i>→</i>
+      <span>표정 · 모션 · 립싱크</span><i>→</i>
+      <span>OBS 송출</span>
+    </div>
+    <ul class="plain">
+      <li><b>답변이 끊기지 않는다.</b> 규칙 → LLM → 폴백 문장의 3단 구조이고, LLM이 연속 실패하면 회로 차단기가 열려 호출을 끊는다. 그동안에도 방송은 규칙 문장으로 이어진다.</li>
+      <li><b>말하면서 표정과 모션이 바뀐다.</b> LLM이 답변과 함께 감정·모션을 고르지만, 허용 목록을 통과한 것만 화면에서 실행된다.</li>
+      <li><b>목소리에 맞춰 입이 움직인다.</b> 음성 파형의 실효값을 읽어 입 벌림에 반영하고, 음성이 없으면 글자 수 기반 립싱크로 자동 전환된다.</li>
+      <li><b>시선이 살아 있다.</b> 평소에는 1.1~3.2초마다 주위를 둘러보고, 새 채팅에는 60% 확률로만 반응한다. 매번 쳐다보면 오히려 어색하기 때문이다.</li>
+      <li><b>지난 방송을 기억한다.</b> 대화에서 취향·경험을 뽑아 장기 기억으로 저장하고, 이후 관련 질문이 오면 그 기억을 참고해 답한다.</li>
+      <li><b>관리자 앱에서 통제한다.</b> 세션 시작·종료, LLM·TTS·기억 설정, 표정·모션 즉시 테스트, 호출 통계와 실패 내역을 한 화면에서 다룬다.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <p class="kicker">Engineering</p>
+    <h2>구현에서 어려웠던 것</h2>
+    <p>각 항목의 상세한 근거와 트레이드오프는 설계 문서에 정리했다.</p>
+    <div class="grid g2">
+      <div class="card">
+        <h3>세션 세대 기반 비동기 경합 제어</h3>
+        <p>LLM과 음성 합성이 비동기라, 응답이 도착하기 전에 방송이 종료·재시작되면 이전 방송의 답변이 새 화면에 나왔다. 방송 상태 플래그만으로는 "종료 후 재시작"을 구분할 수 없다. 호출 시점의 세대 번호를 캡처해 두고 콜백에서 세대가 다르면 결과를 폐기하도록 해결했다.</p>
+        <span class="where">apps/server/src/index.ts</span>
+      </div>
+      <div class="card">
+        <h3>LLM 출력을 신뢰하지 않는 검증 계층</h3>
+        <p>동일한 JSON Schema 하나를 OpenAI는 Structured Outputs로, Anthropic은 강제 도구 호출로 감싼다. 프로바이더가 달라도 검증 코드는 하나다. 구조화 출력은 형식만 보장하므로, 감정·모션 이름은 허용 목록을 통과해야만 실행되고 서버가 API 경계에서 한 번 더 강제한다.</p>
+        <span class="where">packages/llm/src/validate.ts</span>
+      </div>
+      <div class="card">
+        <h3>SDK 내부 파이프라인에 개입한 립싱크</h3>
+        <p>WebAudio로 계산한 파형 실효값을 입 벌림에 매핑하고 지수 평활로 떨림을 제거했다. 파라미터를 그냥 설정하면 Cubism SDK가 매 프레임 덮어쓰기 때문에, SDK 업데이트 순서를 분석해 정확한 지점에 주입 코드를 삽입해야 했다.</p>
+        <span class="where">apps/broadcast/src/main.tsx</span>
+      </div>
+      <div class="card">
+        <h3>프레임레이트 독립 시선 보간</h3>
+        <p>지수 감쇠 보간으로 60Hz든 144Hz든 같은 속도로 시선이 움직인다. 그 위에 확률적 반응, 응시 시간 랜덤화, 정면 복귀 대신 둘러보기 흐름으로 이어가기 같은 연출 규칙을 파라미터로 얹어 인형처럼 보이는 문제를 풀었다.</p>
+        <span class="where">apps/broadcast/src/main.tsx</span>
+      </div>
+      <div class="card">
+        <h3>우아하게 성능이 저하되는 기억 검색</h3>
+        <p>벡터DB 없이 코사인 유사도를 직접 구현하고 중요도를 가중치로 반영했다. 임베딩 키가 없거나 호출이 실패해도 예외로 중단되지 않고 중요도·최신순 정렬로 자동 강등된다. 저장 시 임베딩 실패도 저장 자체를 막지 않는다.</p>
+        <span class="where">packages/memory/src/store.ts</span>
+      </div>
+      <div class="card">
+        <h3>라이선스 제약을 빌드 파이프라인으로 해결</h3>
+        <p>구매한 상용 Live2D 모델과 Cubism SDK는 재배포가 금지되어 저장소에 넣을 수 없다. Vite 커스텀 플러그인을 만들어 개발 서버에서는 미들웨어로 서빙하고 빌드에서는 동일한 URL 구조로 복사한다. 덕분에 코드에 환경 분기가 남지 않는다.</p>
+        <span class="where">apps/broadcast/vite.config.ts</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="stack">
+  <div class="wrap">
+    <p class="kicker">Stack</p>
+    <h2>기술 스택</h2>
+    <p>
+      <strong>외부 런타임 의존성이 사실상 없다.</strong> Express도, <code>ws</code>도, ORM도, 벡터DB도, LLM SDK도 쓰지 않는다.
+      서버는 Node 내장 <code>http</code> 하나이고 모든 외부 API 호출은 내장 <code>fetch</code>다.
+      OBS WebSocket v5의 인증 핸드셰이크도 직접 구현했다.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>영역</th><th>사용 기술</th></tr></thead>
+        <tbody>
+          <tr><td>서버</td><td>TypeScript, Node 내장 <code>http</code>, tsx</td></tr>
+          <tr><td>방송 화면</td><td>React 19, Vite 6, WebGL(Cubism SDK), WebAudio</td></tr>
+          <tr><td>관리자 앱</td><td>Electron 34 + React 19</td></tr>
+          <tr><td>LLM</td><td>OpenAI Chat Completions(Structured Outputs), Anthropic Messages API</td></tr>
+          <tr><td>음성 합성</td><td>OpenAI TTS, ElevenLabs 어댑터</td></tr>
+          <tr><td>장기 기억</td><td>JSON 파일 저장 + 코사인 유사도 직접 구현, OpenAI 임베딩</td></tr>
+          <tr><td>송출 연동</td><td>OBS WebSocket v5 클라이언트 직접 구현</td></tr>
+          <tr><td>구성</td><td>npm workspaces 모노레포, 소스 약 3,300줄</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="docs">
+  <div class="wrap">
+    <p class="kicker">Documents</p>
+    <h2>문서</h2>
+    <p>설계 근거와 진행 상황을 문서로 남겼다. 각 항목은 저장소의 해당 문서로 연결된다.</p>
+    <div class="grid g2" id="docGrid">
+      <a class="card" data-doc="docs/architecture.md">
+        <h3>아키텍처</h3>
+        <p>워크스페이스 구조와 의존 방향, 데이터 흐름, 상태 동기화 방식, 신뢰 경계와 동시성 제어까지 시스템 전반을 다룬다.</p>
+      </a>
+      <a class="card" data-doc="docs/decisions.md">
+        <h3>설계 결정 기록</h3>
+        <p>기록해 둔 12건의 결정. 왜 SQLite 대신 JSON 파일인지, 왜 WebSocket 대신 폴링인지를 맥락·근거·트레이드오프와 함께 남겼다.</p>
+      </a>
+      <a class="card" data-doc="docs/requirements.md">
+        <h3>요구사항 정의서</h3>
+        <p>캐릭터 설정, 화면 레이아웃, 채팅 선별 규칙, 가드레일, 감정·행동 정책, 기억 시스템 요구사항.</p>
+      </a>
+      <a class="card" data-doc="docs/implementation-plan.md">
+        <h3>구현 계획</h3>
+        <p>요구사항을 단계별 제작 순서와 완료 기준, 테스트 게이트로 옮긴 문서.</p>
+      </a>
+      <a class="card" data-doc="docs/progress.md">
+        <h3>진행 현황</h3>
+        <p>완료 범위, 구현했으나 검증하지 않은 것, 알려진 한계, 남은 작업 우선순위를 구분해 정리했다.</p>
+      </a>
+      <a class="card" data-doc="docs/operations.md">
+        <h3>운영 가이드</h3>
+        <p>포트 구성, LLM·TTS·기억 설정, OBS 송출 절차, 구도·시선·립싱크 튜닝 파라미터 레퍼런스.</p>
+      </a>
+      <a class="card" data-doc="docs/verification-log.md">
+        <h3>검증 기록</h3>
+        <p>영역별 수동 검증 항목과 결과. 자동화 테스트가 아니라 손으로 확인한 기록이다.</p>
+      </a>
+      <a class="card" data-doc="README.md">
+        <h3>README</h3>
+        <p>프로젝트 소개, 실행 전 알아둘 제약, 설치와 실행 절차, 저장소 구조.</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <p class="kicker">Status</p>
+    <h2>현재 상태와 한계</h2>
+    <p>
+      MVP 범위에서 동작한다. 규칙 응답, Live2D 표정·모션, 시선, 립싱크, 외부 LLM, 장기 기억,
+      음성 합성, OBS 송출까지 연결되어 있다. 다만 완성된 제품이 아니며 다음 한계가 있다.
+    </p>
+    <ul class="plain">
+      <li><b>치지직 실연동이 없다.</b> 방송 플랫폼 연동 코드는 존재하지 않으며 MVP 범위 밖이다. 채팅은 관리자 앱, 방송 화면 입력창, 별도 채팅 화면 3가지 경로로 넣는다.</li>
+      <li><b>자동화 테스트가 없다.</b> 테스트 파일과 CI 설정이 없고, 검증 기록은 전부 수동 검증이다.</li>
+      <li><b>기억 검색에 시청자 필터가 없다.</b> 저장은 시청자별로 되지만 검색은 전체를 대상으로 해서 다른 시청자의 기억이 섞일 수 있다.</li>
+      <li><b>목소리가 캐릭터에 맞지 않는다.</b> 현재 쓰는 음성은 모두 실제 사람 톤이라 애니풍 캐릭터 목소리가 아니다. 한국어 캐릭터 음성 확보가 남은 과제다.</li>
+      <li><b>Electron 방송 창을 지원하지 않는다.</b> 방송 화면은 브라우저 전용이며 OBS Browser Source로 송출한다.</li>
+      <li><b>장시간 송출 안정성이 검증되지 않았다.</b> 30분 이상 연속 송출은 확인하지 않았다.</li>
+    </ul>
+    <div class="notice">
+      <p><strong>저장소를 clone해도 그대로 실행되지 않는다.</strong></p>
+      <p>방송 화면이 렌더링하는 Live2D 모델은 구매한 상용 모델이고 렌더링 런타임은 Live2D Cubism SDK for Web이다. 둘 다 재배포가 금지되어 저장소에서 제외했다. 배치 방법은 README에 정리되어 있다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>보리 (Bori) — 로컬 실행형 AI 버추얼 스트리머. 1인 개인 프로젝트.</p>
+    <p>코드는 MIT License. 구매 모델과 Cubism SDK는 저장소에 포함되지 않으며 각자의 라이선스를 따른다.</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  /* ─────────────────────────────────────────────────────────────
+     설정 — 이 두 값만 바꾸면 된다.
+
+     REPO      저장소 주소. 문서 카드 링크가 이 주소를 기준으로 만들어진다.
+     VIDEO_URL 시연 영상 주소. 비워 두면 영상 섹션이 표시되지 않는다.
+               유튜브 주소를 그대로 붙여넣으면 된다.
+               예) https://www.youtube.com/watch?v=XXXXXXXXXXX
+     ───────────────────────────────────────────────────────────── */
+  var REPO = "https://github.com/Yumesa2025/bori-ai-vtuber";
+  var BRANCH = "main";
+  var VIDEO_URL = "";
+
+  /* 문서 카드에 저장소 링크 연결 */
+  var base = REPO.replace(/\/+$/, "") + "/blob/" + BRANCH + "/";
+  document.querySelectorAll("#docGrid a[data-doc]").forEach(function (a) {
+    a.href = base + a.getAttribute("data-doc");
+  });
+
+  /* 시연 영상 — URL이 있을 때만 섹션을 켠다 */
+  function toEmbed(url) {
+    var m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|live\/|shorts\/)|youtu\.be\/)([\w-]{6,})/);
+    if (m) return "https://www.youtube.com/embed/" + m[1];
+    var v = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+    if (v) return "https://player.vimeo.com/video/" + v[1];
+    return url;
+  }
+  if (VIDEO_URL.trim()) {
+    document.getElementById("videoFrame").src = toEmbed(VIDEO_URL.trim());
+    document.getElementById("video").hidden = false;
+    var link = document.createElement("a");
+    link.className = "btn";
+    link.href = "#video";
+    link.textContent = "시연 영상";
+    document.getElementById("ctaRow").appendChild(link);
+  }
+
+  /* 테마 전환 — 저장된 선택이 없으면 시스템 설정을 따른다 */
+  var root = document.documentElement;
+  var saved = null;
+  try { saved = localStorage.getItem("bori-theme"); } catch (e) {}
+  if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+
+  document.getElementById("themeBtn").addEventListener("click", function () {
+    var systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var current = root.getAttribute("data-theme") || (systemDark ? "dark" : "light");
+    var next = current === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("bori-theme", next); } catch (e) {}
+  });
+})();
+</script>
+
+</body>
+</html>
