@@ -1,0 +1,59 @@
+# 의존성
+node_modules/
+
+# 빌드 산출물 · 캐시
+dist/
+build/
+out/
+release/
+coverage/
+.vite/
+.vite-cache/
+*.tsbuildinfo
+
+# 환경변수 · 시크릿
+.env
+.env.*
+!.env.example
+
+# 로컬 데이터 (기억 JSON, 암호화된 API 키, 렌더러 로그)
+data/
+
+# 비공개 자산 — 재배포 금지
+# 구매한 상용 Live2D 모델 디렉터리와 Cubism SDK for Web
+# (Live2D Proprietary Software License)
+maolili/
+private-assets/
+
+# OBS 송출 화면 캡처 (구매 모델이 렌더링된 이미지)
+obs-shot*.png
+
+# 공개하지 않는 사전 조사 자료 · 개인 메모
+_local/
+
+# 로컬 DB
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# 로그
+*.log
+logs/
+npm-debug.log*
+yarn-error.log*
+
+# 에디터 · OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 로컬 도구 설정
+.claude/
+.mcp.json
+.playwright-mcp/
+*.local

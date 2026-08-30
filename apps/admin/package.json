@@ -1,0 +1,21 @@
+{
+  "name": "@bori/admin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev:web\" \"wait-on http://127.0.0.1:5174 && npm run dev:electron\"",
+    "dev:web": "vite --configLoader runner --host 127.0.0.1 --port 5174",
+    "dev:electron": "electron .",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@bori/live2d": "0.1.0",
+    "@bori/shared": "0.1.0",
+    "electron": "^34.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
