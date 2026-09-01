@@ -13,6 +13,16 @@ export type LlmRequest = {
    * 요약을 쓰지 않을 때는 빈 문자열이다.
    */
   sessionSummary: string;
+  /**
+   * 채팅 키워드로 켜진 참고 정보. 기억과 달리 임베딩 왕복 없이 즉시 붙는다.
+   * 고유명사처럼 철자가 정해진 대상에 쓴다.
+   */
+  macroPrompts: readonly string[];
+  /**
+   * 방송 경과 시간과 답변 수처럼 모델이 스스로 셀 수 없는 값.
+   * 모델에게 세라고 시키지 않고 서버가 계산해서 문장으로 넘긴다.
+   */
+  broadcastStatus: readonly string[];
   /** 허용된 감정 이름. 이 밖의 값은 검증에서 걸러진다. */
   allowedEmotions: readonly string[];
   /**

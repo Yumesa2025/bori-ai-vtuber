@@ -1,6 +1,7 @@
 import type { EmbeddingProvider } from "./types.js";
 
-const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+/** 프록시나 호환 엔드포인트로 돌릴 때 환경변수로 바꾼다. 설정에 baseUrl이 오면 그쪽이 이긴다. */
+const DEFAULT_BASE_URL = process.env.BORI_OPENAI_BASE_URL ?? "https://api.openai.com/v1";
 
 /**
  * OpenAI 임베딩 제공자.

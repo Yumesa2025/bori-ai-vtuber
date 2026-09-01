@@ -40,10 +40,21 @@ export function buildSystemPrompt(request: LlmRequest): string {
 export function buildUserPrompt(request: LlmRequest): string {
   const sections: string[] = [];
 
+  // 경과 시간이나 답변 수는 모델이 대화만 보고 셀 수 없다.
+  // 모델에게 세라고 시키는 대신 서버가 계산한 값을 그대로 준다.
+  if (request.broadcastStatus.length > 0) {
+    sections.push("[방송 상황]", ...request.broadcastStatus.map(line => `- ${line}`), "");
+  }
+
   // 최근 대화 창 밖으로 밀려난 흐름. 긴 방송에서 초반 이야기를 잊지 않기 위한 문맥이다.
   const summary = request.sessionSummary.trim();
   if (summary.length > 0) {
     sections.push("[지금까지의 방송]", summary, "");
+  }
+
+  // 채팅에 나온 키워드로 켜진 정보. 기억 검색과 달리 임베딩 왕복이 없다.
+  if (request.macroPrompts.length > 0) {
+    sections.push("[참고 정보]", ...request.macroPrompts.map(entry => `- ${entry}`), "");
   }
 
   // 기억이 없어도 섹션을 지우지 않는다.

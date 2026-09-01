@@ -1,5 +1,6 @@
-const OPENAI_BASE_URL = "https://api.openai.com/v1";
-const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io/v1";
+/** 프록시나 호환 엔드포인트로 돌릴 때 환경변수로 바꾼다. */
+const OPENAI_BASE_URL = process.env.BORI_OPENAI_BASE_URL ?? "https://api.openai.com/v1";
+const ELEVENLABS_BASE_URL = process.env.BORI_ELEVENLABS_BASE_URL ?? "https://api.elevenlabs.io/v1";
 
 /** 지원하는 음성 합성 업체. 어댑터를 추가하면 여기에 이름을 늘린다. */
 export type TtsProvider = "openai" | "elevenlabs";
