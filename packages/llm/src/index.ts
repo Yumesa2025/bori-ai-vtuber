@@ -7,7 +7,7 @@ import { validateLlmOutput } from "./validate.js";
 export type { LlmAdapter, LlmAdapterConfig, LlmRequest, LlmValidation } from "./types.js";
 export { validateLlmOutput } from "./validate.js";
 export { buildSystemPrompt, buildUserPrompt } from "./prompt.js";
-export { summarizeBroadcast, type BroadcastSummary, type SummaryTurn } from "./summarize.js";
+export { summarizeBroadcast, summarizeSessionProgress, type BroadcastSummary, type SummaryTurn } from "./summarize.js";
 export {
   synthesizeSpeech,
   listVoices,

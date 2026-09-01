@@ -62,6 +62,14 @@ export type LlmSettings = {
   /** 연속 실패가 이 횟수에 닿으면 LLM 호출을 잠시 멈춘다. */
   failureThreshold: number;
   cooldownSeconds: number;
+  /**
+   * 방송 중 누적 요약.
+   * 최근 대화는 몇 턴만 유지되므로 그 창 밖으로 밀려난 흐름은 그대로 사라진다.
+   * 켜 두면 일정 턴마다 지금까지의 대화를 한 문단으로 접어 문맥에 계속 넣는다.
+   */
+  rollingSummaryEnabled: boolean;
+  /** 누적 요약을 갱신하는 주기(턴 수). 매 턴 요약하지 않아 비용과 지연이 낮다. */
+  rollingSummaryTurns: number;
 };
 
 /** 관리자에게 보여줄 LLM 상태. API 키 자체는 절대 내보내지 않는다. */
