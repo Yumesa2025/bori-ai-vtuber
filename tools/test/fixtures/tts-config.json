@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "provider": "openai",
+  "model": "tts-1",
+  "voice": "nova",
+  "speed": 1,
+  "timeoutMs": 12000
+}
