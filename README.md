@@ -90,7 +90,9 @@ LLM(8초)과 TTS(15초)는 비동기라 응답이 도착하기 전에 방송이 
 │   ├── llm/             LLM 어댑터·출력 검증·방송 요약·TTS
 │   ├── memory/          장기 기억 저장·검색
 │   └── live2d/          모델 카탈로그·감정 매핑 (순수 데이터)
-├── tools/obs/           OBS WebSocket v5 자동 설정 스크립트
+├── tools/
+│   ├── obs/             OBS WebSocket v5 자동 설정 스크립트
+│   └── test/            통합 검사 (가짜 API에 실제 서버를 붙여 실행)
 ├── docs/                설계·운영·진행 문서
 └── .env.example
 ```
@@ -123,12 +125,15 @@ npm run dev:broadcast   # 방송 화면 (127.0.0.1:4173)
 npm run dev:admin       # 관리자 Electron 앱 (렌더러 127.0.0.1:5174)
 ```
 
-타입 검사와 빌드는 다음과 같다.
+타입 검사, 통합 검사, 빌드는 다음과 같다.
 
 ```bash
 npm run typecheck
+npm run test
 npm run build
 ```
+
+`npm run test`는 실제 서버를 가짜 OpenAI API에 붙여 띄우고 방송을 짧게 돌려 32건을 확인한다. API 키도 요금도 필요 없고, `data/`도 건드리지 않는다. 답변 대기와 생성이 겹치는지, 세션을 다시 시작했을 때 이전 타이머가 새 답변을 건드리지 않는지처럼 시간 위에서 맞물리는 동작이 대상이다. 자세한 내용은 [tools/test/README.md](tools/test/README.md)에 있다.
 
 루트 `typecheck`는 `shared`, `server`, `broadcast`, `admin` 4개만 실행한다. `live2d`, `llm`, `memory`는 개별 스크립트로 검사한다.
 
@@ -162,6 +167,7 @@ API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면�
 | [docs/decisions.md](docs/decisions.md) | 설계 결정 기록 |
 | [docs/progress.md](docs/progress.md) | 진행 상황, 완료 범위, 남은 작업 |
 | [docs/verification-log.md](docs/verification-log.md) | 수동 검증 기록 |
+| [tools/test/README.md](tools/test/README.md) | 통합 검사 구조와 실행 방법 |
 
 ## 현재 상태와 한계
 

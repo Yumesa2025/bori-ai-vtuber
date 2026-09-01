@@ -1,0 +1,25 @@
+{
+  "macros": [
+    {
+      "id": "adina",
+      "keywords": ["아디나", "얼음캐"],
+      "prompt": "아디나는 얼음 속성 근접 캐릭터다. 초반이 약하고 후반에 강해진다.",
+      "priority": 5,
+      "durationTurns": 2
+    },
+    {
+      "id": "bori-birthday",
+      "keywords": ["생일"],
+      "prompt": "보리의 생일은 6월 14일이다.",
+      "priority": 1,
+      "durationTurns": 9
+    },
+    {
+      "id": "broken-no-keywords",
+      "keywords": [],
+      "prompt": "키워드가 없으므로 읽을 때 버려져야 한다.",
+      "priority": 9,
+      "durationTurns": 3
+    }
+  ]
+}
