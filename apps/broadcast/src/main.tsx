@@ -104,6 +104,8 @@ function BroadcastApp() {
   const expressionTimerRef = useRef<number | undefined>(undefined);
   const gazeTimerRef = useRef<number | undefined>(undefined);
   const lastChatIdRef = useRef<string | null>(null);
+  /** 직전에 받은 상태 원문. 바뀐 게 없으면 다시 넣지 않기 위한 비교용이다. */
+  const lastStateJsonRef = useRef<string | null>(null);
   // 시선은 목표만 바꾸고 실제 이동은 프레임마다 조금씩 한다. 바로 지정하면 고개가 휙 돌아간다.
   const gazeTargetRef = useRef({ x: 0, y: 0 });
   const gazeCurrentRef = useRef({ x: 0, y: 0 });
@@ -391,7 +393,26 @@ function BroadcastApp() {
     playingMotionRef.current = null;
     delegateRef.current?.getLoadedModel()?.clearExpression();
   }, [state.status]);
-  useEffect(() => { const refresh = () => fetch("/api/state").then(r => r.ok ? r.json() : null).then(next => next && setState(next)).catch(() => undefined); refresh(); const timer = window.setInterval(refresh, 1000); return () => window.clearInterval(timer); }, []);
+  // 말풍선과 음성이 서버에서 준비된 뒤 화면에 뜰 때까지가 그대로 체감 지연이 된다.
+  // 로컬 HTTP라 비용이 거의 없으므로 짧게 돈다.
+  //
+  // 다만 같은 내용이라도 setState를 부르면 객체 참조가 바뀌어,
+  // state.currentResponse에 의존하는 시선 이펙트가 폴링마다 다시 돌아 눈이 떨린다.
+  // 원문을 그대로 비교해서 바뀐 것이 없으면 넘긴다.
+  useEffect(() => {
+    const refresh = () => fetch("/api/state")
+      .then(response => response.ok ? response.text() : null)
+      .then(text => {
+        if (text === null || text === lastStateJsonRef.current) return;
+        lastStateJsonRef.current = text;
+        setState(JSON.parse(text) as typeof emptyState);
+      })
+      .catch(() => undefined);
+
+    refresh();
+    const timer = window.setInterval(refresh, 250);
+    return () => window.clearInterval(timer);
+  }, []);
   // 모델이 뜨지 않을 때만 진단 배지를 노출한다. 정상 렌더링 중에는 화면에 아무것도 덧그리지 않는다.
   const modelFailed = modelStatus.includes("실패") || modelStatus.includes("못했습니다") || modelStatus.includes("failed");
   return <main className="broadcast-shell"><div className="live2d-layer" ref={live2dLayer} /><header className="stream-header"><span>보리의 소통 방송</span><div className="header-right">{audioBlocked && <button className="audio-unlock" onClick={() => { void new AudioContext().resume(); setAudioBlocked(false); }}>소리 켜기</button>}<span className="live-dot">● LIVE</span></div></header><section className="stage"><div className="character-stage">{modelFailed && <div className="character-badge">{modelStatus}</div>}</div><aside className="chat-panel">
