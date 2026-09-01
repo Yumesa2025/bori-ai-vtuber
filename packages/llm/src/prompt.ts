@@ -40,9 +40,22 @@ export function buildSystemPrompt(request: LlmRequest): string {
 export function buildUserPrompt(request: LlmRequest): string {
   const sections: string[] = [];
 
-  if (request.memories.length > 0) {
-    sections.push("[기억]", ...request.memories.map(memory => `- ${memory}`), "");
+  // 최근 대화 창 밖으로 밀려난 흐름. 긴 방송에서 초반 이야기를 잊지 않기 위한 문맥이다.
+  const summary = request.sessionSummary.trim();
+  if (summary.length > 0) {
+    sections.push("[지금까지의 방송]", summary, "");
   }
+
+  // 기억이 없어도 섹션을 지우지 않는다.
+  // 섹션이 통째로 사라지면 모델은 "기억이 없다"와 "기억을 찾아보지 않았다"를 구분할 수 없고,
+  // 지난 대화를 묻는 채팅에 아는 척 지어내게 된다. 없다는 사실을 명시적으로 알린다.
+  sections.push("[기억]");
+  if (request.memories.length > 0) {
+    sections.push(...request.memories.map(memory => `- ${memory}`));
+  } else {
+    sections.push("- 이 채팅과 관련해 저장된 기억이 없다. 지난 대화를 묻는 질문이면 기억나지 않는다고 솔직히 답하고 내용을 지어내지 않는다.");
+  }
+  sections.push("");
 
   if (request.recentTurns.length > 0) {
     sections.push(

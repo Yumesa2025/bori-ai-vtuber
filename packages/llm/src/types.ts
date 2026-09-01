@@ -8,6 +8,11 @@ export type LlmRequest = {
   recentTurns: readonly { role: "viewer" | "bori"; text: string }[];
   /** 장기 기억에서 고른 문장. 기억 시스템 연결 전에는 비어 있다. */
   memories: readonly string[];
+  /**
+   * 이번 방송의 누적 요약. recentTurns 창 밖으로 밀려난 흐름이 여기에만 남는다.
+   * 요약을 쓰지 않을 때는 빈 문자열이다.
+   */
+  sessionSummary: string;
   /** 허용된 감정 이름. 이 밖의 값은 검증에서 걸러진다. */
   allowedEmotions: readonly string[];
   /**

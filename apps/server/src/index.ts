@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, QueueSettings } from "@bori/shared";
 import { boriEmotionNames, boriExpressionNames, boriMotionDescriptions, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
-import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
+import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, summarizeSessionProgress, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
 
@@ -53,6 +53,8 @@ let llmSettings: LlmSettings = {
   timeoutMs: 8000,
   failureThreshold: 3,
   cooldownSeconds: 60,
+  rollingSummaryEnabled: true,
+  rollingSummaryTurns: 10,
 };
 // 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓴다.
 let llmApiKey = process.env.OPENAI_API_KEY ?? "";
@@ -62,6 +64,12 @@ const llm = createLlmClient();
 const recentTurns: { role: "viewer" | "bori"; text: string }[] = [];
 /** 이번 방송의 전체 대화. 종료 시 기억 후보를 뽑는 데 쓴다. */
 const sessionTurns: { role: "viewer" | "bori"; text: string; viewerId?: string }[] = [];
+/** 방송 중 누적 요약. recentTurns 창 밖으로 밀려난 흐름이 여기에 남는다. */
+let sessionSummary = "";
+/** 누적 요약이 이미 반영한 sessionTurns 개수. 아직 안 접힌 대화만 다음 요약에 넘긴다. */
+let summarizedTurnCount = 0;
+/** 요약 호출이 진행 중인지. 겹쳐 부르면 같은 대화를 두 번 접게 된다. */
+let summaryInFlight = false;
 
 function loadLlmConfig() {
   try {
@@ -369,6 +377,7 @@ async function makeResponse(content: string): Promise<CharacterResponse | null> 
     content,
     recentTurns: [...recentTurns],
     memories,
+    sessionSummary,
     allowedEmotions: boriEmotionNames,
     allowedMotions: boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] })),
     maxReplyLength: llmSettings.maxReplyLength,
@@ -414,6 +423,45 @@ function recordTurn(role: "viewer" | "bori", text: string, viewerId?: string) {
   while (recentTurns.length > RECENT_TURN_LIMIT) recentTurns.shift();
   // 기억 후보 추출은 방송 전체 대화를 대상으로 하므로 따로 쌓아 둔다.
   sessionTurns.push({ role, text, ...(viewerId ? { viewerId } : {}) });
+  // 창 밖으로 밀려나는 대화를 누적 요약이 대신 붙든다.
+  maybeUpdateRollingSummary();
+}
+
+/**
+ * 방송 중 누적 요약을 갱신한다.
+ * 최근 대화는 RECENT_TURN_LIMIT턴만 남으므로 그보다 앞선 이야기는 이 요약에만 남는다.
+ * 매 턴이 아니라 rollingSummaryTurns 턴마다 한 번 접어 비용과 지연을 낮춘다.
+ * 답변 경로를 막지 않으며, 늦게 도착하면 그다음 답변부터 반영된다.
+ */
+function maybeUpdateRollingSummary() {
+  if (!llmSettings.rollingSummaryEnabled || !llmSettings.enabled) return;
+  if (llmApiKey.trim().length === 0) return;
+  // 답변용 호출이 연달아 실패하는 중이라면 요약도 시도하지 않는다.
+  if (llm.isCircuitOpen()) return;
+  if (summaryInFlight) return;
+
+  const pending = sessionTurns.slice(summarizedTurnCount);
+  if (pending.length < llmSettings.rollingSummaryTurns) return;
+
+  const adapter = createAdapter(llmSettings.provider, { apiKey: llmApiKey, model: llmSettings.model });
+  if (!adapter) return;
+
+  summaryInFlight = true;
+  // 요약을 기다리는 사이 방송이 다시 시작될 수 있으므로 호출 시점의 세대를 잡아 둔다.
+  const generation = sessionGeneration;
+  const consumed = summarizedTurnCount + pending.length;
+
+  void summarizeSessionProgress(adapter, sessionSummary, pending, { timeoutMs: Math.max(llmSettings.timeoutMs, 15_000) })
+    .then(updated => {
+      if (generation !== sessionGeneration) return;
+      if (!updated) return;
+      sessionSummary = updated;
+      // 실패했을 때는 개수를 올리지 않는다. 접지 못한 대화가 다음 시도에 다시 넘어간다.
+      summarizedTurnCount = consumed;
+      console.log(`[bori-server] 누적 요약 갱신 (${consumed}턴까지)`);
+    })
+    .catch(error => { console.error("[bori-server] 누적 요약 실패:", error); })
+    .finally(() => { summaryInFlight = false; });
 }
 
 /**
@@ -590,6 +638,8 @@ const server = createServer((request, response) => {
         llmSettings = { ...llmSettings, ...next };
         // 업체를 바꿨는데 모델을 함께 보내지 않았으면 기본 모델로 맞춘다.
         if (next.provider && !next.model) llmSettings.model = defaultModels[next.provider as LlmProvider];
+        // 주기가 너무 짧으면 요약 호출이 답변 호출만큼 잦아진다. 하한을 둔다.
+        if (!Number.isFinite(llmSettings.rollingSummaryTurns) || llmSettings.rollingSummaryTurns < 4) llmSettings.rollingSummaryTurns = 4;
 
         llm.reset();
         saveLlmConfig();
@@ -711,6 +761,9 @@ const server = createServer((request, response) => {
     replyLastUsedAt.clear();
     recentTurns.length = 0;
     sessionTurns.length = 0;
+    // 누적 요약도 방송 단위다. 이전 방송의 흐름을 새 방송에 끌고 오지 않는다.
+    sessionSummary = "";
+    summarizedTurnCount = 0;
     speaking = false;
     if (responseTimer) clearTimeout(responseTimer);
     responseTimer = undefined;
