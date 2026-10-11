@@ -47,6 +47,8 @@ export async function summarizeBroadcast(
   const transcript = turns.map(turn => `${turn.role === "viewer" ? "시청자" : "보리"}: ${turn.text}`).join("\n");
 
   const result = await adapter.complete({
+    // 방송 대화를 정리하는 작업이다. 프롬프트는 아래 override로 통째로 바뀌어 모드 정책은 쓰이지 않는다.
+    mode: "broadcast",
     content: transcript,
     recentTurns: [],
     memories: [],
@@ -123,6 +125,8 @@ export async function summarizeSessionProgress(
   ].join("\n");
 
   const result = await adapter.complete({
+    // 방송 대화를 정리하는 작업이다. 프롬프트는 아래 override로 통째로 바뀌어 모드 정책은 쓰이지 않는다.
+    mode: "broadcast",
     content: transcript,
     recentTurns: [],
     memories: [],
