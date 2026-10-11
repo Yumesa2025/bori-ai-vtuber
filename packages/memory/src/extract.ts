@@ -1,3 +1,4 @@
+import { isAnonymousViewer } from "./access.js";
 import type { MemoryCandidate } from "./types.js";
 
 /** 저장하면 안 되는 내용. 계획서 12장의 제외 대상이다. */
@@ -14,13 +15,15 @@ export type ConversationTurn = { role: "viewer" | "bori"; text: string; viewerId
 
 /**
  * 방송 대화에서 장기 기억 후보를 규칙으로 추린다.
- * 발언마다 viewerId가 있으면 그 값을 쓰고, 없으면 인자로 받은 기본값을 쓴다.
+ * 후보는 말한 시청자 소유의 방송 기억이 된다.
+ * 익명 발언은 누구의 것인지 알 수 없으므로 후보로 만들지 않는다.
  */
-export function extractMemoryCandidates(turns: readonly ConversationTurn[], fallbackViewerId?: string): MemoryCandidate[] {
+export function extractMemoryCandidates(turns: readonly ConversationTurn[]): MemoryCandidate[] {
   const candidates: MemoryCandidate[] = [];
 
   for (const turn of turns) {
     if (turn.role !== "viewer") continue;
+    if (isAnonymousViewer(turn.viewerId)) continue;
 
     const text = turn.text.trim();
     if (text.length < 6) continue;
@@ -31,11 +34,11 @@ export function extractMemoryCandidates(turns: readonly ConversationTurn[], fall
     const isExperience = experiencePattern.test(text);
     if (!isPreference && !isExperience) continue;
 
-    const owner = turn.viewerId ?? fallbackViewerId;
     candidates.push({
       text,
       kind: "viewer",
-      ...(owner ? { viewerId: owner } : {}),
+      scope: "broadcast",
+      ownerId: turn.viewerId,
       // 취향은 반복해서 확인되는 편이라 조금 더 높게 잡는다.
       importance: isPreference ? 0.6 : 0.45,
       // 규칙으로만 뽑은 단계라 확신은 중간이다. LLM 요약을 거치면 올라간다.
