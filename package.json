@@ -23,6 +23,7 @@
     ,"typecheck:live2d": "npm --workspace packages/live2d run typecheck"
     ,"typecheck:llm": "npm --workspace packages/llm run typecheck"
     ,"typecheck:memory": "npm --workspace packages/memory run typecheck"
+    ,"typecheck:character": "npm --workspace packages/character run typecheck"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
