@@ -105,17 +105,32 @@ async function main() {
   }
 
   if (only !== "static") {
-    const model: ModelSection = await runModelEvaluation(set, {
-      apiKey: process.env.OPENAI_API_KEY,
-      model: process.env.BORI_EVAL_MODEL || undefined,
-      timeoutMs: readTimeout(process.env.BORI_EVAL_TIMEOUT_MS),
-      log: line => console.log(line),
-    });
+    const runs: ModelSection[] = [];
+    for (let round = 1; round <= repeat; round += 1) {
+      if (repeat > 1) console.log(`\n[실모델 평가 ${round}/${repeat}회차]`);
+      const run = await runModelEvaluation(set, {
+        apiKey: process.env.OPENAI_API_KEY,
+        model: process.env.BORI_EVAL_MODEL || undefined,
+        timeoutMs: readTimeout(process.env.BORI_EVAL_TIMEOUT_MS),
+        log: line => console.log(line),
+      });
+      runs.push(run);
+      // 키가 없으면 회차를 늘려도 결과가 같다.
+      if (run.skippedReason) break;
+    }
+
+    const model: ModelSection = runs[0];
     result.model = model;
     if (model.skippedReason) console.log(`\n[실모델 평가] 건너뜀: ${model.skippedReason}`);
     else {
       const target = model.baseUrl ? ` @ ${model.baseUrl} (기본 OpenAI 주소 아님)` : "";
-      printSection(`실모델 평가 ${model.model}${target}`, model);
+      runs.forEach((run, index) => printSection(`실모델 평가 ${model.model}${target}${repeat > 1 ? ` ${index + 1}회차` : ""}`, run));
+      if (repeat > 1) {
+        model.repeat = repeat;
+        model.runs = runs.map(run => ({ counts: run.counts, scenarios: run.scenarios }));
+        model.tally = tallyRuns(runs.map(run => run.scenarios));
+        printTally(model.tally);
+      }
     }
   }
 
