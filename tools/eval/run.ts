@@ -4,6 +4,7 @@
  *   npm run eval -- --label before          정적 평가 + 실모델 평가(키가 있을 때만)
  *   npm run eval:static -- --label before   정적 평가만
  *   npm run eval:model -- --label before    실모델 평가만. OPENAI_API_KEY가 없으면 건너뛰고 정상 종료한다
+ *   npm run eval:model -- --repeat 3        실모델 평가를 3번 돌리고 시나리오별 통과 횟수(예: 2/3)를 남긴다
  *
  * 결과는 tools/eval/results/<타임스탬프>-<라벨>.json에 저장한다. 비교는 compare.ts.
  * 실모델 평가 환경변수: OPENAI_API_KEY, BORI_EVAL_MODEL(기본 gpt-4o-mini), BORI_OPENAI_BASE_URL, BORI_EVAL_TIMEOUT_MS.
@@ -14,24 +15,30 @@
 import { execFileSync } from "node:child_process";
 import { runModelEvaluation, type ModelSection } from "./src/model.js";
 import { promptFingerprints } from "./src/request.js";
-import { saveResult } from "./src/results.js";
+import { formatPassRate, saveResult, tallyRuns, totalPassRate } from "./src/results.js";
 import { checkScenarioDoc, loadScenarioSet, repoRoot } from "./src/scenarios.js";
 import { runStaticEvaluation } from "./src/static.js";
-import type { EvalResultFile, SectionResult } from "./src/types.js";
+import type { EvalResultFile, ScenarioTally, SectionResult } from "./src/types.js";
 
 function readArgs(argv: readonly string[]) {
   let label = "run";
   let only: "static" | "model" | null = null;
+  let repeat = 1;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--label") label = argv[++index] ?? label;
+    else if (arg === "--repeat") {
+      const value = Number(argv[++index]);
+      if (!Number.isInteger(value) || value < 1) throw new Error("--repeat는 1 이상의 정수여야 합니다.");
+      repeat = value;
+    }
     else if (arg === "--only") {
       const value = argv[++index];
       if (value !== "static" && value !== "model") throw new Error("--only는 static 또는 model이어야 합니다.");
       only = value;
     } else throw new Error(`알 수 없는 인자입니다: ${arg}`);
   }
-  return { label, only };
+  return { label, only, repeat };
 }
 
 /** 숫자가 아니거나 0 이하이면 기본값을 쓴다. */
@@ -61,8 +68,16 @@ function printSection(title: string, section: SectionResult) {
   }
 }
 
+/** 반복 실행의 시나리오별 통과 횟수. 판정하지 않은 시나리오(범위 밖)는 뺀다. */
+function printTally(tallies: readonly ScenarioTally[]) {
+  const judged = tallies.filter(tally => tally.judged > 0);
+  console.log(`
+[시나리오별 통과 횟수] 전체 ${formatPassRate(totalPassRate(judged))}`);
+  for (const tally of judged) console.log(`  ${tally.id} ${formatPassRate(tally)} ${tally.title}`);
+}
+
 async function main() {
-  const { label, only } = readArgs(process.argv.slice(2));
+  const { label, only, repeat } = readArgs(process.argv.slice(2));
   const set = loadScenarioSet();
 
   // 문서와 데이터가 어긋나면 평가 결과를 믿을 수 없다. 평가 전에 멈춘다.
