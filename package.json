@@ -5,18 +5,20 @@
   "description": "Local AI VTuber broadcast screen and admin app for Bori",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:broadcast\" \"npm:dev:admin\"",
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:broadcast\" \"npm:dev:admin\" \"npm:dev:companion\"",
     "dev:server": "npm --workspace apps/server run dev",
     "dev:broadcast": "npm --workspace apps/broadcast run dev",
     "dev:admin": "npm --workspace apps/admin run dev",
-    "build": "npm run build:shared && npm run build:server && npm run build:broadcast && npm run build:admin",
+    "dev:companion": "npm --workspace apps/companion run dev",
+    "build": "npm run build:shared && npm run build:server && npm run build:broadcast && npm run build:admin && npm run build:companion",
     "build:shared": "npm --workspace packages/shared run build",
     "build:server": "npm --workspace apps/server run build",
     "build:broadcast": "npm --workspace apps/broadcast run build",
     "build:admin": "npm --workspace apps/admin run build",
+    "build:companion": "npm --workspace apps/companion run build",
     "test": "node tools/test/run.mjs",
     "test:unit": "node --import tsx --test \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
-    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character && npm run typecheck:companion",
     "typecheck:shared": "npm --workspace packages/shared run typecheck",
     "typecheck:server": "npm --workspace apps/server run typecheck",
     "typecheck:broadcast": "npm --workspace apps/broadcast run typecheck",
@@ -25,6 +27,7 @@
     ,"typecheck:llm": "npm --workspace packages/llm run typecheck"
     ,"typecheck:memory": "npm --workspace packages/memory run typecheck"
     ,"typecheck:character": "npm --workspace packages/character run typecheck"
+    ,"typecheck:companion": "npm --workspace apps/companion run typecheck"
     ,"eval": "node --import tsx tools/eval/run.ts"
     ,"eval:static": "node --import tsx tools/eval/run.ts --only static"
     ,"eval:model": "node --import tsx tools/eval/run.ts --only model"

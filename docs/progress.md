@@ -352,7 +352,15 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 ### Phase 5 — Companion 앱
 
-계획. `apps/companion` 1:1 채팅 화면. 서버의 `/api/companion/*`만 호출하고 방송 상태를 읽지 않는다.
+화면 구현 완료, 실서버 연동 미검증(1:1 대화 API 미병합). `apps/companion` 1:1 채팅 화면(React 19 + Vite 6, `127.0.0.1:4175`, preview 4176). 1:1 대화 API 계약(`/api/conversations*`, `/api/me/memories*`, `/api/character/profile`, `/api/tts/:id`)만 호출하고 방송 상태(`/api/state`)와 시청자 닉네임을 쓰지 않는다.
+
+1. 화면: Live2D 캐릭터 영역, 대화 목록(새 대화·선택·삭제 확인), 메시지 목록, 응답 대기 표시, 입력창(Enter 전송, Shift+Enter 줄바꿈, 전송 중 잠금, 500자 제한), 음성 켜기/끄기(기본 끔, 브라우저에 저장), 내 기억 보기·개별 삭제·전체 삭제. 넓은 화면은 목록|캐릭터|채팅 3열, 1100px 이하는 목록을 서랍으로 접고, 720px 이하는 캐릭터 위·채팅 아래로 쌓는다
+2. 오류 안내: 서버 연결 끊김(네트워크 실패와 프록시의 JSON 아닌 5xx)은 상단 배너와 다시 연결 버튼, 400·404·409·5xx는 상태별 문구. 보내지 못한 내용은 입력창에 되돌린다. 답변 `source`가 `fallback`이면 답변 아래에 폴백 안내를 붙인다
+3. Live2D: 방송 화면과 같은 SDK 진입점(`@sdk-sample/lappdelegate`)과 규칙(짝 표정, 감정 지속 시간 뒤 해제, 시선 보간, 텍스트·음성 파형 립싱크)을 `apps/companion/src/live2d/`로 옮겼다. 방송 화면 코드는 상태 폴링에 묶여 있어 그대로 공유하지 않았다. 감정·모션 이름은 `@bori/live2d` allowlist를 통과한 것만 실행하고, 모션 우선순위와 지속 시간도 범위로 자른다
+4. 비공개 자산 Vite 플러그인을 `tools/vite/private-assets.ts`로 옮겨 두 화면이 같이 쓴다. 방송 화면 빌드 산출물 해시가 옮기기 전과 같다. 정션으로 연결한 비공개 폴더도 복사되도록 원본을 실제 경로로 풀어 복사한다
+5. 검증: 가짜 API(`npm --workspace apps/companion run dev:mock`) 위에서 Playwright로 새 대화 → 전송 → 대기 표시 → 답변 → 표정·모션 호출 로그 → 목록 갱신 → 삭제, 409·500·404·폴백·allowlist 밖 이름·서버 다운, 음성 켜기 저장과 `tts: true` 전송, 텍스트·음성 립싱크 호출, 좁은 화면 배치를 확인했다. 비공개 자산을 연결한 환경에서 Live2D 렌더링을 확인했다. 단위 검사 13건(`apps/companion/test/`)
+
+미검증: 실제 1:1 대화 API와의 연동, 실제 TTS mp3 재생, 실제 LLM 답변의 감정·actions 실행. 1:1 API 병합 후 확인한다.
 
 ### Phase 6 — 캐릭터 반응·관계
 

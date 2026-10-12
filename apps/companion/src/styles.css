@@ -1,0 +1,125 @@
+/* 색과 크기는 한 곳에서만 정의한다. 방송 화면과 같은 색 계열을 쓴다. */
+:root {
+  --bg: #251d27;
+  --panel: #160f18e6;
+  --panel-border: #ffffff1c;
+  --field: #0f0a12;
+  --text: #fff6f2;
+  --muted: #c9b2bf;
+  --accent: #d66596;
+  --accent-soft: #d6659633;
+  --danger: #e0566f;
+  --bori-bubble: #381f35;
+  --user-bubble: #4a2a45;
+  --sidebar-width: 260px;
+  --chat-width: 440px;
+  --header-height: 56px;
+  font-family: "Pretendard", "Noto Sans KR", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg); }
+button, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { margin: 8px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.centered { text-align: center; }
+
+.primary-button { padding: 9px 16px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent); color: #fff; }
+.ghost-button { padding: 7px 13px; border: 1px solid var(--panel-border); border-radius: 10px; background: transparent; }
+.ghost-button:hover:not(:disabled), .ghost-button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.danger-button { padding: 8px 14px; border: 1px solid var(--danger); border-radius: 10px; background: var(--danger); color: #fff; }
+.icon-button { flex: 0 0 auto; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; }
+.icon-button:hover:not(:disabled) { background: #ffffff14; color: var(--text); }
+
+.companion-shell { display: flex; flex-direction: column; height: 100%; background: radial-gradient(circle at 45% 25%, #76516a, var(--bg) 66%); }
+.connection-banner { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 16px; background: #7a2638; font-size: 14px; }
+.app-header { display: flex; align-items: center; gap: 12px; height: var(--header-height); padding: 0 18px; background: #17131b99; }
+.app-header h1 { flex: 1; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 18px; letter-spacing: .02em; }
+.header-actions { display: flex; gap: 8px; }
+/* 넓은 화면에서는 대화 목록이 항상 보이므로 여닫는 버튼을 숨긴다. */
+.sidebar-toggle { display: none; }
+
+/* 넓은 화면: 대화 목록 | 캐릭터 | 채팅 */
+.companion-body { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--sidebar-width) 1fr var(--chat-width); }
+.conversation-sidebar { min-height: 0; overflow-y: auto; padding: 14px; border-right: 1px solid var(--panel-border); background: #120c14b3; }
+.conversation-list ul { margin: 12px 0 0; padding: 0; list-style: none; }
+.conversation-list li { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; border-radius: 10px; }
+.conversation-list li.active { background: var(--accent-soft); }
+.new-conversation { width: 100%; }
+.conversation-select { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border: 0; border-radius: 10px; background: transparent; text-align: left; }
+.conversation-select:hover:not(:disabled) { background: #ffffff0f; }
+.conversation-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }
+.conversation-meta { color: var(--muted); font-size: 11px; }
+
+/* Live2D 캔버스가 이 영역을 채운다. SDK가 캔버스에 vw/vh 크기를 직접 넣으므로 덮어쓴다. */
+.character-pane { position: relative; min-height: 0; overflow: hidden; display: grid; place-content: center; }
+.live2d-layer { position: absolute; inset: 0; pointer-events: none; }
+.live2d-layer canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.character-badge { position: relative; z-index: 1; margin: 0; padding: 8px 14px; border-radius: 999px; background: #f3a7bd33; color: #ffd3df; font-size: 14px; text-align: center; }
+
+.chat-pane { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--panel-border); background: var(--panel); }
+.chat-title { padding: 12px 18px; border-bottom: 1px solid var(--panel-border); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 700; }
+.notice { margin: 10px 14px 0; padding: 9px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; }
+.notice-error { background: #7a263866; color: #ffd0d8; }
+.notice-info { background: #ffffff12; color: var(--muted); }
+.message-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; scrollbar-width: thin; scrollbar-color: #ffffff26 transparent; }
+.message-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.message { max-width: 85%; padding: 10px 13px; border-radius: 14px; }
+.message-bori { align-self: flex-start; border-top-left-radius: 4px; background: var(--bori-bubble); }
+.message-user { align-self: flex-end; border-top-right-radius: 4px; background: var(--user-bubble); }
+.message-pending { opacity: .7; }
+.message-author { display: block; margin-bottom: 3px; color: var(--muted); font-size: 11px; }
+.message-content { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.message-note { margin: 6px 0 0; color: #ffb9c6; font-size: 12px; }
+.message-time { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; text-align: right; }
+.typing-indicator { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 13px; }
+.dots { display: inline-flex; gap: 3px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .2s; }
+.dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dots i { animation: none; } }
+
+.composer { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--panel-border); }
+.composer textarea { flex: 1; min-width: 0; resize: none; padding: 10px 12px; border: 1px solid var(--panel-border); border-radius: 10px; background: var(--field); line-height: 1.5; outline: none; }
+.composer textarea:focus { border-color: var(--accent); }
+.composer textarea:disabled { opacity: .6; }
+.composer-side { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; gap: 6px; }
+.composer-count { color: var(--muted); font-size: 11px; }
+
+.confirm-dialog, .memory-dialog { width: min(92vw, 440px); padding: 20px; border: 1px solid var(--panel-border); border-radius: 16px; background: #1c1420; color: var(--text); box-shadow: 0 20px 60px #0008; }
+.memory-dialog { width: min(92vw, 560px); max-height: 80vh; }
+dialog::backdrop { background: #0009; }
+.confirm-dialog h2, .memory-dialog h2 { margin: 0 0 8px; font-size: 17px; }
+.confirm-dialog p { margin: 0 0 16px; color: var(--muted); line-height: 1.5; }
+.dialog-header { display: flex; justify-content: space-between; align-items: center; }
+.dialog-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.confirm-text { flex: 1; color: #ffd0d8; font-size: 13px; }
+.inline-notice { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: #ffffff12; font-size: 13px; }
+.memory-list { margin: 8px 0 0; padding: 0; list-style: none; }
+.memory-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #ffffff12; }
+.memory-list p { margin: 0 0 3px; line-height: 1.5; }
+.memory-meta { color: var(--muted); font-size: 11px; }
+
+/* 중간 폭: 대화 목록을 접고 캐릭터와 채팅만 나란히 둔다. */
+@media (max-width: 1100px) {
+  .companion-body { grid-template-columns: 1fr minmax(320px, var(--chat-width)); }
+  .sidebar-toggle { display: inline-block; }
+  .conversation-sidebar { display: none; position: fixed; z-index: 10; top: var(--header-height); bottom: 0; left: 0; width: min(85vw, var(--sidebar-width)); box-shadow: 10px 0 40px #0008; background: #120c14; }
+  .conversation-sidebar.open { display: block; }
+}
+
+/* 좁은 화면: 캐릭터 영역 위, 채팅 아래로 쌓는다. */
+@media (max-width: 720px) {
+  .app-header { gap: 8px; padding: 0 10px; }
+  .app-header h1 { font-size: 15px; }
+  .app-header .ghost-button { padding: 6px 9px; font-size: 13px; }
+  .header-actions { gap: 6px; }
+  .companion-body { grid-template-columns: 1fr; grid-template-rows: minmax(200px, 38vh) 1fr; }
+  .chat-pane { border-left: 0; border-top: 1px solid var(--panel-border); }
+}
