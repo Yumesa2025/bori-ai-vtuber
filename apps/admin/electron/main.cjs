@@ -1,13 +1,15 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
+const { prepareRendererLog } = require("./log-file.cjs");
 
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
 
-const logPath = path.resolve(__dirname, "../../../data/admin-renderer.log");
-fs.mkdirSync(path.dirname(logPath), { recursive: true });
+// 렌더러 로그는 실행할 때마다 새로 쓰고 바로 전 실행 것만 남긴다(log-file.cjs).
+const dataDir = process.env.BORI_DATA_DIR ? path.resolve(process.env.BORI_DATA_DIR) : path.resolve(__dirname, "../../../data");
+const logPath = prepareRendererLog(dataDir);
 function log(message) { fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`); console.log(message); }
 
 function createWindow() {
