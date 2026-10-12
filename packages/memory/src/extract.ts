@@ -3,8 +3,15 @@ import type { MemoryCandidate } from "./types.js";
 
 /** 저장하면 안 되는 내용. 계획서 12장의 제외 대상이다. */
 const excludePattern = /(정치|의료|법률|투자|주식|개인정보|비밀번호|전화번호|주소|계좌|주민등록)/;
+/**
+ * 인사·감탄 낱말과 문장부호. 이것들을 다 지웠을 때 남는 것이 없으면 단순 인사·일회성 반응이다.
+ * 예전에는 "안녕"으로 시작하기만 해도 버려서 "안녕 보리! 나는 피아노 연주곡을 좋아해"처럼
+ * 인사 뒤에 취향을 말한 문장까지 기억되지 않았다. 메시지 전체가 인사·감탄일 때만 버린다.
+ */
+const trivialTokenPattern = /안녕하세요|안녕하십니까|안녕|하이|반가워요|반가워|반갑습니다|어서와요|어서와|잘가요|잘가|바이|굿|좋아요|감사합니다|감사해요|감사|고마워요|고마워|ㅋ+|ㅎ+|ㅠ+|ㅜ+|[\s!?.,~^]+/g;
+
 /** 단순 인사와 일회성 반응은 장기 기억으로 남기지 않는다. */
-const trivialPattern = /^(안녕|하이|반가|ㅋ+|ㅎ+|어서와|잘가|바이|굿|좋아요|감사)/;
+const isTrivialText = (text: string) => text.replace(trivialTokenPattern, "").length === 0;
 
 /** 시청자의 취향·경험이 드러나는 표현. */
 const preferencePattern = /(좋아해|좋아합니다|싫어해|싫어합니다|즐겨|자주 (듣|하|봐|가)|최애|덕질|취미|하고 있어|다니고 있어|배우고 있어)/;
@@ -21,7 +28,7 @@ function classifyMemoryText(raw: string): { text: string; importance: number } |
   const text = raw.trim();
   if (text.length < 6) return null;
   if (excludePattern.test(text)) return null;
-  if (trivialPattern.test(text)) return null;
+  if (isTrivialText(text)) return null;
 
   const isPreference = preferencePattern.test(text);
   const isExperience = experiencePattern.test(text);

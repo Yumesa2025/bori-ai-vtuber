@@ -52,6 +52,21 @@ test("소유자를 모르는 1:1 메시지는 후보가 되지 않는다", () =>
   assert.deepEqual(extractPrivateMemoryCandidates([preference], "virtual-viewer"), []);
 });
 
+test("인사로 시작해도 뒤에 취향·경험을 말하면 후보가 된다 (방송과 1:1 모두)", () => {
+  const greetingFirst = ["안녕 보리! 나는 피아노 연주곡을 좋아해", "안녕하세요 오늘 퇴근하고 바로 왔어요", "ㅎㅎ 반가워요 요즘 기타 배우고 있어요"];
+  assert.deepEqual(extractPrivateMemoryCandidates(greetingFirst, "companion:local").map(candidate => candidate.text), greetingFirst);
+  assert.deepEqual(
+    extractMemoryCandidates(greetingFirst.map(text => ({ role: "viewer" as const, text, viewerId: "local:a" }))).map(candidate => candidate.text),
+    greetingFirst,
+  );
+});
+
+test("메시지 전체가 인사·감탄뿐이면 후보가 되지 않는다", () => {
+  const trivial = ["안녕하세요!!", "안녕 안녕 ㅎㅎㅎ", "좋아요 감사합니다~", "반가워요 ㅋㅋㅋㅋ", "어서와 잘가 바이"];
+  assert.deepEqual(extractPrivateMemoryCandidates(trivial, "companion:local"), []);
+  assert.deepEqual(extractMemoryCandidates(trivial.map(text => ({ role: "viewer" as const, text, viewerId: "local:a" }))), []);
+});
+
 test("1:1에서도 저장하면 안 되는 내용은 후보가 되지 않는다", () => {
   assert.deepEqual(extractPrivateMemoryCandidates(["요즘 주식 투자하는 걸 좋아해요"], "companion:local"), []);
 });
