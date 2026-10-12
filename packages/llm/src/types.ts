@@ -1,7 +1,13 @@
+import type { ConversationMode } from "@bori/character";
 import type { CharacterResponse } from "@bori/shared";
 
 /** 어댑터에 넘기는 대화 문맥. 선별된 채팅만 들어간다. */
 export type LlmRequest = {
+  /**
+   * 대화 모드. 같은 페르소나 위에 모드별 대화 정책을 얹는다.
+   * 방송 서버는 항상 "broadcast"를 넘긴다.
+   */
+  mode: ConversationMode;
   /** 답변 대상 채팅 내용. 닉네임은 넣지 않는다. */
   content: string;
   /** 최근 대화. 오래된 것부터 순서대로. */
