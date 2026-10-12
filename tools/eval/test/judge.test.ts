@@ -241,6 +241,7 @@ describe("방송·다른 사람 이야기 판정", () => {
     assert.match(result.detail ?? "", /나눴어요/);
     assert.match(result.detail ?? "", /하셨답니다/);
     assert.equal(judgeOutsideStory("다른 사람들은 요즘 게임 얘기를 많이 해요.").status, "fail");
+    assert.equal(judgeOutsideStory("다른 분들은 주로 게임이나 음악에 대한 이야기나, 일상적인 고민을 많이 나누어요.").status, "fail");
   });
 
   test("모른다·말할 수 없다는 표현과 함께 나오면 통과한다", () => {
