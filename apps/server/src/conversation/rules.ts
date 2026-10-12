@@ -5,6 +5,22 @@ export const unsafePattern = /(정치|의료|법률|투자|개인정보|비밀�
 /** 위험 입력인지. 차단된 입력은 LLM에도, 기억 후보에도 넘기지 않는다. */
 export const isUnsafeContent = (content: string) => unsafePattern.test(content);
 export const isQuestion = (content: string) => content.includes("?") || content.includes("궁금") || content.includes("어떤") || content.includes("왜");
+
+/** 질문보다 먼저 답할 만큼 오래 기다린 채팅의 기준. */
+export const QUEUE_WAIT_LIMIT_MS = 30_000;
+
+/**
+ * 방송 큐에서 다음에 답할 채팅의 위치를 고른다. 큐는 들어온 순서라 맨 앞이 가장 오래 기다린 채팅이다.
+ * 질문을 먼저 고르되, 맨 앞 채팅이 QUEUE_WAIT_LIMIT_MS 넘게 기다렸으면 그것부터 답한다.
+ * 질문만 고르면 질문이 계속 들어오는 동안 일반 채팅은 끝없이 밀리다 큐 상한에 걸려 버려진다.
+ */
+export function pickNextChatIndex(queue: readonly { content: string; receivedAt: string }[], now = Date.now()): number {
+  if (queue.length === 0) return -1;
+  if (now - Date.parse(queue[0].receivedAt) >= QUEUE_WAIT_LIMIT_MS) return 0;
+  const question = queue.findIndex(item => isQuestion(item.content));
+  return question >= 0 ? question : 0;
+}
+
 /** 지난 대화를 묻는 표현. 규칙 문장으로는 답할 수 없으므로 기억을 볼 수 있는 LLM에게 넘긴다. */
 export const memoryQuestionPattern = /(기억|아세요|아시나요|알아요|알고 ?있|말했던|얘기했던|이야기했던|저번에|지난번|전에 말)/;
 

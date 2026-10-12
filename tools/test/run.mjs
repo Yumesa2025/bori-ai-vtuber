@@ -26,13 +26,15 @@ import * as isolation from "./isolation.mjs";
 import * as security from "./security.mjs";
 import * as companion from "./companion.mjs";
 import * as usage from "./usage.mjs";
+import * as stability from "./stability.mjs";
+import * as concurrency from "./concurrency.mjs";
 
 const mockPort = Number(process.env.MOCK_PORT ?? 4390);
 const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
-const scenarios = [latency, behavior, isolation, security, companion, usage];
+const scenarios = [latency, behavior, isolation, security, companion, usage, stability, concurrency];
 const startedAt = Date.now();
 let allResults = [];
 
