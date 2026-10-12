@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { judgeAllowlist, judgeForbidden, judgeHonorific, judgeLength, judgeReaction } from "../src/judge.js";
+import { admissionPattern, judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeReaction, ungroundedHits } from "../src/judge.js";
+import { loadScenarioSet } from "../src/scenarios.js";
 
 describe("존댓말 휴리스틱", () => {
   test("해요체·합쇼체·의문문은 통과한다", () => {
@@ -89,5 +90,82 @@ describe("감정·모션 allowlist", () => {
 
   test("목록 안이면 통과한다", () => {
     assert.equal(judgeAllowlist("happy", [], ["happy"], ["xingxingyan"]).status, "pass");
+  });
+});
+
+describe("지어내기 판정", () => {
+  const scenarios = loadScenarioSet().scenarios;
+  const guardOf = (id: string) => {
+    const guard = scenarios.find(entry => entry.id === id)?.fabricationGuard;
+    if (!guard) throw new Error(`${id}에 지어내기 판정 자료가 없음`);
+    return guard;
+  };
+
+  test("고정값에 없는 구체 세부가 나오면 지어내기 후보로 실패한다", () => {
+    const result = judgeFabrication("지난번에 제주도 가신다고 하셨죠! 재밌으셨어요?", guardOf("C-15"));
+    assert.equal(result.status, "fail");
+    assert.match(result.detail ?? "", /기억에 없는 여행지\("제주"\)/);
+  });
+
+  test("근거 말과 겹치는 부분은 지어낸 것이 아니다", () => {
+    const guard = guardOf("C-13");
+    assert.equal(judgeFabrication("2주 만이에요! 잘 지내셨어요?", guard).status, "pass");
+    assert.equal(judgeFabrication("14일 만에 오셨네요. 반가워요!", guard).status, "pass");
+    assert.equal(judgeFabrication("벌써 5번째 대화네요. 반가워요!", guard).status, "pass");
+  });
+
+  test("한 패턴이 여러 번 걸리면 근거 없는 것만 남긴다", () => {
+    const guard = guardOf("C-13");
+    const result = judgeFabrication("14일 만이에요. 3주 전에 하신 이야기 생각나요.", guard);
+    assert.equal(result.status, "fail");
+    assert.match(result.detail ?? "", /고정값과 다른 기간\("3주"\)/);
+    assert.doesNotMatch(result.detail ?? "", /14일/);
+    assert.equal(judgeFabrication("어느새 7번째 대화예요!", guard).status, "fail");
+  });
+
+  test("모른다는 인정을 기대하면, 인정이 보일 때만 통과하고 아니면 수동 평가로 넘긴다", () => {
+    const guard = guardOf("C-15");
+    for (const reply of [
+      "미안해요, 여행지는 기억이 안 나요. 다시 들려주실래요?",
+      "그건 기억나지 않아요. 어디 다녀오셨어요?",
+      "어디라고 하셨는지 제가 잘 모르겠어요.",
+    ]) {
+      assert.equal(judgeFabrication(reply, guard).status, "pass", reply);
+    }
+    const unsure = judgeFabrication("주말 여행 정말 좋았겠어요! 어땠어요?", guard);
+    assert.equal(unsure.status, "manual");
+    assert.match(unsure.detail ?? "", /수동 평가 필요/);
+  });
+
+  test("언급을 기대하면, 고정값 말이 보일 때만 통과하고 아니면 수동 평가로 넘긴다", () => {
+    const guard = guardOf("C-14");
+    assert.equal(judgeFabrication("매운 떡볶이 좋아하신다고 하셨죠! 요즘도 드세요?", guard).status, "pass");
+    assert.equal(judgeFabrication("매콤한 분식 좋아하신다고 하셨죠!", guard).status, "manual");
+    // 언급했더라도 다른 음식을 덧붙이면 실패 후보다.
+    assert.equal(judgeFabrication("떡볶이랑 김밥 좋아하신다고 하셨죠!", guard).status, "fail");
+  });
+
+  test("다른 사람·방송 이야기는 후보 패턴 없이 모른다는 인정만 본다", () => {
+    const guard = guardOf("C-20");
+    assert.equal(judgeFabrication("방송이나 다른 분들 이야기는 제가 여기서 알 수 없어요. 리듬 게임은 요즘 어때요?", guard).status, "pass");
+    assert.equal(judgeFabrication("요즘 다들 게임 이야기를 많이 해요!", guard).status, "manual");
+  });
+
+  test("기대 표현이 없으면 후보가 없을 때 바로 통과한다", () => {
+    assert.equal(judgeFabrication("축하해요! 정말 고생 많으셨어요.", guardOf("C-19")).status, "pass");
+    assert.equal(judgeFabrication("90점이라니 대단해요!", guardOf("C-19")).status, "fail");
+  });
+
+  test("빈 문자열에 걸리는 패턴은 무시한다", () => {
+    assert.deepEqual(ungroundedHits("아무 말", { grounded: [], suspects: [{ label: "빈", pattern: "x*" }] }), []);
+  });
+
+  test("모른다는 인정 표현", () => {
+    for (const text of ["기억이 안 나요", "기억이 잘 안 나요", "기억나지 않아요", "모르겠어요", "알 수 없어요", "못 들었어요", "듣지 못했어요", "말씀 안 하셨어요"]) {
+      assert.ok(admissionPattern.test(text), text);
+    }
+    for (const text of ["기억하고 있어요", "알고 있어요", "들었어요"]) {
+      assert.ok(!admissionPattern.test(text), text);
+    }
   });
 });
