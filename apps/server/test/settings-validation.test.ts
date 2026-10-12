@@ -106,6 +106,13 @@ describe("기억 설정", () => {
       [{ embeddingModel: "text-embedding-3-small" }, true],
       [{ embeddingModel: "" }, false],
       [{ embeddingModel: "../../etc/passwd" }, false],
+      [{ privateDigestEveryMessages: 0 }, true],
+      [{ privateDigestEveryMessages: 6 }, true],
+      [{ privateDigestEveryMessages: 50 }, true],
+      [{ privateDigestEveryMessages: 51 }, false],
+      [{ privateDigestEveryMessages: -1 }, false],
+      [{ privateDigestEveryMessages: 2.5 }, false],
+      [{ privateDigestEveryMessages: "6" }, false],
       [{ apiKey: "x" }, false],
     ];
     for (const [patch, expected] of cases) {

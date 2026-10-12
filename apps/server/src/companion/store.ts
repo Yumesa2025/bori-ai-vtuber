@@ -2,17 +2,26 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type { Conversation, ConversationMessage } from "@bori/shared";
+import type { ConversationActivity } from "./relationship.js";
 
-/** 파일 형식 버전. 형식을 바꾸면 올리고 읽을 때 옮기는 경로를 만든다. */
-export const CONVERSATION_FILE_VERSION = 1;
+/**
+ * 파일 형식 버전. 형식을 바꾸면 올리고 읽을 때 옮기는 경로를 만든다.
+ * 2: 대화에 누적 요약(summary, summaryUpdatedAt)을 더했다. 1은 요약이 없는 2와 같으므로 그대로 읽는다.
+ */
+export const CONVERSATION_FILE_VERSION = 2;
+/** 그대로 읽을 수 있는 이전 버전. 다음에 쓸 때 지금 버전으로 바뀐다. */
+const READABLE_VERSIONS: readonly number[] = [1, CONVERSATION_FILE_VERSION];
 
-/** 파일에 저장하는 대화. 밖으로 내보낼 때는 ownerId를 빼고 messageCount를 붙인다. */
+/** 파일에 저장하는 대화. 밖으로 내보낼 때는 ownerId·요약을 빼고 messageCount를 붙인다. */
 type StoredConversation = {
   id: string;
   ownerId: string;
   title: string;
   createdAt: string;
   updatedAt: string;
+  /** 엔진 세션의 누적 요약. 재시작 뒤 세션을 되살릴 때와 다음 대화의 지난 대화 요약에 쓴다. */
+  summary?: string;
+  summaryUpdatedAt?: string;
 };
 
 type StoredMessage = ConversationMessage & { conversationId: string; ownerId: string };
@@ -73,7 +82,7 @@ export function createConversationStore(filePath: string, options: ConversationS
       parsed = null;
     }
 
-    if (!parsed || parsed.version !== CONVERSATION_FILE_VERSION || !Array.isArray(parsed.conversations) || !Array.isArray(parsed.messages)) {
+    if (!parsed || typeof parsed.version !== "number" || !READABLE_VERSIONS.includes(parsed.version) || !Array.isArray(parsed.conversations) || !Array.isArray(parsed.messages)) {
       const backupPath = writeBackup(raw);
       log(`대화 파일을 읽지 못해 빈 상태로 시작합니다. 원본: ${basename(backupPath)}`);
       conversations = [];
@@ -81,13 +90,21 @@ export function createConversationStore(filePath: string, options: ConversationS
       return;
     }
 
-    conversations = parsed.conversations.filter(entry => isString(entry?.id) && isString(entry?.ownerId));
+    conversations = parsed.conversations
+      .filter(entry => isString(entry?.id) && isString(entry?.ownerId))
+      // 문자열이 아닌 요약은 없는 것으로 본다. 프롬프트에 그대로 들어가는 값이다.
+      .map(({ summary, summaryUpdatedAt, ...entry }) => ({
+        ...entry,
+        ...(typeof summary === "string" && summary.length > 0 ? { summary } : {}),
+        ...(typeof summary === "string" && summary.length > 0 && typeof summaryUpdatedAt === "string" ? { summaryUpdatedAt } : {}),
+      }));
     const known = new Set(conversations.map(entry => `${entry.ownerId}\u0000${entry.id}`));
     // 대화가 없는 메시지나 소유자가 대화와 다른 메시지는 버린다.
     messages = parsed.messages.filter(entry => isString(entry?.id) && isString(entry?.ownerId) && known.has(`${entry.ownerId}\u0000${entry.conversationId}`));
 
     const dropped = parsed.conversations.length - conversations.length + parsed.messages.length - messages.length;
     if (dropped > 0) log(`소유자를 알 수 없는 레코드 ${dropped}건을 제외했습니다.`);
+    if (parsed.version !== CONVERSATION_FILE_VERSION) log(`대화 파일 버전 ${parsed.version}을 읽었습니다. 다음 저장 때 버전 ${CONVERSATION_FILE_VERSION}으로 씁니다.`);
   }
 
   /** 읽지 못한 원본을 같은 디렉터리에 남긴다. 파일 이름에 콜론을 쓰지 않는다. */
@@ -191,6 +208,41 @@ export function createConversationStore(filePath: string, options: ConversationS
         [...messages, stored],
       );
       return toMessage(stored);
+    },
+
+    /** 대화의 누적 요약. 소유자의 대화가 아니거나 요약이 없으면 빈 문자열이다. */
+    summaryOf(ownerId: string, id: string): string {
+      return find(ownerId, id)?.summary ?? "";
+    },
+
+    /**
+     * 누적 요약을 저장한다. 소유자의 대화가 아니면 false다.
+     * 요약은 대화 활동이 아니므로 updatedAt(목록 순서)을 올리지 않는다.
+     */
+    setSummary(ownerId: string, id: string, summary: string): boolean {
+      const conversation = find(ownerId, id);
+      if (!conversation) return false;
+      const at = new Date(now()).toISOString();
+      commit(
+        conversations.map(entry => (entry === conversation ? { ...entry, summary, summaryUpdatedAt: at } : entry)),
+        messages,
+      );
+      return true;
+    },
+
+    /** 관계 맥락 계산용 기록. 소유자의 대화만 돌려준다. */
+    activity(ownerId: string): ConversationActivity[] {
+      return conversations
+        .filter(entry => entry.ownerId === ownerId)
+        .map(entry => {
+          const times = messagesOf(entry).map(message => Date.parse(message.createdAt)).filter(Number.isFinite);
+          return {
+            id: entry.id,
+            firstMessageAt: times.length > 0 ? Math.min(...times) : null,
+            lastMessageAt: times.length > 0 ? Math.max(...times) : null,
+            summary: entry.summary ?? "",
+          };
+        });
     },
 
     /** 대화와 그 메시지를 지운다. 소유자의 대화가 아니면 아무것도 지우지 않는다. */
