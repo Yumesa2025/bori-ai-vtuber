@@ -135,8 +135,11 @@ export function promptChecks(scenario: Scenario, system: string, user: string): 
   } else {
     // 고정값이 없으면 섹션이 비어야 한다. 방송 프롬프트에 관계 문장이 새지 않는지도 여기서 본다.
     const leakedLines = findRelationshipFragments(`${system}\n${user}`);
+    // 섹션은 제목이 한 줄로 따로 있을 때만 있다고 본다. 지침 문장이 본문에서 "[대화 상황]의 지난 대화 요약"처럼
+    // 섹션 이름을 언급하는 것은 섹션이 아니다.
+    const hasStatusSection = user.split("\n").some(line => line.trim() === statusTitle);
     const problems = [
-      ...(user.includes(statusTitle) ? [`${statusTitle} 섹션이 있습니다.`] : []),
+      ...(hasStatusSection ? [`${statusTitle} 섹션이 있습니다.`] : []),
       ...leakedLines.map(fragment => `관계 문장: ${fragment}`),
     ];
     checks.push(check("status.empty", "상황 고정값 없음 → 상황 섹션·관계 문장 없음", problems.length === 0, problems.join(" / ")));
