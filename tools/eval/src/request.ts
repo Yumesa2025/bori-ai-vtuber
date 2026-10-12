@@ -50,7 +50,10 @@ export function selectMemories(scenario: Scenario): MemorySelection {
   return { access, visible, hidden };
 }
 
-/** 시나리오 하나를 답변 요청으로 바꾼다. 최근 대화·요약·매크로·방송 상황은 비워 입력과 기억만 본다. */
+/**
+ * 시나리오 하나를 답변 요청으로 바꾼다. 최근 대화·요약·매크로는 비워 입력·기억·상황 고정값만 본다.
+ * 상황 고정값(관계 맥락 문장 등)은 서버와 같이 broadcastStatus 칸으로 넘긴다. 이 칸이 모드별 상황 섹션이 된다.
+ */
 export function buildScenarioRequest(scenario: Scenario, options: { timeoutMs?: number } = {}): LlmRequest {
   if (scenario.input === null) throw new Error(`${scenario.id}: 입력이 없는 시나리오는 프롬프트를 만들 수 없습니다.`);
   return {
@@ -60,7 +63,7 @@ export function buildScenarioRequest(scenario: Scenario, options: { timeoutMs?: 
     memories: selectMemories(scenario).visible.map(memory => memory.text),
     sessionSummary: "",
     macroPrompts: [],
-    broadcastStatus: [],
+    broadcastStatus: scenario.statusLines ?? [],
     allowedEmotions: boriEmotionNames,
     allowedMotions: evalAllowedMotions,
     maxReplyLength: evalReplyLimit,
