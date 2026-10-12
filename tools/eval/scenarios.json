@@ -383,8 +383,8 @@
       "pathNote": "LLM",
       "expectedFeatures": "방송에서 나눈 이야기는 여기서 알 수 없다고 솔직히 말한다",
       "forbiddenText": "방송 기억 내용 언급, 아는 척",
-      "reactionNote": "`awkward`·`calm` / 없음",
-      "expectedReactions": [{ "emotions": ["awkward", "calm"], "motions": [null] }],
+      "reactionNote": "`awkward`·`calm`·`curious` / 없음 (`curious`는 다시 들려 달라고 되묻는 경우 `[초안 · 검토 필요]`)",
+      "expectedReactions": [{ "emotions": ["awkward", "calm", "curious"], "motions": [null] }],
       "forbiddenPatterns": [{ "label": "방송 기억 내용(평가용 가상 기억)", "pattern": "딸기" }],
       "memoryFixture": {
         "note": "문서에 방송 기억 문장이 없어 평가용 가상 문장을 넣었다. 같은 사람(user-a)이 방송에서 남긴 기억과 소유자 없는 방송 기억 두 가지를 둔다.",
