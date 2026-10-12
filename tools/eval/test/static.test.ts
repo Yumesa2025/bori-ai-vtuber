@@ -179,6 +179,14 @@ describe("관계 맥락 정적 평가", () => {
     }
   });
 
+  test("본문이 섹션 이름을 언급하기만 하면 status.empty는 통과한다", () => {
+    const scenario = byId("C-04");
+    const request = buildScenarioRequest(scenario);
+    const user = `${buildUserPrompt(request)}\n- 지난 대화를 물으면 [대화 상황]의 지난 대화 요약에 있는 내용만 말한다.`;
+    const result = promptChecks(scenario, buildSystemPrompt(request), user).find(check => check.id === "status.empty");
+    assert.equal(result?.status, "pass", result?.detail);
+  });
+
   test("방송 프롬프트에 관계 문장이 들어가면 status.empty가 실패한다", () => {
     const scenario = byId("B-18");
     const request = { ...buildScenarioRequest(scenario), broadcastStatus: byId("C-13").statusLines! };
