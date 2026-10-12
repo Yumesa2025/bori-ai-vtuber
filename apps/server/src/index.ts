@@ -7,7 +7,7 @@ import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSe
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
-import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, type ConversationSession } from "./conversation/index.js";
+import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, pickNextChatIndex, type ConversationSession } from "./conversation/index.js";
 import { createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
@@ -472,7 +472,10 @@ function scheduleMonologue() {
     speaking = true;
     void prepareAudio(monologue.reply)
       .then(audioId => {
-        if (generation !== sessionGeneration || state.status !== "live") { speaking = false; return; }
+        // 기다리는 사이 방송이 끝났거나 다시 시작했으면 버린다. 발화권은 시작·종료가 이미 풀었다.
+        // 여기서 풀면 새 세션이 답변을 만드느라 쥔 발화권을 빼앗아 다음 답변이 겹쳐 시작된다.
+        if (generation !== sessionGeneration) return;
+        if (state.status !== "live") { speaking = false; return; }
         // 혼잣말도 방송에 나간 발화다. 기록하지 않으면 보리가 방금 한 말을 스스로 모른다.
         engine.record(session, { role: "bori", text: monologue.reply });
         speak(monologue, audioId);
@@ -498,9 +501,8 @@ function scheduleMonologue() {
 function scheduleNext() {
   if (responseTimer || speaking || state.status !== "live" || queue.length === 0) return;
 
-  // 질문을 약간 더 자주 고른다.
-  const index = queue.reduce((best, item, current) => isQuestion(item.content) && !isQuestion(queue[best].content) ? current : best, 0);
-  const chat = queue.splice(index, 1)[0];
+  // 질문을 먼저 고르되, 오래 기다린 채팅은 질문에 밀리지 않게 한다.
+  const chat = queue.splice(pickNextChatIndex(queue), 1)[0];
   syncQueueState();
 
   // 생성이 끝나기 전에 혼잣말이 끼어들지 않도록 발화권을 먼저 잡는다.
@@ -523,6 +525,8 @@ function scheduleNext() {
     speaker: { ownerId: isAnonymousViewer(chat.viewerId) ? null : chat.viewerId },
     statusLines: broadcastStatusLines(),
   }).then(async outcome => {
+    // 만드는 사이 방송이 끝났거나 다시 시작했으면 음성도 오류 표시도 만들지 않는다. 답변은 아래에서 버린다.
+    if (generation !== sessionGeneration) return null;
     // 차단된 채팅에는 보리가 무반응한다.
     if (outcome.kind === "blocked") return null;
     // 실패는 관리자에게만 알리고 방송은 폴백 문장으로 이어간다.
@@ -557,14 +561,16 @@ function scheduleNext() {
       // 여기까지 온 예외는 예상하지 못한 것이다.
       // 발화권을 놓지 않으면 방송이 그대로 멈추므로 반드시 풀어 준다.
       console.error("[bori-server] 답변 처리 실패:", error);
-      state = { ...state, lastError: `답변 처리 실패: ${error instanceof Error ? error.message : String(error)}` };
+      // 끝난 방송의 실패는 관리자 화면에 새로 띄우지 않는다.
       if (generation !== sessionGeneration) return;
+      state = { ...state, lastError: `답변 처리 실패: ${error instanceof Error ? error.message : String(error)}` };
       speaking = false;
       scheduleNext();
       scheduleMonologue();
     });
 }
 
+const isLoopbackAddress = (address: string | undefined) => address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 function sendJson(response: import("node:http").ServerResponse, status: number, body: unknown) { response.writeHead(status); response.end(JSON.stringify(body)); }
 // 브라우저가 이 서버를 부를 수 있는 Origin. 그 밖의 웹사이트는 응답을 읽지도 상태를 바꾸지도 못한다.
 const guardOptions = { allowedOrigins: allowedOriginsFrom(process.env.BORI_ALLOWED_ORIGINS) };
@@ -575,6 +581,24 @@ const server = createServer((request, response) => {
   if (request.method === "GET" && request.url === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
   if (request.method === "GET" && request.url === "/api/state") { sendJson(response, 200, state); return; }
   if (request.method === "GET" && request.url === "/api/settings") { sendJson(response, 200, settings); return; }
+  // 장시간 운영 검사용 진단 값. 서버는 127.0.0.1에만 열리지만 같은 컴퓨터에서 온 요청인지 한 번 더 본다.
+  if (request.method === "GET" && request.url === "/api/diagnostics") {
+    if (!isLoopbackAddress(request.socket.remoteAddress)) { sendJson(response, 403, { error: "같은 컴퓨터에서만 볼 수 있습니다." }); return; }
+    const usage = process.memoryUsage();
+    sendJson(response, 200, {
+      uptimeSeconds: Math.round(process.uptime()),
+      memory: { rss: usage.rss, heapUsed: usage.heapUsed, heapTotal: usage.heapTotal, external: usage.external },
+      status: state.status,
+      queueSize: queue.length,
+      speaking,
+      responsePending: responseTimer !== undefined,
+      sessionGeneration,
+      sessionTurns: broadcastSession.sessionTurns.length,
+      recentChatKeys: recentContents.size,
+      audioCacheSize: audioCache.size,
+    });
+    return;
+  }
   // LLM 상태. API 키 자체는 내보내지 않고 설정 여부만 알린다.
   if (request.method === "GET" && request.url === "/api/llm") {
     // status는 방송 클라이언트 것이다. 1:1 회로와 통계는 companionStatus로 따로 보여 준다.
@@ -791,7 +815,8 @@ const server = createServer((request, response) => {
         const visible: VisibleChat = { id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) };
         state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
 
-        if (queue.length >= settings.maxQueueSize) queue.shift();
+        // 상한을 줄였으면 큐가 이미 넘쳐 있을 수 있으므로 상한 안으로 들어올 때까지 오래된 것부터 버린다.
+        while (queue.length >= settings.maxQueueSize) queue.shift();
         queue.push(chat);
         syncQueueState();
         cancelMonologue();
