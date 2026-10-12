@@ -1,7 +1,12 @@
-import { extractPrivateMemoryCandidates, isStorableMemory, type EmbeddingProvider, type MemorySettings, type MemoryStore } from "@bori/memory";
+import { extractPrivateMemoryCandidates, isStorableMemory, type EmbeddingProvider, type MemoryCandidate, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, CompanionMemory, ConversationMessage, SendConversationMessageResult } from "@bori/shared";
 import { isUnsafeContent, type ConversationEngine, type ConversationSession, type RespondResult, type SessionTurn } from "../conversation/index.js";
+import type { DigestMemories } from "./memory-digest.js";
+import { relationshipStatusLines } from "./relationship.js";
 import type { ConversationStore, NewConversationMessage } from "./store.js";
+
+/** LLM이 정리한 기억 한 건의 최대 글자 수. 이보다 길면 한 문장짜리 사실이 아니라고 보고 버린다. */
+const DIGEST_MEMORY_MAX_LENGTH = 120;
 
 /**
  * 1:1 대화가 바깥에서 받는 것.
@@ -15,6 +20,10 @@ export type CompanionServiceDeps = {
   embedding: () => EmbeddingProvider | null;
   /** 답변 음성을 만든다. 실패하면 undefined를 돌려주고 답변은 그대로 나간다. */
   prepareAudio: (text: string) => Promise<string | undefined>;
+  /** LLM 기반 개인 기억 정리. 없으면 규칙 추출만 한다. */
+  digestMemories?: DigestMemories;
+  /** 현재 시각(ms). 관계 맥락 계산에 쓴다. 검사에서 고정한다. */
+  now?: () => number;
 };
 
 export type SendMessageOutcome =
@@ -60,9 +69,12 @@ function turnsFromMessages(messages: readonly ConversationMessage[], ownerId: st
  * 서버를 다시 띄운 뒤 처음 접근하면 저장된 최근 메시지로 세션의 최근 대화를 되살린다.
  */
 export function createCompanionService(deps: CompanionServiceDeps) {
+  const now = deps.now ?? Date.now;
   const sessions = new Map<string, ConversationSession>();
   /** 답변을 만드는 중인 대화. 같은 대화에 겹쳐 보내면 순서가 꼬이므로 409로 돌려보낸다. */
   const inFlight = new Set<string>();
+  /** 답변 뒤에 도는 작업(LLM 기억 정리). 답변을 기다리게 하지 않는다. */
+  const background = new Set<Promise<void>>();
 
   // 소유자와 대화 ID를 함께 키로 쓴다. 대화 ID가 같아도 소유자가 다르면 다른 대화다.
   const keyOf = (ownerId: string, conversationId: string) => `${ownerId}\u0000${conversationId}`;
@@ -72,8 +84,9 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     const existing = sessions.get(key);
     if (existing) return existing;
 
-    const session = deps.engine.createSession("companion");
-    deps.engine.restore(session, turnsFromMessages(deps.store.messages(ownerId, conversationId) ?? [], ownerId));
+    // 누적 요약이 갱신되면 대화 레코드에 남긴다. 대화가 이미 지워졌으면 저장소가 무시한다.
+    const session = deps.engine.createSession("companion", { onSummary: summary => { deps.store.setSummary(ownerId, conversationId, summary); } });
+    deps.engine.restore(session, turnsFromMessages(deps.store.messages(ownerId, conversationId) ?? [], ownerId), deps.store.summaryOf(ownerId, conversationId));
     sessions.set(key, session);
     return session;
   }
@@ -97,6 +110,52 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     }
   }
 
+  /**
+   * 최근 대화를 LLM에 넘겨 개인 기억을 정리한다. 실패해도 답변에는 영향이 없다.
+   * 뽑힌 문장은 저장 직전에 민감 정보 검사를 다시 거친다. 같은 문장은 저장소 규칙대로 합쳐진다.
+   */
+  async function digestAndSave(ownerId: string, turns: readonly SessionTurn[]) {
+    const digest = deps.digestMemories;
+    if (!digest) return;
+
+    try {
+      const texts = await digest(turns.map(turn => ({ role: turn.role, text: turn.text })));
+      // 정리하는 사이 기억을 꺼도 저장하지 않는다.
+      const settings = deps.memorySettings();
+      if (!texts || !settings.enabled) return;
+
+      const candidates: MemoryCandidate[] = texts
+        .filter(text => Array.from(text).length <= DIGEST_MEMORY_MAX_LENGTH && !isUnsafeContent(text) && isStorableMemory(text))
+        // 상대가 직접 말한 것만 뽑게 했으므로 규칙 추출(0.5)보다 확신을 조금 높게 둔다.
+        .map(text => ({ text, kind: "viewer", scope: "private", ownerId, importance: 0.55, confidence: 0.7 }));
+      if (candidates.length === 0) return;
+
+      const saved = await deps.memoryStore.add(candidates, settings, deps.embedding());
+      if (saved > 0) console.log(`[bori-companion] LLM 정리 개인 기억 ${saved}건 저장`);
+    } catch (error) {
+      console.error("[bori-companion] LLM 개인 기억 정리 실패:", error);
+    }
+  }
+
+  /**
+   * 사용자 메시지가 privateDigestEveryMessages개 쌓일 때마다 기억 정리를 백그라운드로 시작한다.
+   * 개수는 이 대화에 저장된, 차단되지 않은 사용자 메시지로 센다. 저장소 기준이라 재시작 뒤에도 주기가 이어진다.
+   * 넘기는 대화는 마지막 N개 사용자 메시지와 그 사이 보리 답변이다.
+   */
+  function maybeDigest(ownerId: string, conversationId: string) {
+    const settings = deps.memorySettings();
+    const every = settings.privateDigestEveryMessages;
+    if (!deps.digestMemories || !settings.enabled || !(every > 0)) return;
+
+    const turns = turnsFromMessages(deps.store.messages(ownerId, conversationId) ?? [], ownerId);
+    const userIndexes = turns.flatMap((turn, index) => (turn.role === "viewer" ? [index] : []));
+    if (userIndexes.length === 0 || userIndexes.length % every !== 0) return;
+
+    const task = digestAndSave(ownerId, turns.slice(userIndexes[userIndexes.length - every]));
+    background.add(task);
+    void task.finally(() => background.delete(task));
+  }
+
   async function sendMessage(ownerId: string, conversationId: string, content: string, options: { tts: boolean }): Promise<SendMessageOutcome> {
     const key = keyOf(ownerId, conversationId);
     if (!deps.store.get(ownerId, conversationId)) return { kind: "not_found" };
@@ -106,12 +165,14 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     try {
       // 새 메시지를 저장하기 전에 세션을 되살린다. 그래야 이번 메시지가 최근 대화에 두 번 들어가지 않는다.
       const session = sessionFor(ownerId, conversationId);
+      // 관계 맥락도 이번 메시지를 저장하기 전 기록으로 계산한다. 같은 소유자의 대화만 본다.
+      const statusLines = relationshipStatusLines({ conversations: deps.store.activity(ownerId), currentId: conversationId, now: now() });
       const userMessage = deps.store.append(ownerId, conversationId, { role: "user", content });
       if (!userMessage) return { kind: "not_found" };
 
       // 기억 저장은 답변 생성과 나란히 돌린다. 막은 입력은 기억으로도 남기지 않는다.
       const memorySaved = isUnsafeContent(content) ? Promise.resolve() : savePrivateMemories(ownerId, content);
-      const outcome = await deps.engine.respond(session, { content, speaker: { ownerId } });
+      const outcome = await deps.engine.respond(session, { content, speaker: { ownerId }, statusLines });
       const reply = deps.store.append(ownerId, conversationId, draftFor(outcome));
       // 다음 메시지가 이번에 만든 기억을 볼 수 있도록 응답 전에 저장을 마친다.
       await memorySaved;
@@ -123,6 +184,7 @@ export function createCompanionService(deps: CompanionServiceDeps) {
         deps.engine.record(session, { role: "viewer", text: content, viewerId: ownerId });
         deps.engine.record(session, { role: "bori", text: outcome.response.reply });
         deps.engine.tickMacros(session);
+        maybeDigest(ownerId, conversationId);
       }
 
       const audioId = options.tts ? await deps.prepareAudio(reply.content) : undefined;
@@ -155,6 +217,11 @@ export function createCompanionService(deps: CompanionServiceDeps) {
   return {
     sendMessage,
     deleteConversation,
+
+    /** 백그라운드 작업(LLM 기억 정리)이 모두 끝날 때까지 기다린다. 검사에서 쓴다. */
+    async settle(): Promise<void> {
+      while (background.size > 0) await Promise.all([...background]);
+    },
 
     /** 본인의 개인 기억만 보여 준다. 방송 기억과 남의 기억은 목록에도 나오지 않는다. */
     listMemories(ownerId: string): CompanionMemory[] {

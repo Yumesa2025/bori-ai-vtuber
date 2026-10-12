@@ -17,6 +17,7 @@ const settings: MemorySettings = {
   minSimilarity: 0.3,
   retentionDays: 30,
   embeddingModel: "test",
+  privateDigestEveryMessages: 6,
 };
 
 /** 질문은 항상 [1, 0]으로 임베딩한다. 기억 쪽 벡터로 유사도를 조절한다. */

@@ -35,14 +35,22 @@ const sendJson = (response, status, body) => {
   response.end(JSON.stringify(body));
 };
 
+/** 1:1 누적 요약 응답. 방송 요약과 구분해 지난 대화 요약·재시작 복원을 확인한다. */
+const MOCK_COMPANION_SUMMARY = "가짜 1:1 요약";
+/** 1:1 개인 기억 정리 응답. 두 번째 문장은 민감 정보라 서버가 저장 직전에 걸러야 한다. */
+const MOCK_DIGEST_MEMORIES = ["상대는 정리표시 연주곡을 즐겨 듣는다.", "상대의 집 주소는 정리표시동이다."];
+
 /**
- * 답변 생성과 요약 요청은 스키마 모양으로 구분한다.
- * 보리는 같은 어댑터에 스키마만 갈아 끼워 두 가지를 모두 부른다.
+ * 답변 생성과 요약·기억 정리 요청은 스키마 모양으로 구분한다.
+ * 보리는 같은 어댑터에 스키마만 갈아 끼워 모두 부른다. 1:1 요약은 지시문으로 방송 요약과 구분한다.
  */
-function replyFor(schema) {
+function replyFor(schema, system) {
   const properties = schema?.properties ?? {};
+  if ("memories" in properties) {
+    return JSON.stringify({ memories: MOCK_DIGEST_MEMORIES });
+  }
   if ("summary" in properties && !("reply" in properties)) {
-    return JSON.stringify({ summary: "가짜 누적 요약" });
+    return JSON.stringify({ summary: system.includes("1:1 대화의 흐름") ? MOCK_COMPANION_SUMMARY : "가짜 누적 요약" });
   }
   return JSON.stringify({
     reply: "가짜 답변입니다. 잘 들리시나요.",
@@ -88,7 +96,7 @@ const server = createServer(async (request, response) => {
 
     calls.push({ kind: "llm", ...record });
     await sleep(timing.llm);
-    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema) } }] });
+    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema, record.system) } }] });
     return;
   }
 

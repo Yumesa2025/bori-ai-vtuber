@@ -163,6 +163,16 @@ export function createMockClient(baseUrl) {
       const all = await call("/__calls");
       return all.filter(entry => entry.kind === "llm" && entry.system.includes("진행 중인 방송의 흐름"));
     },
+    /** 1:1 누적 요약 호출. 방송 요약과 지시문이 다르다. */
+    async companionSummaryCalls() {
+      const all = await call("/__calls");
+      return all.filter(entry => entry.kind === "llm" && entry.system.includes("1:1 대화의 흐름"));
+    },
+    /** 1:1 개인 기억 정리 호출. */
+    async digestCalls() {
+      const all = await call("/__calls");
+      return all.filter(entry => entry.kind === "llm" && entry.system.includes("오래 기억할 내용"));
+    },
   };
 }
 
