@@ -213,3 +213,81 @@ export type CharacterCatalog = {
   expressions: string[];
   motions: { name: string; description: string }[];
 };
+
+// ── API 사용량 ──────────────────────────────────────────────
+// 숫자만 다룬다. 대화 내용·닉네임·소유자 ID는 사용량 기록에 들어가지 않는다.
+
+/** 사용량을 나누는 기능. 답변·누적 요약(방송 요약 포함)·개인 기억 정리·임베딩·음성 합성. */
+export type UsageFeature = "reply" | "summary" | "digest" | "embedding" | "tts";
+/** 호출한 대화 모드. 모드를 알 수 없는 호출(임베딩)은 none으로 묶는다. */
+export type UsageMode = "broadcast" | "companion" | "none";
+
+export type UsageTotals = {
+  calls: number;
+  /** 업체 호출 자체가 실패한 수. 응답 형식 검증 실패는 과금된 호출이라 넣지 않는다. */
+  failures: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** 성공했지만 업체 응답에 토큰 수가 없던 호출. 이 호출의 비용은 추정에서 빠진다. */
+  callsWithoutTokens: number;
+  /** 음성 합성에 보낸 글자 수. */
+  characters: number;
+  /** 단가를 아는 부분만 더한 추정 비용(USD). 계산할 수 있는 부분이 하나도 없으면 null. */
+  estimatedCostUsd: number | null;
+  /** 단가 없음이나 토큰 정보 없음으로 추정에서 빠진 호출이 없으면 true. */
+  costComplete: boolean;
+};
+
+/** 기능·모드·모델별 한 줄. costNote는 비용을 다 계산하지 못한 이유다. */
+export type UsageRow = UsageTotals & {
+  feature: UsageFeature;
+  mode: UsageMode;
+  model: string;
+  costNote: "단가 없음" | "토큰 정보 없음" | "일부 호출 토큰 정보 없음" | null;
+};
+
+export type UsagePeriod = {
+  /** 로컬 날짜 YYYY-MM-DD. 양 끝을 포함한다. */
+  from: string;
+  to: string;
+  totals: UsageTotals;
+  byFeature: Record<UsageFeature, UsageTotals>;
+  byMode: Record<UsageMode, UsageTotals>;
+  rows: UsageRow[];
+  /** 이 기간에 쓰였지만 단가를 모르는 모델. */
+  unpricedModels: string[];
+};
+
+/** 1M 단위 단가(USD). 해당하지 않는 항목은 비운다. */
+export type UsagePrice = {
+  model: string;
+  inputPerMillionUsd?: number;
+  outputPerMillionUsd?: number;
+  charactersPerMillionUsd?: number;
+  /** default: 코드 기본값(추정치), file: data/usage-prices.json */
+  source: "default" | "file";
+};
+
+export type UsageReport = {
+  generatedAt: string;
+  today: UsagePeriod;
+  last7Days: UsagePeriod;
+  last31Days: UsagePeriod;
+  prices: {
+    /** 기본 단가를 확인한 날짜. */
+    defaultAsOf: string;
+    note: string;
+    /** 단가 파일을 읽었는지. 파일이 없으면 false다. */
+    fileLoaded: boolean;
+    /** 단가 파일을 읽지 못한 이유. 이때는 기본 단가만 쓴다. */
+    fileError: string | null;
+    models: UsagePrice[];
+  };
+};
+
+/** 1:1 사용 통계. 숫자만 담는다. */
+export type CompanionStats = {
+  conversations: number;
+  messages: number;
+  privateMemories: number;
+};

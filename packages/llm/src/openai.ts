@@ -1,5 +1,6 @@
 import { buildSystemPrompt, buildUserPrompt, responseJsonSchema } from "./prompt.js";
 import type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest } from "./types.js";
+import { tokenUsageFrom } from "./usage.js";
 
 /** 프록시나 호환 엔드포인트로 돌릴 때 환경변수로 바꾼다. 설정에 baseUrl이 오면 그쪽이 이긴다. */
 const DEFAULT_BASE_URL = process.env.BORI_OPENAI_BASE_URL ?? "https://api.openai.com/v1";
@@ -48,11 +49,15 @@ export function createOpenAiAdapter(config: LlmAdapterConfig): LlmAdapter {
           throw new Error(`OpenAI ${response.status}: ${detail}`);
         }
 
-        const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
+        const payload = await response.json() as {
+          choices?: { message?: { content?: string } }[];
+          usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+        };
         const content = payload.choices?.[0]?.message?.content;
         if (typeof content !== "string") throw new Error("OpenAI 응답에 content가 없습니다.");
 
-        return { raw: content, latencyMs: Date.now() - startedAt };
+        const usage = tokenUsageFrom(payload.usage?.prompt_tokens, payload.usage?.completion_tokens);
+        return { raw: content, latencyMs: Date.now() - startedAt, ...(usage ? { usage } : {}) };
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           throw new Error(`OpenAI 응답이 ${request.timeoutMs}ms 안에 오지 않았습니다.`);
