@@ -25,6 +25,8 @@ export type ConversationSession = {
   summarizedTurnCount: number;
   /** 요약 호출이 진행 중인지. 겹쳐 부르면 같은 대화를 두 번 접게 된다. */
   summaryInFlight: boolean;
+  /** 누적 요약이 갱신될 때 부른다. 1:1은 대화 레코드에 저장하고, 방송은 쓰지 않는다. */
+  onSummary?: (summary: string) => void;
   /** 지금 켜져 있는 매크로. 답변을 한 번 내보낼 때마다 남은 턴이 줄어든다. */
   activeMacros: ActiveMacro[];
   /** 답변 문장별 마지막 사용 시각. 같은 문장을 연달아 쓰지 않기 위한 기록이다. */
@@ -57,11 +59,13 @@ export function pushTurn(session: ConversationSession, turn: SessionTurn) {
 }
 
 /**
- * 저장해 둔 대화로 세션의 최근 대화를 되살린다. 서버를 다시 띄운 뒤 1:1 대화를 이어갈 때 쓴다.
+ * 저장해 둔 대화로 세션의 최근 대화와 누적 요약을 되살린다. 서버를 다시 띄운 뒤 1:1 대화를 이어갈 때 쓴다.
  * 누적 요약은 부르지 않는다. 되살린 대화는 아직 요약되지 않은 것으로 남아 다음 요약 때 함께 접힌다.
+ * 저장된 요약에 이미 들어간 대화가 한 번 더 접힐 수 있지만, 요약은 이전 요약과 합치도록 지시하므로 빠지는 것보다 낫다.
  */
-export function restoreTurns(session: ConversationSession, turns: readonly SessionTurn[]) {
+export function restoreTurns(session: ConversationSession, turns: readonly SessionTurn[], summary = "") {
   for (const turn of turns.slice(-RECENT_TURN_LIMIT)) pushTurn(session, turn);
+  session.summary = summary;
 }
 
 /**

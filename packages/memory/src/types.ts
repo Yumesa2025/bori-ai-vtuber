@@ -70,4 +70,9 @@ export type MemorySettings = {
   /** 저장한 기억의 기본 수명. */
   retentionDays: number;
   embeddingModel: string;
+  /**
+   * 1:1 대화에서 사용자 메시지가 이만큼 쌓일 때마다 LLM으로 개인 기억을 정리한다. 0이면 정리하지 않는다.
+   * 규칙 추출은 이 값과 상관없이 메시지마다 돈다.
+   */
+  privateDigestEveryMessages: number;
 };

@@ -6,7 +6,11 @@
  * - 방송 기억은 1:1 요청에, 1:1 개인 기억은 방송 요청에 들어가지 않는다
  * - 1:1 LLM 연속 실패가 방송 회로를 열지 않는다
  * - 서버를 다시 띄워도 대화 기록이 남고 최근 대화가 이어진다
+ * - 관계 맥락 문장과 지난 대화 요약이 1:1 요청에만 들어가고, 1:1 누적 요약은 재시작 뒤에도 되살아난다
+ * - LLM으로 정리한 개인 기억은 본인 private 기억이 되고 방송 요청에 나오지 않는다
  */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { baseQueueSettings, runningScript, waitForHttp } from "./harness.mjs";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -21,6 +25,13 @@ const PRIVATE_MEMORY_KEY = "재즈 피아노";
 /** 고정 자료 memories.json의 방송 기억 일부(소유자 없는 요약, 시청자 A 소유). */
 const BROADCAST_MEMORIES = ["잔잔한 인디 음악", "고양이 두 마리"];
 const OWNER = "companion:local";
+/** mock-openai가 돌려주는 1:1 누적 요약과 기억 정리 결과. 값은 mock-openai.mjs와 맞춘다. */
+const COMPANION_SUMMARY = "가짜 1:1 요약";
+const DIGEST_MEMORY = "상대는 정리표시 연주곡을 즐겨 듣는다.";
+const DIGEST_SENSITIVE = "상대의 집 주소는 정리표시동이다.";
+const DIGEST_KEY = "정리표시";
+/** 관계 맥락 문장의 공통 머리. 방송 요청에 나오면 새어 나간 것이다. */
+const RELATIONSHIP_MARKS = ["이 사람과는", "지난 대화 요약:", "마지막 대화는"];
 
 export const meta = {
   name: "1:1 대화",
@@ -35,7 +46,18 @@ function section(text, title) {
   return end < 0 ? text.slice(start) : text.slice(start, end);
 }
 
-export async function run({ bori, mock, report }) {
+/** 조건이 맞을 때까지 기다린다. 백그라운드 작업(요약·기억 정리)은 답변보다 늦게 끝난다. */
+async function waitUntil(check, { tries = 50, interval = 100 } = {}) {
+  for (let i = 0; i < tries; i += 1) {
+    const value = await check();
+    if (value) return value;
+    await sleep(interval);
+  }
+  return null;
+}
+
+export async function run({ bori, mock, report, dataDir }) {
+  const conversationFile = async () => readFile(join(dataDir, "companion-conversations.json"), "utf8").catch(() => "");
   const send = async (method, path, payload, raw) => {
     const response = await fetch(`${bori.baseUrl}${path}`, {
       method,
@@ -81,6 +103,11 @@ export async function run({ bori, mock, report }) {
 
     const call = (await companionCalls()).at(-1);
     report.check("1:1 LLM 요청은 1:1 대화 정책으로 간다", call?.system.includes("[대화 정책: 1:1 대화]") === true);
+    report.check(
+      "첫 대화의 1:1 요청 [대화 상황]에 '이 사람과는 오늘 처음 대화한다.'가 들어간다",
+      section(call?.user ?? "", "대화 상황") === "[대화 상황]\n- 이 사람과는 오늘 처음 대화한다.",
+      section(call?.user ?? "", "대화 상황").replace(/\n/g, " / "),
+    );
     report.check(
       "방송 시청자 기억(broadcast scope)이 1:1 LLM 요청에 들어가지 않는다",
       call !== undefined && !BROADCAST_MEMORIES.some(text => call.user.includes(text)),
@@ -178,6 +205,58 @@ export async function run({ bori, mock, report }) {
     report.check("1:1 개인 기억이 다음 1:1 요청의 [기억]에 들어간다", memorySection.includes(PRIVATE_MEMORY_KEY), memorySection.replace(/\n/g, " / "));
   }
 
+  // ── 1:1 누적 요약 영속화와 관계 맥락 ────────────────────────
+  let third;
+  {
+    // 첫 대화에서 4턴이 쌓이면 1:1 누적 요약이 돈다(고정 자료 rollingSummaryTurns=4). 대화 파일에 저장될 때까지 기다린다.
+    const summaryCall = await waitUntil(async () => (await mock.companionSummaryCalls()).at(0));
+    report.check(
+      "1:1 누적 요약은 1:1 지시문으로 요청하고 방송 문구를 쓰지 않는다",
+      summaryCall !== null && !summaryCall.system.includes("방송") && summaryCall.user.includes("상대: "),
+      summaryCall ? summaryCall.system.split("\n")[0] : "1:1 요약 호출 없음",
+    );
+    const saved = await waitUntil(async () => (await conversationFile()).includes(COMPANION_SUMMARY));
+    const file = JSON.parse((await conversationFile()) || "{}");
+    report.check(
+      "1:1 누적 요약이 대화 레코드에 저장되고 파일 버전이 2다",
+      saved !== null && file.version === 2 && file.conversations?.find(entry => entry.id === first.id)?.summary === COMPANION_SUMMARY,
+      `version=${file.version}`,
+    );
+    report.check("대화 API 응답에는 저장된 요약이 나오지 않는다", !JSON.stringify((await send("GET", "/api/conversations")).body).includes(COMPANION_SUMMARY));
+
+    // 메시지가 없는 second는 세지 않으므로 첫 대화 다음 두 번째 대화가 된다.
+    third = (await createConversation("관계 확인")).body?.conversation;
+    await sendMessage(third.id, "다시 이야기하러 왔어요");
+    const status = section(await lastCompanionUser(), "대화 상황");
+    report.check("두 번째 대화 요청에 '이 사람과는 2번째 대화다.'가 들어간다", status.includes("- 이 사람과는 2번째 대화다. 처음 대화한 날이 오늘이다."), status.replace(/\n/g, " / "));
+    report.check("새 대화의 첫 메시지라 마지막 대화 간격이 들어간다", status.includes("- 마지막 대화는 오늘 앞서 있었다."));
+    report.check("두 번째 대화 요청에 첫 대화의 요약이 '지난 대화 요약:'으로 들어간다", status.includes(`- 지난 대화 요약: ${COMPANION_SUMMARY}`));
+
+    await sendMessage(third.id, "바로 이어서 보내요");
+    const continuing = section(await lastCompanionUser(), "대화 상황");
+    report.check("30분 안에 이어지는 메시지에는 마지막 대화 간격이 없다", continuing.includes("2번째 대화다") && !continuing.includes("마지막 대화는"), continuing.replace(/\n/g, " / "));
+  }
+
+  // ── LLM 개인 기억 정리 ──────────────────────────────────────
+  {
+    // 첫 대화에 차단되지 않은 사용자 메시지가 6개 쌓였을 때 정리가 돈다(기본 privateDigestEveryMessages=6).
+    const digestCall = await waitUntil(async () => (await mock.digestCalls()).at(0));
+    report.check(
+      "사용자 메시지 6개마다 LLM 기억 정리를 요청하고, 막은 입력은 넘기지 않는다",
+      digestCall !== null && digestCall.user.includes("상대: ") && !digestCall.user.includes("비밀번호"),
+      digestCall ? `user 줄 ${digestCall.user.split("\n").length}` : "정리 호출 없음",
+    );
+
+    const mine = await waitUntil(async () => {
+      const memories = (await send("GET", "/api/me/memories")).body?.memories ?? [];
+      return memories.some(memory => memory.text === DIGEST_MEMORY) ? memories : null;
+    }) ?? [];
+    report.check("LLM이 정리한 문장이 본인 개인 기억이 된다", mine.some(memory => memory.text === DIGEST_MEMORY), `memories=${mine.length}`);
+    report.check("LLM이 뽑았어도 민감한 문장은 저장하지 않는다", !mine.some(memory => memory.text === DIGEST_SENSITIVE));
+    const record = (await bori.memory()).records.find(entry => entry.text === DIGEST_MEMORY);
+    report.check("LLM 정리 기억은 private scope, companion:local 소유다", record?.scope === "private" && record?.ownerId === OWNER, `${record?.scope}/${record?.ownerId}`);
+  }
+
   // ── 방송과의 격리 ───────────────────────────────────────────
   {
     await bori.patchSettings(baseQueueSettings);
@@ -209,6 +288,12 @@ export async function run({ bori, mock, report }) {
       section(broadcastCalls.at(-1)?.user ?? "", "기억").replace(/\n/g, " / "),
     );
     report.check("방송 요청에는 방송 기억이 그대로 들어간다", broadcastCalls.at(-1)?.user.includes(BROADCAST_MEMORIES[0]) === true);
+    report.check(
+      "방송 LLM 요청에는 관계 맥락 문장과 지난 대화 요약이 없다",
+      broadcastCalls.length >= 2 && broadcastCalls.every(entry => !RELATIONSHIP_MARKS.some(mark => entry.user.includes(mark) || entry.system.includes(mark)) && !entry.user.includes(COMPANION_SUMMARY)),
+      section(broadcastCalls.at(-1)?.user ?? "", "방송 상황").replace(/\n/g, " / "),
+    );
+    report.check("LLM 정리로 생긴 개인 기억이 방송 LLM 요청에 나오지 않는다", broadcastCalls.every(entry => !entry.user.includes(DIGEST_KEY)));
 
     // 방송 대화 4턴이 쌓이면 누적 요약이 돈다(고정 자료 rollingSummaryTurns=4). 늦게 올 수 있어 기다린다.
     let summaries = [];
@@ -219,7 +304,7 @@ export async function run({ bori, mock, report }) {
     }
     report.check(
       "1:1 메시지가 방송 누적 요약 요청에 나오지 않는다",
-      summaries.length > 0 && summaries.every(entry => !entry.user.includes(COMPANION_MARK) && !entry.user.includes(PRIVATE_MEMORY_KEY)),
+      summaries.length > 0 && summaries.every(entry => !entry.user.includes(COMPANION_MARK) && !entry.user.includes(PRIVATE_MEMORY_KEY) && !entry.user.includes(DIGEST_KEY) && !entry.user.includes(COMPANION_SUMMARY)),
       `방송 요약 호출=${summaries.length}`,
     );
 
@@ -287,6 +372,8 @@ export async function run({ bori, mock, report }) {
     const lastUser = beforeMessages.filter(message => message.role === "user").at(-1)?.content ?? "";
     report.check("재시작 뒤 첫 1:1 요청에 저장된 최근 대화가 이어진다", lastUser.length > 0 && recent.includes(lastUser), recent.replace(/\n/g, " / ").slice(0, 160));
     report.check("거절한 대화는 되살린 최근 대화에 들어가지 않는다", !recent.includes("비밀번호"));
+    const restoredSummary = section(await lastCompanionUser(), "지금까지의 대화");
+    report.check("재시작 뒤 첫 1:1 요청에 저장된 누적 요약이 [지금까지의 대화]로 되살아난다", restoredSummary === `[지금까지의 대화]\n${COMPANION_SUMMARY}`, restoredSummary.replace(/\n/g, " / "));
   }
 
   // ── 삭제 ────────────────────────────────────────────────────

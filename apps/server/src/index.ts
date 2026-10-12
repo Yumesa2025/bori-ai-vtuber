@@ -8,7 +8,7 @@ import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMoti
 import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
 import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, type ConversationSession } from "./conversation/index.js";
-import { createCompanionHandler } from "./companion/index.js";
+import { createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
 import { isValidVoice, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
@@ -305,6 +305,12 @@ const handleCompanionRoute = createCompanionHandler({
   memorySettings: () => memorySettings,
   embedding: currentEmbedding,
   prepareAudio,
+  // LLM 기억 정리는 1:1 회로가 열려 있으면 건너뛴다. 방송 회로와는 상관없다.
+  digestMemories: createPrivateMemoryDigest({
+    llmSettings: () => llmSettings,
+    apiKey: () => llmApiKey,
+    isCircuitOpen: () => llmClients.llmFor("companion").isCircuitOpen(),
+  }),
 });
 
 // ── 방송 진행 상황 ────────────────────────────────────────────

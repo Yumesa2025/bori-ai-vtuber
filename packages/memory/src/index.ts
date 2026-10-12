@@ -22,4 +22,5 @@ export const defaultMemorySettings: MemorySettings = {
   minSimilarity: 0.3,
   retentionDays: 30,
   embeddingModel: "text-embedding-3-small",
+  privateDigestEveryMessages: 6,
 };

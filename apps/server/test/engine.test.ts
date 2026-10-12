@@ -28,7 +28,7 @@ type Harness = {
   /** 다음 LLM 호출 결과. 비워 두면 성공한다. */
   nextOutcome: LlmOutcome | null;
   /** 누적 요약 호출. resolve를 부르기 전까지 요약이 도착하지 않는다. */
-  summaryCalls: { resolve: (summary: string) => void }[];
+  summaryCalls: { request: LlmRequest; resolve: (summary: string) => void }[];
 };
 
 function createHarness(): Harness {
@@ -51,13 +51,13 @@ function createHarness(): Harness {
     summaryCalls: [],
     deps: undefined as unknown as ConversationEngineDeps,
   };
-  const memorySettings: MemorySettings = { enabled: true, maxMemories: 5, minSimilarity: 0.3, retentionDays: 30, embeddingModel: "test" };
+  const memorySettings: MemorySettings = { enabled: true, maxMemories: 5, minSimilarity: 0.3, retentionDays: 30, embeddingModel: "test", privateDigestEveryMessages: 6 };
 
   const summaryAdapter: LlmAdapter = {
     name: "fake-summary",
     isConfigured: () => true,
-    complete: () => new Promise(resolve => {
-      harness.summaryCalls.push({ resolve: summary => resolve({ raw: JSON.stringify({ summary }), latencyMs: 1 }) });
+    complete: request => new Promise(resolve => {
+      harness.summaryCalls.push({ request, resolve: summary => resolve({ raw: JSON.stringify({ summary }), latencyMs: 1 }) });
     }),
   };
 
@@ -159,6 +159,42 @@ describe("세션 분리", () => {
     assert.equal(a.summarizedTurnCount, 4);
     assert.equal(b.summary, "");
     assert.equal(b.summarizedTurnCount, 0);
+  });
+
+  test("누적 요약은 세션 모드의 지시문으로 만든다. 방송 지시문은 그대로다", async () => {
+    const broadcast = engine.createSession("broadcast");
+    const companion = engine.createSession("companion");
+    recordExchanges(engine, broadcast, 2, "방송");
+    recordExchanges(engine, companion, 2, "1:1");
+
+    const [broadcastCall, companionCall] = h.summaryCalls.map(call => call.request);
+    assert.ok(broadcastCall.overrideSystemPrompt?.startsWith("너는 진행 중인 방송의 흐름을 정리하는 도우미다."));
+    assert.ok(broadcastCall.overrideUserPrompt?.includes("시청자: 방송 채팅 0"));
+    assert.ok(companionCall.overrideSystemPrompt?.startsWith("너는 1:1 대화의 흐름을 정리하는 도우미다."));
+    assert.ok(companionCall.overrideUserPrompt?.includes("상대: 1:1 채팅 0"));
+    assert.ok(!companionCall.overrideSystemPrompt?.includes("방송"));
+  });
+
+  test("onSummary를 준 세션만 갱신된 요약을 알린다. 알림이 실패해도 세션 요약은 남는다", async () => {
+    const notified: string[] = [];
+    const listening = engine.createSession("companion", { onSummary: summary => { notified.push(summary); throw new Error("저장 실패"); } });
+    const silentSession = engine.createSession("companion");
+    recordExchanges(engine, listening, 2, "A");
+    recordExchanges(engine, silentSession, 2, "B");
+
+    h.summaryCalls[0].resolve("A 요약");
+    h.summaryCalls[1].resolve("B 요약");
+    await flush();
+    assert.deepEqual(notified, ["A 요약"]);
+    assert.equal(listening.summary, "A 요약");
+    assert.equal(silentSession.summary, "B 요약");
+  });
+
+  test("restore는 저장된 요약도 세션에 넣는다", () => {
+    const session = engine.createSession("companion");
+    engine.restore(session, [{ role: "viewer", text: "지난 메시지", viewerId: "companion:local" }], "저장된 요약");
+    assert.equal(session.summary, "저장된 요약");
+    assert.equal(session.summarizedTurnCount, 0, "되살린 대화는 아직 요약되지 않은 것으로 남는다");
   });
 
   test("매크로는 켠 세션에만 붙고, 수명도 그 세션에서만 줄어든다", async () => {
