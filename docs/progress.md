@@ -344,11 +344,16 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 ### Phase 4 — 1:1 대화 API
 
-계획. **선행 조건: API 보안 강화.** 1:1 API를 보안 경계 없이 연 상태가 없도록 아래를 먼저 병합한다.
+1:1 대화 API 구현(`feature/private-chat-api`, 병합 전). 결정 근거는 [설계 결정 기록](./decisions.md) ADR-016에 있다.
 
-1. 선행: CORS 출처 제한, 로컬 토큰, 요청 본문 크기 제한, 설정값 검증(`PATCH /api/settings`·`/api/memory`·`/api/tts`), 목소리 이름 검증
-2. `/api/companion/*`, 1:1 세션 관리, 모드별 LLM 클라이언트(회로·통계 분리)
-3. 1:1 개인 기억(`private`) 생성 경로 연결. 저장 형식과 검색 규칙은 준비되어 있다
+1. 선행: API 보안 강화(CORS 출처 제한, 로컬 토큰, 요청 본문 크기 제한, 설정값 검증)는 별도 작업으로 진행 중이다. 1:1 API는 그 작업과 함께 병합해야 보안 경계 없이 열린 상태가 생기지 않는다. 1:1 라우트의 본문 읽기는 보안 작업의 `readBody`와 같은 시그니처·같은 64KB 상한(413)으로 `companion/body.ts`에 모아 두어 병합 때 바꿔 끼울 수 있게 했다
+2. 완료: 1:1 대화 라우트 `/api/conversations`·`/api/conversations/:id/messages`·`/api/me/memories`·`/api/character/profile`·`/api/character/catalog`(`apps/server/src/companion/`). 소유자는 서버가 `companion:local`로 고정한다
+3. 완료: 대화 저장소. `data/companion-conversations.json`에 소유자별로 저장하고 임시 파일 + rename으로 원자적으로 쓴다. 재시작 뒤 처음 접근할 때 저장된 최근 메시지로 세션의 최근 대화를 되살린다
+4. 완료: 1:1 정책. 규칙 문장 없이 LLM이 답하고, 위험 주제는 거절 문장(`source: "blocked"`), LLM을 못 쓰면 1:1 폴백 문장(`source: "fallback"`, `failure.kind`)으로 답한다. 거절·폴백 문장은 초안이며 `검토 필요`다. 방송 규칙·무반응·폴백은 그대로다
+5. 완료: 모드별 LLM 클라이언트. 1:1 연속 실패가 방송 회로를 열지 않는다. `/api/llm`에 `companionStatus`를 추가했고 `PATCH /api/llm`의 reset은 두 클라이언트에 함께 적용된다
+6. 완료: 1:1 개인 기억(`private`) 생성. 사용자 메시지에서 규칙으로 후보를 뽑아 본인 소유로 저장한다. **대화를 지워도 그 대화에서 생긴 개인 기억은 남는다.** 개인 기억은 `/api/me/memories`로 따로 보고 지운다
+7. 검증: 서버 단위 검사(저장소 소유자 필터·원자적 쓰기·재시작 복원, 1:1 정책, 모드별 LLM 클라이언트, 1:1 처리)와 통합 검사 `tools/test/companion.mjs`(계약·오류 코드, 방송 상태·방송 문맥·누적 요약 격리, 기억 격리, 회로 분리, 재시작 복원). 실제 LLM으로 한 1:1 대화 품질은 키가 없어 미검증이다
+8. 후속: 관리자 화면의 1:1 통계·개인 기억 표시, 1:1용 누적 요약 지시문(지금은 방송용 지시문을 쓴다), 거절·폴백 문장 확정
 
 ### Phase 5 — Companion 앱
 

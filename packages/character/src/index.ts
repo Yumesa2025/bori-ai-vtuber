@@ -13,6 +13,9 @@ export type ConversationMode = "broadcast" | "companion";
 
 export const conversationModes: readonly ConversationMode[] = ["broadcast", "companion"];
 
+/** 캐릭터 이름. 1:1 화면의 프로필처럼 프롬프트 밖에서 이름만 필요할 때 쓴다. */
+export const boriName = "보리";
+
 /**
  * 모드와 상관없이 유지되는 보리의 정체성.
  * 정체성·성격·취미는 요구사항 2장, 나머지는 기존 방송 프롬프트에서 가져왔다.
@@ -63,6 +66,21 @@ export type ConversationPolicy = {
    * 섹션을 지우면 모델이 "기억이 없다"와 "찾아보지 않았다"를 구분하지 못해 지어낸다.
    */
   noMemoryLine: string;
+  /**
+   * 규칙 응답(인사·칭찬·음악·게임 등 고정 문장)을 쓸지.
+   * 방송은 빠른 반응을 위해 쓰고, 1:1은 쓰지 않고 LLM이 답한다.
+   */
+  ruleReplies: boolean;
+  /**
+   * 위험 주제를 막았을 때의 거절 문장. 비어 있으면 무반응한다.
+   * 방송은 무반응하고, 1:1은 상대가 기다리고 있으므로 짧게 거절한다.
+   */
+  refusalReplies: readonly string[];
+  /**
+   * LLM을 쓸 수 없거나 실패했을 때의 문장. null이면 서버의 규칙 폴백 문장을 쓴다.
+   * 서버 폴백 문장에는 "여러분" 같은 방송 호칭이 있어 1:1은 따로 둔다.
+   */
+  fallbackReplies: readonly string[] | null;
 };
 
 export const conversationPolicies: Record<ConversationMode, ConversationPolicy> = {
@@ -79,6 +97,9 @@ export const conversationPolicies: Record<ConversationMode, ConversationPolicy> 
     speakerLabels: { user: "시청자", bori: "보리" },
     sectionTitles: { status: "방송 상황", summary: "지금까지의 방송", input: "답변할 채팅" },
     noMemoryLine: "이 채팅과 관련해 저장된 기억이 없다. 지난 대화를 묻는 질문이면 기억나지 않는다고 솔직히 답하고 내용을 지어내지 않는다.",
+    ruleReplies: true,
+    refusalReplies: [],
+    fallbackReplies: null,
   },
   // 1:1 대화 정책은 기존 설정에 없다. 아래 값은 전부 초안이며 확정되지 않았다. (검토 필요)
   companion: {
@@ -99,5 +120,19 @@ export const conversationPolicies: Record<ConversationMode, ConversationPolicy> 
     speakerLabels: { user: "상대", bori: "보리" },
     sectionTitles: { status: "대화 상황", summary: "지금까지의 대화", input: "답변할 메시지" },
     noMemoryLine: "이 대화와 관련해 저장된 기억이 없다. 지난 대화를 묻는 질문이면 기억나지 않는다고 솔직히 답하고 내용을 지어내지 않는다.",
+    // 사용자 결정: 1:1은 규칙 문장 없이 LLM이 답한다.
+    ruleReplies: false,
+    // 검토 필요: 거절 문장 초안. 차단 주제에 자해가 들어 있어 도움을 권하는 문장을 함께 두었다. 주제별 문장이 필요한지 정해야 한다.
+    refusalReplies: [
+      "그 이야기는 제가 제대로 답해 드리기 어려워요. 다른 이야기를 나눠요.",
+      "미안해요, 그건 제가 답할 수 없는 주제예요. 꼭 필요한 일이라면 믿을 수 있는 사람이나 전문가와 상의해 주세요.",
+      "그 주제는 제가 이야기하기 어려워요. 대신 요즘 어떻게 지내시는지 들려주세요.",
+    ],
+    // 검토 필요: LLM을 쓸 수 없을 때의 문장 초안. 무슨 말에든 어울리도록 내용 없이 잠시 뒤를 기약한다.
+    fallbackReplies: [
+      "미안해요, 지금은 생각이 잘 정리되지 않아요. 조금 뒤에 다시 이야기해 주실래요?",
+      "잠깐 말이 잘 안 나오네요. 조금 있다가 다시 말 걸어 주세요.",
+      "지금은 제대로 답해 드리기 어려울 것 같아요. 잠시 후에 다시 이야기해요.",
+    ],
   },
 };

@@ -7,7 +7,8 @@ import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSe
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
-import { bodyAction, createConversationEngine, isQuestion, type ConversationSession } from "./conversation/index.js";
+import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, type ConversationSession } from "./conversation/index.js";
+import { createCompanionHandler } from "./companion/index.js";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
 import { isValidVoice, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
@@ -70,7 +71,13 @@ let llmSettings: LlmSettings = {
 // 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓴다.
 let llmApiKey = process.env.OPENAI_API_KEY ?? "";
 
-const llm = createLlmClient();
+/**
+ * LLM 클라이언트는 모드마다 따로 둔다. 회로 차단기와 통계가 클라이언트 안에 있어서,
+ * 하나를 같이 쓰면 1:1 연속 실패가 방송 회로를 연다.
+ * 관리자 화면과 기존 라우트가 보는 llm은 방송 것이고, reset만 두 모드에 함께 적용한다.
+ */
+const llmClients = createModeLlmClients(createLlmClient);
+const llm = { ...llmClients.llmFor("broadcast"), reset: llmClients.resetAll };
 
 function loadLlmConfig() {
   try {
@@ -274,7 +281,7 @@ loadMacros();
 // ── 대화 엔진 ─────────────────────────────────────────────────
 // 설정은 관리자 화면에서 바뀌므로 getter로 넘겨 엔진이 매번 최신 값을 읽게 한다.
 const engine = createConversationEngine({
-  llmFor: () => llm,
+  llmFor: mode => llmClients.llmFor(mode),
   llmSettings: () => llmSettings,
   apiKey: () => llmApiKey,
   memoryStore,
@@ -288,6 +295,17 @@ const engine = createConversationEngine({
  * 이전 방송의 늦게 도착한 누적 요약은 버려진 옛 세션에 써질 뿐 이 세션에 닿지 않는다.
  */
 let broadcastSession: ConversationSession = engine.createSession("broadcast");
+
+// ── 1:1 대화 ──────────────────────────────────────────────────
+// 방송 상태·큐·방송 세션은 넘기지 않는다. 음성은 같은 합성 경로를 쓰되 방송 currentAudioId에는 쓰지 않는다.
+const handleCompanionRoute = createCompanionHandler({
+  filePath: resolve(dataRoot, "companion-conversations.json"),
+  engine,
+  memoryStore,
+  memorySettings: () => memorySettings,
+  embedding: currentEmbedding,
+  prepareAudio,
+});
 
 // ── 방송 진행 상황 ────────────────────────────────────────────
 // 모델은 대화 텍스트만 보고 경과 시간이나 답변 수를 셀 수 없다.
@@ -553,7 +571,8 @@ const server = createServer((request, response) => {
   if (request.method === "GET" && request.url === "/api/settings") { sendJson(response, 200, settings); return; }
   // LLM 상태. API 키 자체는 내보내지 않고 설정 여부만 알린다.
   if (request.method === "GET" && request.url === "/api/llm") {
-    sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels, macro: macroStatus(), systemPromptChars: engine.systemPromptChars("broadcast") });
+    // status는 방송 클라이언트 것이다. 1:1 회로와 통계는 companionStatus로 따로 보여 준다.
+    sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), companionStatus: llmClients.llmFor("companion").status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels, macro: macroStatus(), systemPromptChars: engine.systemPromptChars("broadcast") });
     return;
   }
   // 매크로는 파일로 편집하므로, 서버를 다시 띄우지 않고 다시 읽을 수 있게 한다.
@@ -775,6 +794,7 @@ const server = createServer((request, response) => {
       } catch { sendJson(response, 400, { error: "Invalid JSON" }); }
     }); return;
   }
+  if (handleCompanionRoute(request, response)) return;
   sendJson(response, 404, { error: "Not found" });
 });
 // tsx watch가 파일 변경으로 재시작할 때, 이전 프로세스가 포트를 놓기 전에 새 프로세스가 뜨는 경우가 있다.

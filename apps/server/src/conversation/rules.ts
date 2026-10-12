@@ -2,6 +2,8 @@ import type { CharacterResponse } from "@bori/shared";
 
 /** 위험 주제와 프롬프트 공격. 여기에 걸리면 LLM에 전달하지 않는다. */
 export const unsafePattern = /(정치|의료|법률|투자|개인정보|비밀번호|해킹|자해|프롬프트|시스템 메시지)/i;
+/** 위험 입력인지. 차단된 입력은 LLM에도, 기억 후보에도 넘기지 않는다. */
+export const isUnsafeContent = (content: string) => unsafePattern.test(content);
 export const isQuestion = (content: string) => content.includes("?") || content.includes("궁금") || content.includes("어떤") || content.includes("왜");
 /** 지난 대화를 묻는 표현. 규칙 문장으로는 답할 수 없으므로 기억을 볼 수 있는 LLM에게 넘긴다. */
 export const memoryQuestionPattern = /(기억|아세요|아시나요|알아요|알고 ?있|말했던|얘기했던|이야기했던|저번에|지난번|전에 말)/;
@@ -104,9 +106,13 @@ export type RuleOutcome =
   | { kind: "matched"; response: CharacterResponse }
   | { kind: "unmatched" };
 
-export function evaluateRules(content: string, llmAvailable: boolean, pick: PickReply): RuleOutcome {
+/**
+ * useRules가 false면 위험 차단만 하고 규칙 문장은 쓰지 않는다. 1:1은 LLM이 답한다.
+ */
+export function evaluateRules(content: string, llmAvailable: boolean, pick: PickReply, useRules = true): RuleOutcome {
   // 위험 주제와 프롬프트 공격은 LLM에 전달하기 전에 여기서 끊는다.
-  if (unsafePattern.test(content)) return { kind: "blocked" };
+  if (isUnsafeContent(content)) return { kind: "blocked" };
+  if (!useRules) return { kind: "unmatched" };
 
   // 지난 대화를 묻는 채팅은 규칙 문장으로 답할 수 없다. 기억을 볼 수 있는 LLM에게 넘긴다.
   if (llmAvailable && memoryQuestionPattern.test(content)) return { kind: "unmatched" };
@@ -127,6 +133,12 @@ export function evaluateRules(content: string, llmAvailable: boolean, pick: Pick
   };
 }
 
-export function fallbackResponse(pick: PickReply): CharacterResponse {
-  return { reply: pick(fallbackReplies), emotion: { primary: "calm", intensity: 0.35, durationSeconds: 6 }, actions: [], source: "rule" };
+/** LLM을 쓸 수 없을 때의 답. 모드 정책에 전용 문장이 있으면 그것을, 없으면 방송 폴백 문장을 쓴다. */
+export function fallbackResponse(pick: PickReply, replies: readonly string[] = fallbackReplies): CharacterResponse {
+  return { reply: pick(replies), emotion: { primary: "calm", intensity: 0.35, durationSeconds: 6 }, actions: [], source: "rule" };
+}
+
+/** 위험 입력에 대한 거절. 무반응하지 않는 모드만 쓴다. */
+export function refusalResponse(pick: PickReply, replies: readonly string[]): CharacterResponse {
+  return { reply: pick(replies), emotion: { primary: "calm", intensity: 0.4, durationSeconds: 6 }, actions: [], source: "rule" };
 }

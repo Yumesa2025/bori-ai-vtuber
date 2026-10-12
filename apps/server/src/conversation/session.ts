@@ -57,6 +57,14 @@ export function pushTurn(session: ConversationSession, turn: SessionTurn) {
 }
 
 /**
+ * 저장해 둔 대화로 세션의 최근 대화를 되살린다. 서버를 다시 띄운 뒤 1:1 대화를 이어갈 때 쓴다.
+ * 누적 요약은 부르지 않는다. 되살린 대화는 아직 요약되지 않은 것으로 남아 다음 요약 때 함께 접힌다.
+ */
+export function restoreTurns(session: ConversationSession, turns: readonly SessionTurn[]) {
+  for (const turn of turns.slice(-RECENT_TURN_LIMIT)) pushTurn(session, turn);
+}
+
+/**
  * 쿨다운이 지나지 않은 문장은 피해서 고른다.
  * 후보가 모두 쿨다운이면 가장 오래전에 쓴 문장을 쓴다. 답변을 아예 못 하는 것보다 낫다.
  */
