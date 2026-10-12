@@ -46,3 +46,14 @@ test("1:1 정책에 관계 맥락 지침(초안)이 있고, 방송 정책 문장
     "- 시청자 닉네임은 절대 부르지 않는다.",
   ]);
 });
+
+test("1:1 정책에 지어내기 방지 지침(초안)이 있다", () => {
+  const rules = conversationPolicies.companion.rules.join("\n");
+  for (const phrase of ["2인칭 대명사 없이", "'키우시는 고양이'처럼 상대의 것", "일반적인 예도 지어내지 않는다", "제 기억에 없어요. 다시 들려주실래요?", "다시 와 준 것을 반가워하는"]) {
+    assert.ok(rules.includes(phrase), phrase);
+  }
+  // 금지할 낱말을 그대로 적으면 모델이 따라 쓰는 경우가 있어 정책 문장에 넣지 않는다.
+  for (const word of ["당신", "저희", "기억해요"]) {
+    assert.ok(!rules.includes(word), word);
+  }
+});

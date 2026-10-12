@@ -68,7 +68,26 @@ export type EvalResultFile = {
     model: string;
     /** 기본 OpenAI 주소가 아니면 그 주소. 가짜 API로 배관만 확인한 결과를 가린다. */
     baseUrl: string | null;
+    /**
+     * --repeat로 여러 번 돌렸을 때만 있다. 같은 프롬프트라도 모델 답은 매번 다르므로 한 번의 통과·실패만으로 판단하지 않는다.
+     * counts·scenarios는 1회차 결과이고, runs에 회차 전부(1회차 포함), tally에 시나리오별 횟수를 남긴다.
+     */
+    repeat?: number;
+    runs?: ModelRun[];
+    tally?: ScenarioTally[];
   };
+};
+
+export type ModelRun = { counts: StatusCounts; scenarios: ScenarioResult[] };
+
+/** 반복 실행에서 시나리오 하나의 회차별 결과. 범위 밖·건너뜀은 판정하지 않았으므로 judged에서 뺀다. */
+export type ScenarioTally = {
+  id: string;
+  title: string;
+  pass: number;
+  /** 자동 판정한 횟수(통과·실패·오류). 0이면 범위 밖이거나 건너뛴 시나리오다. */
+  judged: number;
+  statuses: ScenarioStatus[];
 };
 
 export function countStatuses(results: readonly ScenarioResult[]): StatusCounts {
