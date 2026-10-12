@@ -17,6 +17,7 @@
     "build:admin": "npm --workspace apps/admin run build",
     "build:companion": "npm --workspace apps/companion run build",
     "test": "node tools/test/run.mjs",
+    "test:soak": "node tools/test/soak.mjs",
     "test:unit": "node --import tsx --test \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
     "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character && npm run typecheck:companion",
     "typecheck:shared": "npm --workspace packages/shared run typecheck",
