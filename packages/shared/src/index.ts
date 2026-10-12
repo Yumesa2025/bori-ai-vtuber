@@ -62,6 +62,45 @@ export type LlmSettings = {
   /** 연속 실패가 이 횟수에 닿으면 LLM 호출을 잠시 멈춘다. */
   failureThreshold: number;
   cooldownSeconds: number;
+  /**
+   * 방송 중 누적 요약.
+   * 최근 대화는 몇 턴만 유지되므로 그 창 밖으로 밀려난 흐름은 그대로 사라진다.
+   * 켜 두면 일정 턴마다 지금까지의 대화를 한 문단으로 접어 문맥에 계속 넣는다.
+   */
+  rollingSummaryEnabled: boolean;
+  /** 누적 요약을 갱신하는 주기(턴 수). 매 턴 요약하지 않아 비용과 지연이 낮다. */
+  rollingSummaryTurns: number;
+  /** 키워드 매크로. 고유명사는 벡터 검색보다 키워드 매칭이 정확하고 왕복이 없다. */
+  macroEnabled: boolean;
+};
+
+/**
+ * 키워드로 켜지는 참고 정보 한 덩어리.
+ * 벡터 검색과 달리 임베딩 왕복이 없고, 고유명사처럼 철자가 정해진 대상에 정확하다.
+ * data/macros.json에서 읽는다.
+ */
+export type MacroPrompt = {
+  id: string;
+  /** 이 중 하나라도 채팅에 나오면 켜진다. 최대 5개까지만 쓴다. */
+  keywords: string[];
+  /** 켜졌을 때 문맥에 붙는 텍스트. 짧게 쓴다. */
+  prompt: string;
+  /** 동시 활성 한도를 넘으면 이 값이 큰 것부터 남는다. */
+  priority: number;
+  /** 몇 번의 답변 동안 켜져 있을지. 1~5. */
+  durationTurns: number;
+};
+
+/** 관리자에게 보여줄 매크로 상태. */
+export type MacroStatus = {
+  /** 파일에서 읽어 들인 매크로 수. */
+  loaded: number;
+  /** 지금 켜져 있는 매크로와 남은 턴. */
+  active: { id: string; remainingTurns: number }[];
+  /** 매크로 파일 경로. 관리자가 직접 편집한다. */
+  path: string;
+  /** 파일을 읽지 못했을 때의 이유. */
+  error: string | null;
 };
 
 /** 관리자에게 보여줄 LLM 상태. API 키 자체는 절대 내보내지 않는다. */

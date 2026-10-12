@@ -1,0 +1,14 @@
+{
+  "settings": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "maxReplyLength": 120,
+    "timeoutMs": 8000,
+    "failureThreshold": 3,
+    "cooldownSeconds": 60,
+    "rollingSummaryEnabled": true,
+    "rollingSummaryTurns": 4,
+    "macroEnabled": true
+  }
+}

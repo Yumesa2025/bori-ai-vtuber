@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { BroadcastState, LlmProvider, LlmSettings, LlmStatus, QueueSettings } from '@bori/shared';
+import type { BroadcastState, LlmProvider, LlmSettings, LlmStatus, MacroStatus, QueueSettings } from '@bori/shared';
 import { boriExpressionLabels, boriExpressionNames, boriMotionGroupNames, boriMotionLabels } from '@bori/live2d';
 import './styles.css';
 
@@ -12,7 +12,7 @@ export default function AdminApp() {
   const [notice, setNotice] = useState('');
   const [settings, setSettings] = useState<QueueSettings>({ responseDelayMinSeconds: 5, responseDelayMaxSeconds: 10, maxQueueSize: 100, visibleChatLimit: 8, duplicateWindowMinutes: 5, sameReplyCooldownMinutes: 5, monologueEnabled: true, monologueMinSeconds: 30, monologueMaxSeconds: 60 });
   const [serverOnline, setServerOnline] = useState(true);
-  const [llm, setLlm] = useState<{ settings: LlmSettings; status: LlmStatus; providers: LlmProvider[]; defaultModels: Record<string, string> } | null>(null);
+  const [llm, setLlm] = useState<{ settings: LlmSettings; status: LlmStatus; providers: LlmProvider[]; defaultModels: Record<string, string>; macro: MacroStatus; systemPromptChars: number } | null>(null);
   // API 키는 서버가 돌려주지 않으므로 입력값만 화면에서 관리한다.
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [tts, setTts] = useState<{ settings: { enabled: boolean; provider: string; model: string; voice: string; speed: number; stability: number; similarity: number }; voices: { id: string; name: string; description?: string }[]; providers: string[]; defaultModels: Record<string, string>; hasApiKey: boolean; hasElevenLabsKey: boolean; failureCount: number; lastError: string | null } | null>(null);
@@ -67,6 +67,13 @@ export default function AdminApp() {
     if (patch.apiKey !== undefined) setApiKeyInput('');
     setNotice('LLM 설정을 저장했습니다.');
   }
+  async function reloadMacros() {
+    const response = await request('/api/macros/reload', { method: 'POST' });
+    if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 요청을 보내지 못했습니다.'); return; }
+    const result = await response.json() as MacroStatus;
+    setNotice(response.ok ? `매크로 ${result.loaded}건을 다시 읽었습니다.` : `매크로 파일을 읽지 못했습니다: ${result.error ?? '알 수 없는 오류'}`);
+    void refresh();
+  }
   async function sessionAction(action: 'start' | 'end') { const response = await request(`/api/session/${action}`, { method: 'POST' }); if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 요청을 보내지 못했습니다.'); return; } if (!response.ok) { setNotice('서버가 요청을 거부했습니다.'); return; } setState(await response.json() as BroadcastState); setNotice(action === 'start' ? '방송 세션을 시작했습니다.' : '방송 세션을 종료했습니다.'); }
   async function submitTestChat() { if (!message.trim() || state.status !== 'live') { setNotice('먼저 방송을 시작해 주세요.'); return; } const response = await request('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: message }) }); if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 요청을 보내지 못했습니다.'); return; } if (!response.ok) { setNotice('이미 들어온 채팅이거나 처리할 수 없는 채팅입니다.'); return; } setState(await response.json() as BroadcastState); setMessage(''); setNotice('채팅을 후보 큐에 넣었습니다.'); }
   async function saveSettings() { const response = await request('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }); if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 저장하지 못했습니다.'); return; } setNotice(response.ok ? '채팅 큐 설정을 저장했습니다.' : '설정을 저장하지 못했습니다.'); }
@@ -90,6 +97,18 @@ export default function AdminApp() {
         <label>최대 답변 길이<input type="number" min="20" value={llm.settings.maxReplyLength} onChange={event => setLlm({ ...llm, settings: { ...llm.settings, maxReplyLength: Number(event.target.value) } })} onBlur={() => void saveLlm({ maxReplyLength: llm.settings.maxReplyLength })} /></label>
         <label>응답 제한(ms)<input type="number" min="1000" step="500" value={llm.settings.timeoutMs} onChange={event => setLlm({ ...llm, settings: { ...llm.settings, timeoutMs: Number(event.target.value) } })} onBlur={() => void saveLlm({ timeoutMs: llm.settings.timeoutMs })} /></label>
       </div>
+      <p className="hint">매 턴 그대로 들어가는 시스템 프롬프트는 {llm.systemPromptChars}자입니다. 이 부분은 검색되지 않고 항상 전달되므로 짧을수록 좋습니다.</p>
+      <label className="toggle-row"><input type="checkbox" checked={llm.settings.rollingSummaryEnabled} onChange={event => void saveLlm({ rollingSummaryEnabled: event.target.checked })} /><span>방송 중 누적 요약</span></label>
+      <p className="hint">보리는 최근 몇 턴만 그대로 기억합니다. 켜 두면 일정 턴마다 지금까지의 대화를 짧게 접어 문맥에 계속 넣으므로, 긴 방송에서 초반 이야기를 잊지 않습니다. 답변과 별개로 호출되며 답변 속도에는 영향을 주지 않습니다.</p>
+      <div className="settings-grid">
+        <label>요약 주기(턴)<input type="number" min="4" value={llm.settings.rollingSummaryTurns} disabled={!llm.settings.rollingSummaryEnabled} onChange={event => setLlm({ ...llm, settings: { ...llm.settings, rollingSummaryTurns: Number(event.target.value) } })} onBlur={() => void saveLlm({ rollingSummaryTurns: llm.settings.rollingSummaryTurns })} /></label>
+      </div>
+      <label className="toggle-row"><input type="checkbox" checked={llm.settings.macroEnabled} onChange={event => void saveLlm({ macroEnabled: event.target.checked })} /><span>키워드 매크로</span></label>
+      <p className="hint">채팅에 등록한 키워드가 나오면 해당 설명을 바로 문맥에 붙입니다. 게임 이름이나 캐릭터명처럼 철자가 정해진 대상은 기억 검색보다 정확하고, 임베딩 왕복이 없어 빠릅니다. <code>{llm.macro.path}</code>를 직접 편집한 뒤 다시 읽기를 누르세요.</p>
+      <div className="metrics llm-metrics"><div><strong>{llm.macro.loaded}</strong><span>등록된 매크로</span></div><div><strong>{llm.macro.active.length}</strong><span>지금 켜진 것</span></div></div>
+      {llm.macro.active.length > 0 && <p className="hint">켜진 매크로: {llm.macro.active.map(entry => `${entry.id}(${entry.remainingTurns}턴)`).join(', ')}</p>}
+      {llm.macro.error && <div className="notice">매크로 파일 오류: {llm.macro.error}</div>}
+      <button onClick={() => void reloadMacros()}>매크로 다시 읽기</button>
       <div className="chat-input-row"><input type="password" value={apiKeyInput} onChange={event => setApiKeyInput(event.target.value)} placeholder={llm.status.hasApiKey ? 'API 키가 저장되어 있습니다. 바꾸려면 새 키를 입력하세요' : 'API 키를 입력하세요'} /><button onClick={() => void saveLlm({ apiKey: apiKeyInput })} disabled={!apiKeyInput.trim()}>키 저장</button>{llm.status.hasApiKey && <button onClick={() => void saveLlm({ apiKey: '' })}>키 삭제</button>}</div>
       <div className="metrics llm-metrics"><div><strong>{llm.status.hasApiKey ? '있음' : '없음'}</strong><span>API 키</span></div><div><strong>{llm.status.callCount}</strong><span>호출</span></div><div><strong>{llm.status.failureCount}</strong><span>호출 실패</span></div><div><strong>{llm.status.validationFailureCount}</strong><span>검증 실패</span></div><div><strong>{llm.status.averageLatencyMs}ms</strong><span>평균 지연</span></div></div>
       {llm.status.circuitOpen && <div className="notice">연속 실패로 LLM 호출을 잠시 멈췄습니다. {llm.settings.cooldownSeconds}초 뒤 다시 시도합니다.</div>}

@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, QueueSettings } from "@bori/shared";
+import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings } from "@bori/shared";
 import { boriEmotionNames, boriExpressionNames, boriMotionDescriptions, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
-import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
+import { buildSystemPrompt, createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, summarizeSessionProgress, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
 
@@ -22,7 +22,12 @@ let settings: QueueSettings = {
   monologueMaxSeconds: 60,
 };
 const queue: ChatMessage[] = [];
-const recentContents = new Set<string>();
+/**
+ * 최근에 들어온 채팅 문장과 그 시각.
+ * Set으로 두면 한 번 나온 문장이 방송 내내 막혀 다른 시청자가 같은 인사를 못 한다.
+ * duplicateWindowMinutes 안에서만 중복으로 본다.
+ */
+const recentContents = new Map<string, number>();
 /** 답변 문장별 마지막 사용 시각. 같은 문장을 연달아 쓰지 않기 위한 기록이다. */
 const replyLastUsedAt = new Map<string, number>();
 let responseTimer: NodeJS.Timeout | undefined;
@@ -38,12 +43,18 @@ let sessionGeneration = 0;
 let testActionSeq = 0;
 
 const RESPONSE_DISPLAY_MS = 5000;
-const RECENT_TURN_LIMIT = 6;
+// 발언 10개 = 채팅 5건. 그 앞의 내용은 누적 요약이 대신 붙든다.
+const RECENT_TURN_LIMIT = 10;
 
 // ── LLM 설정과 API 키 ─────────────────────────────────────────
 // 키는 data/ 아래에만 둔다. data/는 .gitignore 대상이다.
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const llmConfigPath = resolve(projectRoot, "data/llm-config.json");
+/**
+ * 설정과 기억이 들어가는 디렉터리.
+ * 환경변수로 옮길 수 있게 해서, 실제 방송 데이터를 건드리지 않고 서버를 띄워 볼 수 있다.
+ */
+const dataRoot = process.env.BORI_DATA_DIR ? resolve(process.env.BORI_DATA_DIR) : resolve(projectRoot, "data");
+const llmConfigPath = resolve(dataRoot, "llm-config.json");
 
 let llmSettings: LlmSettings = {
   enabled: false,
@@ -53,6 +64,9 @@ let llmSettings: LlmSettings = {
   timeoutMs: 8000,
   failureThreshold: 3,
   cooldownSeconds: 60,
+  rollingSummaryEnabled: true,
+  rollingSummaryTurns: 10,
+  macroEnabled: true,
 };
 // 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓴다.
 let llmApiKey = process.env.OPENAI_API_KEY ?? "";
@@ -62,6 +76,12 @@ const llm = createLlmClient();
 const recentTurns: { role: "viewer" | "bori"; text: string }[] = [];
 /** 이번 방송의 전체 대화. 종료 시 기억 후보를 뽑는 데 쓴다. */
 const sessionTurns: { role: "viewer" | "bori"; text: string; viewerId?: string }[] = [];
+/** 방송 중 누적 요약. recentTurns 창 밖으로 밀려난 흐름이 여기에 남는다. */
+let sessionSummary = "";
+/** 누적 요약이 이미 반영한 sessionTurns 개수. 아직 안 접힌 대화만 다음 요약에 넘긴다. */
+let summarizedTurnCount = 0;
+/** 요약 호출이 진행 중인지. 겹쳐 부르면 같은 대화를 두 번 접게 된다. */
+let summaryInFlight = false;
 
 function loadLlmConfig() {
   try {
@@ -103,7 +123,7 @@ loadLlmConfig();
 let ttsSettings: TtsSettings = { ...defaultTtsSettings };
 /** ElevenLabs는 LLM과 다른 키를 쓴다. 이 키도 암호화해 저장한다. */
 let elevenLabsApiKey = process.env.ELEVENLABS_API_KEY ?? "";
-const ttsConfigPath = resolve(projectRoot, "data/tts-config.json");
+const ttsConfigPath = resolve(dataRoot, "tts-config.json");
 
 const ttsCredentials = () => ({ openAiApiKey: llmApiKey, elevenLabsApiKey });
 /** 지금 설정으로 음성을 만들 수 있는지. */
@@ -167,9 +187,9 @@ async function prepareAudio(text: string): Promise<string | undefined> {
 loadTtsConfig();
 
 // ── 장기 기억 ─────────────────────────────────────────────────
-const memoryStore = createMemoryStore(resolve(projectRoot, "data/memories.json"));
+const memoryStore = createMemoryStore(resolve(dataRoot, "memories.json"));
 let memorySettings: MemorySettings = { ...defaultMemorySettings };
-const memoryConfigPath = resolve(projectRoot, "data/memory-config.json");
+const memoryConfigPath = resolve(dataRoot, "memory-config.json");
 
 function loadMemoryConfig() {
   try {
@@ -199,6 +219,137 @@ function currentEmbedding(): EmbeddingProvider | null {
 }
 
 loadMemoryConfig();
+
+// ── 키워드 매크로 ─────────────────────────────────────────────
+// 고유명사는 벡터 검색보다 키워드 매칭이 정확하고, 임베딩 왕복이 없어 즉시 붙는다.
+// 서술형 질문은 기억 검색이 맡고, 철자가 정해진 대상만 이쪽이 맡는다.
+const macroConfigPath = resolve(dataRoot, "macros.json");
+/** 동시에 켜 둘 매크로 수. 넘치면 priority가 큰 것부터 남긴다. */
+const MACRO_ACTIVE_LIMIT = 5;
+const MACRO_KEYWORD_LIMIT = 5;
+const MACRO_DURATION_LIMIT = 5;
+
+let macros: MacroPrompt[] = [];
+let macroLoadError: string | null = null;
+/** 지금 켜져 있는 매크로. 답변을 한 번 내보낼 때마다 남은 턴이 줄어든다. */
+let activeMacros: { macro: MacroPrompt; remainingTurns: number }[] = [];
+
+/** 매크로 파일을 읽는다. 파일이 없으면 매크로를 쓰지 않는 것으로 본다. */
+function loadMacros() {
+  macros = [];
+  macroLoadError = null;
+
+  let raw: string;
+  try {
+    raw = readFileSync(macroConfigPath, "utf8");
+  } catch {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { macros?: unknown };
+    if (!Array.isArray(parsed.macros)) throw new Error("macros 배열이 없습니다.");
+
+    macros = parsed.macros.flatMap((entry, index) => {
+      const item = entry as Partial<MacroPrompt>;
+      const keywords = Array.isArray(item.keywords)
+        ? item.keywords.filter((word): word is string => typeof word === "string" && word.trim().length > 0).slice(0, MACRO_KEYWORD_LIMIT)
+        : [];
+      const prompt = typeof item.prompt === "string" ? item.prompt.trim() : "";
+      // 키워드나 본문이 없으면 켜질 수도, 켜져도 쓸모가 없으므로 버린다.
+      if (keywords.length === 0 || prompt.length === 0) return [];
+
+      return [{
+        id: typeof item.id === "string" && item.id.trim().length > 0 ? item.id.trim() : `macro-${index + 1}`,
+        keywords: keywords.map(word => word.trim()),
+        prompt,
+        priority: Number.isFinite(item.priority) ? Number(item.priority) : 0,
+        durationTurns: Math.min(MACRO_DURATION_LIMIT, Math.max(1, Number.isFinite(item.durationTurns) ? Number(item.durationTurns) : 3)),
+      }];
+    });
+
+    console.log(`[bori-server] 매크로 ${macros.length}건 불러옴`);
+  } catch (error) {
+    macroLoadError = error instanceof Error ? error.message : String(error);
+    console.error("[bori-server] 매크로 파일을 읽지 못했습니다:", macroLoadError);
+  }
+}
+
+/**
+ * 채팅에 키워드가 있는 매크로를 켠다.
+ * 이미 켜져 있으면 남은 턴을 다시 채운다. 화제가 이어지는 동안 계속 붙어 있게 하기 위한 것이다.
+ */
+function activateMacros(content: string) {
+  if (!llmSettings.macroEnabled || macros.length === 0) return;
+
+  for (const macro of macros) {
+    if (!macro.keywords.some(keyword => content.includes(keyword))) continue;
+
+    const already = activeMacros.find(entry => entry.macro.id === macro.id);
+    if (already) already.remainingTurns = macro.durationTurns;
+    else activeMacros.push({ macro, remainingTurns: macro.durationTurns });
+  }
+
+  if (activeMacros.length > MACRO_ACTIVE_LIMIT) {
+    activeMacros = [...activeMacros]
+      .sort((a, b) => b.macro.priority - a.macro.priority)
+      .slice(0, MACRO_ACTIVE_LIMIT);
+  }
+}
+
+/** 답변을 한 번 내보낸 뒤 남은 턴을 줄인다. 다 쓴 매크로는 떨어져 나간다. */
+function tickMacros() {
+  if (activeMacros.length === 0) return;
+  activeMacros = activeMacros
+    .map(entry => ({ ...entry, remainingTurns: entry.remainingTurns - 1 }))
+    .filter(entry => entry.remainingTurns > 0);
+}
+
+/**
+ * 매 턴 그대로 들어가는 시스템 프롬프트의 크기.
+ * 이 부분은 검색되지 않고 항상 전달되므로, 얼마나 큰지 눈에 보여야 관리할 수 있다.
+ */
+function systemPromptSize(): number {
+  return buildSystemPrompt({
+    content: "",
+    recentTurns: [],
+    memories: [],
+    sessionSummary: "",
+    macroPrompts: [],
+    broadcastStatus: [],
+    allowedEmotions: boriEmotionNames,
+    allowedMotions: boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] })),
+    maxReplyLength: llmSettings.maxReplyLength,
+    timeoutMs: llmSettings.timeoutMs,
+  }).length;
+}
+
+function macroStatus(): MacroStatus {
+  return {
+    loaded: macros.length,
+    active: activeMacros.map(entry => ({ id: entry.macro.id, remainingTurns: entry.remainingTurns })),
+    path: macroConfigPath,
+    error: macroLoadError,
+  };
+}
+
+loadMacros();
+
+// ── 방송 진행 상황 ────────────────────────────────────────────
+// 모델은 대화 텍스트만 보고 경과 시간이나 답변 수를 셀 수 없다.
+// 세라고 지시하는 대신 서버가 계산한 값을 문장으로 넘긴다.
+let sessionStartedAt = 0;
+let answeredCount = 0;
+
+function broadcastStatusLines(): string[] {
+  if (state.status !== "live" || sessionStartedAt === 0) return [];
+
+  const minutes = Math.floor((Date.now() - sessionStartedAt) / 60_000);
+  const lines = [minutes < 1 ? "방송을 막 시작했다." : `방송을 시작한 지 ${minutes}분 지났다.`];
+  if (answeredCount > 0) lines.push(`지금까지 채팅 ${answeredCount}개에 답했다.`);
+  return lines;
+}
+
 let state: BroadcastState = { status: "idle", layout: "chat", currentEmotion: "calm", queueSize: 0, visibleChatCount: 0, lastError: null, visibleChats: [], unprocessedCount: 0 };
 
 const unsafePattern = /(\uC815\uCE58|\uC758\uB8CC|\uBC95\uB960|\uD22C\uC790|\uAC1C\uC778\uC815\uBCF4|\uBE44\uBC00\uBC88\uD638|\uD574\uD0B9|\uC790\uD574|\uD504\uB86C\uD504\uD2B8|\uC2DC\uC2A4\uD15C \uBA54\uC2DC\uC9C0)/i;
@@ -213,6 +364,19 @@ const bodyAction = (name: string, priority: number): CharacterResponse["actions"
  * 쿨다운이 지나지 않은 문장은 피해서 고른다.
  * 후보가 모두 쿨다운이면 가장 오래전에 쓴 문장을 쓴다. 답변을 아예 못 하는 것보다 낫다.
  */
+function isDuplicateChat(key: string): boolean {
+  const windowMs = Math.max(0, settings.duplicateWindowMinutes) * 60_000;
+  const now = Date.now();
+
+  // 창을 넘긴 기록은 여기서 같이 지운다. 긴 방송에서 맵이 무한정 커지지 않게 하기 위한 것이다.
+  for (const [seen, at] of recentContents) {
+    if (now - at >= windowMs) recentContents.delete(seen);
+  }
+
+  const last = recentContents.get(key);
+  return last !== undefined && now - last < windowMs;
+}
+
 function pick(values: readonly string[]): string {
   const now = Date.now();
   const cooldownMs = settings.sameReplyCooldownMinutes * 60_000;
@@ -354,6 +518,9 @@ async function makeResponse(content: string): Promise<CharacterResponse | null> 
 
   if (!llmAvailable) return fallbackResponse();
 
+  // 키워드 매크로는 왕복이 없으므로 기억 검색보다 먼저 켠다.
+  activateMacros(content);
+
   // 관련 기억을 찾아 문맥에 넣는다. 검색이 실패해도 답변은 계속 만든다.
   let memories: string[] = [];
   if (memorySettings.enabled) {
@@ -369,6 +536,9 @@ async function makeResponse(content: string): Promise<CharacterResponse | null> 
     content,
     recentTurns: [...recentTurns],
     memories,
+    sessionSummary,
+    macroPrompts: activeMacros.map(entry => entry.macro.prompt),
+    broadcastStatus: broadcastStatusLines(),
     allowedEmotions: boriEmotionNames,
     allowedMotions: boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] })),
     maxReplyLength: llmSettings.maxReplyLength,
@@ -414,6 +584,45 @@ function recordTurn(role: "viewer" | "bori", text: string, viewerId?: string) {
   while (recentTurns.length > RECENT_TURN_LIMIT) recentTurns.shift();
   // 기억 후보 추출은 방송 전체 대화를 대상으로 하므로 따로 쌓아 둔다.
   sessionTurns.push({ role, text, ...(viewerId ? { viewerId } : {}) });
+  // 창 밖으로 밀려나는 대화를 누적 요약이 대신 붙든다.
+  maybeUpdateRollingSummary();
+}
+
+/**
+ * 방송 중 누적 요약을 갱신한다.
+ * 최근 대화는 RECENT_TURN_LIMIT턴만 남으므로 그보다 앞선 이야기는 이 요약에만 남는다.
+ * 매 턴이 아니라 rollingSummaryTurns 턴마다 한 번 접어 비용과 지연을 낮춘다.
+ * 답변 경로를 막지 않으며, 늦게 도착하면 그다음 답변부터 반영된다.
+ */
+function maybeUpdateRollingSummary() {
+  if (!llmSettings.rollingSummaryEnabled || !llmSettings.enabled) return;
+  if (llmApiKey.trim().length === 0) return;
+  // 답변용 호출이 연달아 실패하는 중이라면 요약도 시도하지 않는다.
+  if (llm.isCircuitOpen()) return;
+  if (summaryInFlight) return;
+
+  const pending = sessionTurns.slice(summarizedTurnCount);
+  if (pending.length < llmSettings.rollingSummaryTurns) return;
+
+  const adapter = createAdapter(llmSettings.provider, { apiKey: llmApiKey, model: llmSettings.model });
+  if (!adapter) return;
+
+  summaryInFlight = true;
+  // 요약을 기다리는 사이 방송이 다시 시작될 수 있으므로 호출 시점의 세대를 잡아 둔다.
+  const generation = sessionGeneration;
+  const consumed = summarizedTurnCount + pending.length;
+
+  void summarizeSessionProgress(adapter, sessionSummary, pending, { timeoutMs: Math.max(llmSettings.timeoutMs, 15_000) })
+    .then(updated => {
+      if (generation !== sessionGeneration) return;
+      if (!updated) return;
+      sessionSummary = updated;
+      // 실패했을 때는 개수를 올리지 않는다. 접지 못한 대화가 다음 시도에 다시 넘어간다.
+      summarizedTurnCount = consumed;
+      console.log(`[bori-server] 누적 요약 갱신 (${consumed}턴까지)`);
+    })
+    .catch(error => { console.error("[bori-server] 누적 요약 실패:", error); })
+    .finally(() => { summaryInFlight = false; });
 }
 
 /**
@@ -479,8 +688,12 @@ function speak(response: CharacterResponse, audioId?: string) {
 
   // 음성이 있으면 재생 시간을 감안해 말풍선을 조금 더 오래 둔다.
   const displayMs = audioId ? Math.max(RESPONSE_DISPLAY_MS, Math.min(15_000, response.reply.length * 110)) : RESPONSE_DISPLAY_MS;
+  // 표시가 끝나기 전에 방송을 다시 시작하면 이 타이머는 이전 세션 것이다.
+  // 세대를 보지 않으면 새 세션이 막 올린 말풍선을 지워 버린다.
+  const generation = sessionGeneration;
 
   setTimeout(() => {
+    if (generation !== sessionGeneration) return;
     state = { ...state, currentResponse: undefined, currentAudioId: undefined };
     speaking = false;
     scheduleNext();
@@ -508,39 +721,64 @@ function scheduleMonologue() {
     const monologue = makeMonologue();
     const generation = sessionGeneration;
     speaking = true;
-    void prepareAudio(monologue.reply).then(audioId => {
-      if (generation !== sessionGeneration || state.status !== "live") { speaking = false; return; }
-      speak(monologue, audioId);
-    });
+    void prepareAudio(monologue.reply)
+      .then(audioId => {
+        if (generation !== sessionGeneration || state.status !== "live") { speaking = false; return; }
+        // 혼잣말도 방송에 나간 발화다. 기록하지 않으면 보리가 방금 한 말을 스스로 모른다.
+        recordTurn("bori", monologue.reply);
+        speak(monologue, audioId);
+      })
+      .catch(error => {
+        console.error("[bori-server] 혼잣말 처리 실패:", error);
+        if (generation !== sessionGeneration) return;
+        speaking = false;
+        scheduleNext();
+      });
   }, delay);
 }
+/**
+ * 다음 답변을 예약한다.
+ *
+ * 사람처럼 보이려고 두는 5~10초 대기와 LLM·TTS 호출을 겹쳐서 돌린다.
+ * 예전에는 대기가 끝난 뒤에야 호출을 시작해서 둘이 그대로 더해졌다.
+ * 지금은 둘 중 늦은 쪽만큼만 걸리므로, 대기 시간 안에 끝나는 호출은 지연이 0이 된다.
+ *
+ * 대신 답변할 채팅을 대기 전에 고르게 되므로, 대기 중에 들어온 채팅은
+ * 이번 차례의 후보가 아니라 다음 차례로 넘어간다.
+ */
 function scheduleNext() {
   if (responseTimer || speaking || state.status !== "live" || queue.length === 0) return;
+
+  // 질문을 약간 더 자주 고른다.
+  const index = queue.reduce((best, item, current) => isQuestion(item.content) && !isQuestion(queue[best].content) ? current : best, 0);
+  const chat = queue.splice(index, 1)[0];
+  syncQueueState();
+
+  // 생성이 끝나기 전에 혼잣말이 끼어들지 않도록 발화권을 먼저 잡는다.
+  speaking = true;
+  cancelMonologue();
+  const generation = sessionGeneration;
 
   const min = settings.responseDelayMinSeconds;
   const max = Math.max(min, settings.responseDelayMaxSeconds);
   const delay = (min + Math.random() * (max - min)) * 1000;
+  const waited = new Promise<void>(resolve => {
+    responseTimer = setTimeout(() => { responseTimer = undefined; resolve(); }, delay);
+  });
 
-  responseTimer = setTimeout(() => {
-    responseTimer = undefined;
-    if (state.status !== "live" || queue.length === 0) return;
+  // 답변과 음성을 대기와 나란히 만든다. 실패는 각 함수가 안에서 처리한다.
+  const prepared = makeResponse(chat.content).then(async responseForChat => {
+    if (!responseForChat) return null;
+    return { response: responseForChat, audioId: await prepareAudio(responseForChat.reply) };
+  });
 
-    // 질문을 약간 더 자주 고른다.
-    const index = queue.reduce((best, item, current) => isQuestion(item.content) && !isQuestion(queue[best].content) ? current : best, 0);
-    const chat = queue.splice(index, 1)[0];
-    syncQueueState();
-
-    // LLM 호출이 섞이므로 응답 생성은 비동기다. 그동안 발화권을 잡아 둔다.
-    speaking = true;
-    cancelMonologue();
-    const generation = sessionGeneration;
-
-    void makeResponse(chat.content).then(responseForChat => {
-      // 응답을 만드는 사이에 방송이 끝났거나 다시 시작했으면 이전 세션의 답변이므로 버린다.
+  void Promise.all([prepared, waited])
+    .then(([result]) => {
+      // 만드는 사이에 방송이 끝났거나 다시 시작했으면 이전 세션의 답변이므로 버린다.
       if (generation !== sessionGeneration) return;
       if (state.status !== "live") { speaking = false; return; }
 
-      if (!responseForChat) {
+      if (!result) {
         // 차단된 채팅은 조용히 넘기고 다음 후보로 넘어간다.
         speaking = false;
         state = { ...state, unprocessedCount: state.unprocessedCount + 1 };
@@ -550,15 +788,23 @@ function scheduleNext() {
       }
 
       recordTurn("viewer", chat.content, chat.viewerId);
-      recordTurn("bori", responseForChat.reply);
+      recordTurn("bori", result.response.reply);
+      answeredCount += 1;
+      // 답변이 실제로 나갔을 때만 매크로 수명을 줄인다.
+      tickMacros();
 
-      // 음성을 먼저 만들어 두면 말풍선과 소리가 같이 시작된다.
-      void prepareAudio(responseForChat.reply).then(audioId => {
-        if (generation !== sessionGeneration || state.status !== "live") { speaking = false; return; }
-        speak(responseForChat, audioId);
-      });
+      speak(result.response, result.audioId);
+    })
+    .catch(error => {
+      // 여기까지 온 예외는 예상하지 못한 것이다.
+      // 발화권을 놓지 않으면 방송이 그대로 멈추므로 반드시 풀어 준다.
+      console.error("[bori-server] 답변 처리 실패:", error);
+      state = { ...state, lastError: `답변 처리 실패: ${error instanceof Error ? error.message : String(error)}` };
+      if (generation !== sessionGeneration) return;
+      speaking = false;
+      scheduleNext();
+      scheduleMonologue();
     });
-  }, delay);
 }
 
 function sendJson(response: import("node:http").ServerResponse, status: number, body: unknown) { response.writeHead(status); response.end(JSON.stringify(body)); }
@@ -570,7 +816,15 @@ const server = createServer((request, response) => {
   if (request.method === "GET" && request.url === "/api/settings") { sendJson(response, 200, settings); return; }
   // LLM 상태. API 키 자체는 내보내지 않고 설정 여부만 알린다.
   if (request.method === "GET" && request.url === "/api/llm") {
-    sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels });
+    sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels, macro: macroStatus(), systemPromptChars: systemPromptSize() });
+    return;
+  }
+  // 매크로는 파일로 편집하므로, 서버를 다시 띄우지 않고 다시 읽을 수 있게 한다.
+  if (request.method === "POST" && request.url === "/api/macros/reload") {
+    loadMacros();
+    // 파일이 바뀌었으면 지금 켜져 있는 항목도 옛 정의를 들고 있으므로 모두 내린다.
+    activeMacros = [];
+    sendJson(response, macroLoadError ? 400 : 200, macroStatus());
     return;
   }
   if (request.method === "PATCH" && request.url === "/api/llm") {
@@ -590,10 +844,12 @@ const server = createServer((request, response) => {
         llmSettings = { ...llmSettings, ...next };
         // 업체를 바꿨는데 모델을 함께 보내지 않았으면 기본 모델로 맞춘다.
         if (next.provider && !next.model) llmSettings.model = defaultModels[next.provider as LlmProvider];
+        // 주기가 너무 짧으면 요약 호출이 답변 호출만큼 잦아진다. 하한을 둔다.
+        if (!Number.isFinite(llmSettings.rollingSummaryTurns) || llmSettings.rollingSummaryTurns < 4) llmSettings.rollingSummaryTurns = 4;
 
         llm.reset();
         saveLlmConfig();
-        sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels });
+        sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels, macro: macroStatus(), systemPromptChars: systemPromptSize() });
       } catch { sendJson(response, 400, { error: "Invalid JSON" }); }
     });
     return;
@@ -711,6 +967,13 @@ const server = createServer((request, response) => {
     replyLastUsedAt.clear();
     recentTurns.length = 0;
     sessionTurns.length = 0;
+    // 누적 요약도 방송 단위다. 이전 방송의 흐름을 새 방송에 끌고 오지 않는다.
+    sessionSummary = "";
+    summarizedTurnCount = 0;
+    // 매크로와 진행 상황도 방송마다 새로 센다.
+    activeMacros = [];
+    sessionStartedAt = Date.now();
+    answeredCount = 0;
     speaking = false;
     if (responseTimer) clearTimeout(responseTimer);
     responseTimer = undefined;
@@ -724,6 +987,7 @@ const server = createServer((request, response) => {
     sessionGeneration += 1;
     queue.length = 0;
     speaking = false;
+    activeMacros = [];
     if (responseTimer) clearTimeout(responseTimer);
     responseTimer = undefined;
     cancelMonologue();
@@ -739,8 +1003,8 @@ const server = createServer((request, response) => {
         const input = JSON.parse(body) as { content?: string; nickname?: string };
         const content = input.content?.trim() ?? "";
         const key = normalize(content);
-        if (!content || state.status !== "live" || recentContents.has(key)) { sendJson(response, 400, { error: "\uCC44\uD305\uC744 \uCC98\uB9AC\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." }); return; }
-        recentContents.add(key);
+        if (!content || state.status !== "live" || isDuplicateChat(key)) { sendJson(response, 400, { error: "\uCC44\uD305\uC744 \uCC98\uB9AC\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." }); return; }
+        recentContents.set(key, Date.now());
 
         // \uB2C9\uB124\uC784\uC740 \uB0B4\uBD80 \uC0AC\uC6A9\uC790 ID\uB85C\uB9CC \uC4F4\uB2E4. \uBC29\uC1A1 \uD654\uBA74\uC5D0\uB294 \uB0B4\uBCF4\uB0B4\uC9C0 \uC54A\uB294\uB2E4.
         const nickname = input.nickname?.trim().slice(0, 20);
