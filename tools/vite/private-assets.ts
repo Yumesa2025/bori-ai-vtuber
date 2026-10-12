@@ -1,5 +1,5 @@
 import { cp, mkdir, readFile, realpath } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * 구매 모델과 Cubism SDK를 저장소 밖 비공개 폴더에서 서빙하는 Vite 설정 조각.
@@ -44,6 +44,20 @@ function assetRoutesFor(projectRoot: string) {
   ] as const;
 }
 
+/**
+ * dev 요청이 가리키는 파일 경로. 폴더 밖이거나 include 밖이면 null이다.
+ * 접두사 비교(startsWith)는 구분자를 보지 않아 형제 폴더(maolili-x/)를 통과시키므로 relative로 본다.
+ */
+function allowedFilePath(route: ReturnType<typeof assetRoutesFor>[number], url: string): string | null {
+  const filePath = resolve(route.root, url.slice(route.prefix.length));
+  const rel = relative(route.root, filePath);
+  // 상위 경로로 빠져나가거나 다른 드라이브로 풀리는 요청은 거부한다.
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  // 빌드가 include만 복사하므로 dev에서도 같은 파일만 내준다.
+  if (route.include && !(route.include as readonly string[]).includes(rel.split(sep).join("/"))) return null;
+  return filePath;
+}
+
 export function privateAssets({ projectRoot, outDir }: { projectRoot: string; outDir: string }) {
   const assetRoutes = assetRoutesFor(projectRoot);
   return {
@@ -55,9 +69,8 @@ export function privateAssets({ projectRoot, outDir }: { projectRoot: string; ou
         const route = assetRoutes.find(candidate => url.startsWith(candidate.prefix));
         if (!route) { next(); return; }
 
-        const filePath = resolve(route.root, url.slice(route.prefix.length));
-        // 상위 경로로 빠져나가는 요청은 거부한다.
-        if (!filePath.startsWith(route.root)) { response.statusCode = 403; response.end(); return; }
+        const filePath = allowedFilePath(route, url);
+        if (!filePath) { response.statusCode = 403; response.end(); return; }
 
         try {
           const data = await readFile(filePath);
