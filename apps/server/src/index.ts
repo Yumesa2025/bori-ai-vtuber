@@ -10,7 +10,7 @@ import { createAdapter as createProviderAdapter, createLlmClient, defaultModels,
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
 import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, pickNextChatIndex, type ConversationSession } from "./conversation/index.js";
 import { COMPANION_LOCAL_OWNER, createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
-import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
+import { createApiKeySlot } from "./secret-store.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
 import { isValidVoice, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
 import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
@@ -70,8 +70,10 @@ let llmSettings: LlmSettings = {
   rollingSummaryTurns: 10,
   macroEnabled: true,
 };
-// 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓴다.
-let llmApiKey = process.env.OPENAI_API_KEY ?? "";
+// 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓰고, 환경변수 키는 파일에 쓰지 않는다.
+const llmKey = createApiKeySlot(process.env.OPENAI_API_KEY);
+/** 지금 쓰는 키. llmKey가 바뀔 때마다 맞춘다. */
+let llmApiKey = llmKey.current();
 
 // ── API 사용량 ────────────────────────────────────────────────
 // 기능·모드·모델별 호출 수와 토큰·글자 수만 날짜별로 센다. 대화 내용·닉네임·소유자 ID는 넘기지 않는다(ADR-018).
@@ -103,19 +105,14 @@ function loadLlmConfig() {
     const saved = JSON.parse(readFileSync(llmConfigPath, "utf8")) as { settings?: Partial<LlmSettings>; apiKey?: string };
     if (saved.settings) llmSettings = { ...llmSettings, ...saved.settings };
 
-    if (typeof saved.apiKey === "string" && saved.apiKey.length > 0) {
-      const decrypted = decryptSecret(saved.apiKey);
-      if (decrypted.length > 0) {
-        llmApiKey = decrypted;
-        // 이전 버전이 평문으로 남긴 키는 즉시 암호문으로 바꿔 저장한다.
-        if (!isEncrypted(saved.apiKey)) {
-          saveLlmConfig();
-          console.log("[bori-server] 평문으로 저장돼 있던 API 키를 암호화했습니다.");
-        }
-      } else {
-        console.warn("[bori-server] 저장된 API 키를 풀지 못했습니다. 다른 컴퓨터에서 만든 파일일 수 있습니다.");
-      }
+    const keyState = llmKey.load(saved.apiKey);
+    llmApiKey = llmKey.current();
+    // 이전 버전이 평문으로 남긴 키는 즉시 암호문으로 바꿔 저장한다.
+    if (keyState === "plaintext") {
+      saveLlmConfig();
+      console.log("[bori-server] 평문으로 저장돼 있던 API 키를 암호화했습니다.");
     }
+    if (keyState === "unreadable") console.warn("[bori-server] 저장된 API 키를 풀지 못했습니다. 다른 컴퓨터에서 만든 파일일 수 있습니다.");
     console.log("[bori-server] LLM 설정을 불러왔습니다.");
   } catch {
     // 파일이 없으면 기본값으로 시작한다.
@@ -125,8 +122,8 @@ function loadLlmConfig() {
 function saveLlmConfig() {
   try {
     mkdirSync(dirname(llmConfigPath), { recursive: true });
-    // 키는 항상 암호화해서 저장한다.
-    writeFileSync(llmConfigPath, JSON.stringify({ settings: llmSettings, apiKey: encryptSecret(llmApiKey) }, null, 2), "utf8");
+    // 화면에서 넣은 키만 암호화해서 저장한다. 환경변수 키는 파일에 남기지 않는다.
+    writeFileSync(llmConfigPath, JSON.stringify({ settings: llmSettings, apiKey: llmKey.stored() }, null, 2), "utf8");
   } catch (error) {
     console.error("[bori-server] LLM 설정을 저장하지 못했습니다:", error);
   }
@@ -136,8 +133,9 @@ loadLlmConfig();
 
 // ── 음성 합성 ─────────────────────────────────────────────────
 let ttsSettings: TtsSettings = { ...defaultTtsSettings };
-/** ElevenLabs는 LLM과 다른 키를 쓴다. 이 키도 암호화해 저장한다. */
-let elevenLabsApiKey = process.env.ELEVENLABS_API_KEY ?? "";
+/** ElevenLabs는 LLM과 다른 키를 쓴다. 이 키도 화면에서 넣은 것만 암호화해 저장한다. */
+const elevenLabsKey = createApiKeySlot(process.env.ELEVENLABS_API_KEY);
+let elevenLabsApiKey = elevenLabsKey.current();
 const ttsConfigPath = resolve(dataRoot, "tts-config.json");
 
 const ttsCredentials = () => ({ openAiApiKey: llmApiKey, elevenLabsApiKey });
@@ -152,12 +150,15 @@ let ttsLastError: string | null = null;
 function loadTtsConfig() {
   try {
     const saved = JSON.parse(readFileSync(ttsConfigPath, "utf8")) as Partial<TtsSettings> & { elevenLabsApiKey?: string };
-    if (typeof saved.elevenLabsApiKey === "string" && saved.elevenLabsApiKey.length > 0) {
-      const decrypted = decryptSecret(saved.elevenLabsApiKey);
-      if (decrypted.length > 0) elevenLabsApiKey = decrypted;
-    }
+    const keyState = elevenLabsKey.load(saved.elevenLabsApiKey);
+    elevenLabsApiKey = elevenLabsKey.current();
     delete saved.elevenLabsApiKey;
     ttsSettings = { ...ttsSettings, ...saved };
+    // LLM 키와 같이, 평문으로 남은 키는 다음 저장을 기다리지 않고 바로 암호문으로 바꾼다.
+    if (keyState === "plaintext") {
+      saveTtsConfig();
+      console.log("[bori-server] 평문으로 저장돼 있던 ElevenLabs 키를 암호화했습니다.");
+    }
   } catch {
     // 파일이 없으면 기본값으로 시작한다.
   }
@@ -166,8 +167,8 @@ function loadTtsConfig() {
 function saveTtsConfig() {
   try {
     mkdirSync(dirname(ttsConfigPath), { recursive: true });
-    // 키는 LLM 설정과 같은 방식으로 암호화해 저장한다.
-    writeFileSync(ttsConfigPath, JSON.stringify({ ...ttsSettings, elevenLabsApiKey: encryptSecret(elevenLabsApiKey) }, null, 2), "utf8");
+    // 키는 LLM 설정과 같은 방식으로, 화면에서 넣은 것만 암호화해 저장한다.
+    writeFileSync(ttsConfigPath, JSON.stringify({ ...ttsSettings, elevenLabsApiKey: elevenLabsKey.stored() }, null, 2), "utf8");
   } catch (error) {
     console.error("[bori-server] 음성 설정을 저장하지 못했습니다:", error);
   }
@@ -648,8 +649,8 @@ const server = createServer((request, response) => {
         if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
         const next = checked.patch;
 
-        // 키는 설정과 분리해 다룬다. 빈 문자열이 오면 키를 지우는 뜻이다.
-        if (typeof next.apiKey === "string") llmApiKey = next.apiKey.trim();
+        // 키는 설정과 분리해 다룬다. 빈 문자열이 오면 저장한 키를 지우는 뜻이고, 환경변수 키가 있으면 그것으로 돌아간다.
+        if (typeof next.apiKey === "string") { llmKey.set(next.apiKey); llmApiKey = llmKey.current(); }
         delete next.apiKey;
 
         llmSettings = { ...llmSettings, ...next };
@@ -704,8 +705,8 @@ const server = createServer((request, response) => {
         if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
         const next = checked.patch;
 
-        // 키는 설정과 분리해 다룬다. 빈 문자열이면 키를 지우는 뜻이다.
-        if (typeof next.elevenLabsApiKey === "string") elevenLabsApiKey = next.elevenLabsApiKey.trim();
+        // 키는 설정과 분리해 다룬다. 빈 문자열이면 저장한 키를 지우는 뜻이고, 환경변수 키가 있으면 그것으로 돌아간다.
+        if (typeof next.elevenLabsApiKey === "string") { elevenLabsKey.set(next.elevenLabsApiKey); elevenLabsApiKey = elevenLabsKey.current(); }
         delete next.elevenLabsApiKey;
 
         ttsSettings = { ...ttsSettings, ...next };

@@ -54,3 +54,36 @@ export function decryptSecret(stored: string): string {
 }
 
 export const isEncrypted = (stored: string): boolean => stored.startsWith(PREFIX);
+
+/** 파일에서 읽은 키의 상태. plaintext면 이전 버전이 남긴 평문이라 바로 암호문으로 다시 써야 한다. */
+export type StoredKeyState = "none" | "loaded" | "plaintext" | "unreadable";
+
+/**
+ * API 키 하나와 그 출처.
+ * 화면(PATCH)에서 입력한 키만 파일에 저장하고, 환경변수 키는 메모리에서만 쓴다.
+ * 저장된 키가 있으면 그것을 쓰고, 없을 때만 환경변수 키를 쓴다.
+ * 출처를 따로 두지 않으면 설정만 바꿔도 환경변수 키가 파일에 써지고, 그 뒤로는 환경변수를 바꿔도 반영되지 않는다.
+ */
+export function createApiKeySlot(envKey: string | undefined) {
+  const fromEnv = (envKey ?? "").trim();
+  let saved = "";
+
+  return {
+    /** 지금 쓸 키. */
+    current: () => saved || fromEnv,
+    /** 파일에 남은 값을 읽는다. 풀지 못하면 저장된 키가 없는 것으로 본다. */
+    load(stored: unknown): StoredKeyState {
+      if (typeof stored !== "string" || stored.length === 0) return "none";
+      const decrypted = decryptSecret(stored);
+      if (decrypted.length === 0) return "unreadable";
+      saved = decrypted;
+      return isEncrypted(stored) ? "loaded" : "plaintext";
+    },
+    /** 화면에서 받은 키. 빈 문자열이면 저장한 키를 지우고 환경변수 키로 돌아간다. */
+    set(value: string) { saved = value.trim(); },
+    /** 파일에 쓸 값. 화면에서 넣은 키가 없으면 undefined라 JSON에 필드가 생기지 않는다. */
+    stored: () => (saved.length > 0 ? encryptSecret(saved) : undefined),
+  };
+}
+
+export type ApiKeySlot = ReturnType<typeof createApiKeySlot>;
