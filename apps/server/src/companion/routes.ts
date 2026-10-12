@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { boriName, boriPersonaLines, conversationPolicies } from "@bori/character";
 import { boriEmotionNames, boriExpressionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
 import type { CharacterCatalog, CharacterProfile } from "@bori/shared";
+import { readBodyText } from "./body.js";
 import type { CompanionService } from "./service.js";
 import type { ConversationStore } from "./store.js";
 
@@ -10,8 +11,6 @@ export const MESSAGE_MAX_LENGTH = 500;
 /** 대화 제목 최대 길이(글자). 넘으면 잘라서 저장한다. */
 const TITLE_MAX_LENGTH = 60;
 const DEFAULT_TITLE = "새 대화";
-/** 요청 본문 상한. 메시지 500자를 넉넉히 담고도 남는 크기다. */
-const BODY_LIMIT_BYTES = 16 * 1024;
 
 type Handler = (request: IncomingMessage, response: ServerResponse) => boolean;
 
@@ -31,18 +30,13 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body));
 }
 
-/** 본문을 JSON 객체로 읽는다. 비어 있으면 빈 객체로 본다. */
-async function readJsonObject(request: IncomingMessage): Promise<Record<string, unknown>> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > BODY_LIMIT_BYTES) throw new HttpError(413, "요청 본문이 너무 큽니다.");
-    chunks.push(buffer);
-  }
-
-  const raw = Buffer.concat(chunks).toString("utf8");
+/**
+ * 본문을 JSON 객체로 읽는다. 비어 있으면 빈 객체로 본다.
+ * 본문이 너무 커서 이미 413으로 답했으면 null이다. 호출하는 쪽은 바로 끝낸다.
+ */
+async function readJsonObject(request: IncomingMessage, response: ServerResponse): Promise<Record<string, unknown> | null> {
+  const raw = await readBodyText(request, response);
+  if (raw === null) return null;
   if (raw.trim().length === 0) return {};
 
   let parsed: unknown;
@@ -103,7 +97,8 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
       if (segments.length === 2) {
         if (method === "GET") { sendJson(response, 200, { conversations: store.list(ownerId) }); return; }
         if (method === "POST") {
-          const body = await readJsonObject(request);
+          const body = await readJsonObject(request, response);
+          if (!body) return;
           if (body.title !== undefined && typeof body.title !== "string") throw new HttpError(400, "title은 문자열이어야 합니다.");
           const title = Array.from((body.title ?? "").trim()).slice(0, TITLE_MAX_LENGTH).join("");
           sendJson(response, 201, { conversation: store.create(ownerId, title.length > 0 ? title : DEFAULT_TITLE) });
@@ -131,7 +126,8 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
       }
       if (method !== "POST") throw new HttpError(405, "지원하지 않는 메서드입니다.");
 
-      const body = await readJsonObject(request);
+      const body = await readJsonObject(request, response);
+      if (!body) return;
       if (typeof body.content !== "string") throw new HttpError(400, "content는 문자열이어야 합니다.");
       if (body.tts !== undefined && typeof body.tts !== "boolean") throw new HttpError(400, "tts는 true 또는 false여야 합니다.");
       const content = body.content.trim();
