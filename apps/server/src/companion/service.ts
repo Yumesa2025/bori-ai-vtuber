@@ -75,6 +75,17 @@ export function createCompanionService(deps: CompanionServiceDeps) {
   const inFlight = new Set<string>();
   /** 답변 뒤에 도는 작업(LLM 기억 정리). 답변을 기다리게 하지 않는다. */
   const background = new Set<Promise<void>>();
+  /**
+   * 소유자별 기억 삭제 세대. 기억을 모두 지울 때마다 올린다.
+   * 기억 저장과 LLM 기억 정리는 비동기라 삭제 뒤에 끝날 수 있다. 시작할 때의 세대와 다르면 결과를 버린다.
+   */
+  const generations = new Map<string, number>();
+  const generationOf = (ownerId: string) => generations.get(ownerId) ?? 0;
+  /** 지금 세대를 잡아 두고, 그 뒤에 기억을 지웠는지 알려 주는 함수를 돌려준다. */
+  const staleCheck = (ownerId: string) => {
+    const started = generationOf(ownerId);
+    return () => generationOf(ownerId) !== started;
+  };
 
   // 소유자와 대화 ID를 함께 키로 쓴다. 대화 ID가 같아도 소유자가 다르면 다른 대화다.
   const keyOf = (ownerId: string, conversationId: string) => `${ownerId}\u0000${conversationId}`;
@@ -96,6 +107,7 @@ export function createCompanionService(deps: CompanionServiceDeps) {
    * 만든 기억은 그 사용자 소유의 private 기억이라 방송에서는 꺼내지 않는다.
    */
   async function savePrivateMemories(ownerId: string, content: string) {
+    const isStale = staleCheck(ownerId);
     const settings = deps.memorySettings();
     if (!settings.enabled) return;
 
@@ -103,7 +115,7 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     if (candidates.length === 0) return;
 
     try {
-      const saved = await deps.memoryStore.add(candidates, settings, deps.embedding());
+      const saved = await deps.memoryStore.add(candidates, settings, deps.embedding(), { isStale });
       if (saved > 0) console.log(`[bori-companion] 개인 기억 ${saved}건 저장`);
     } catch (error) {
       console.error("[bori-companion] 개인 기억 저장 실패:", error);
@@ -118,11 +130,12 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     const digest = deps.digestMemories;
     if (!digest) return;
 
+    const isStale = staleCheck(ownerId);
     try {
       const texts = await digest(turns.map(turn => ({ role: turn.role, text: turn.text })));
-      // 정리하는 사이 기억을 꺼도 저장하지 않는다.
+      // 정리하는 사이 기억을 껐거나 지웠으면 저장하지 않는다.
       const settings = deps.memorySettings();
-      if (!texts || !settings.enabled) return;
+      if (!texts || !settings.enabled || isStale()) return;
 
       const candidates: MemoryCandidate[] = texts
         .filter(text => Array.from(text).length <= DIGEST_MEMORY_MAX_LENGTH && !isUnsafeContent(text) && isStorableMemory(text))
@@ -130,7 +143,7 @@ export function createCompanionService(deps: CompanionServiceDeps) {
         .map(text => ({ text, kind: "viewer", scope: "private", ownerId, importance: 0.55, confidence: 0.7 }));
       if (candidates.length === 0) return;
 
-      const saved = await deps.memoryStore.add(candidates, settings, deps.embedding());
+      const saved = await deps.memoryStore.add(candidates, settings, deps.embedding(), { isStale });
       if (saved > 0) console.log(`[bori-companion] LLM 정리 개인 기억 ${saved}건 저장`);
     } catch (error) {
       console.error("[bori-companion] LLM 개인 기억 정리 실패:", error);
@@ -214,6 +227,15 @@ export function createCompanionService(deps: CompanionServiceDeps) {
   const ownedPrivate = (ownerId: string) =>
     deps.memoryStore.all().filter(record => record.scope === "private" && record.ownerId === ownerId);
 
+  /**
+   * 본인의 개인 기억을 모두 지운다. 진행 중인 기억 저장·정리 결과도 버린다.
+   * 1:1 소유자 ID(companion:)는 방송 시청자 ID(local: 등)와 겹치지 않으므로 소유자로 지워도 방송 기억은 남는다.
+   */
+  function clearMemories(ownerId: string): number {
+    generations.set(ownerId, generationOf(ownerId) + 1);
+    return deps.memoryStore.removeByOwner(ownerId);
+  }
+
   return {
     sendMessage,
     deleteConversation,
@@ -236,12 +258,20 @@ export function createCompanionService(deps: CompanionServiceDeps) {
       return deps.memoryStore.remove(memoryId);
     },
 
+    clearMemories,
+
     /**
-     * 본인의 개인 기억을 모두 지운다.
-     * 1:1 소유자 ID(companion:)는 방송 시청자 ID(local: 등)와 겹치지 않으므로 소유자로 지워도 방송 기억은 남는다.
+     * 본인의 1:1 기록을 모두 지운다. 대화·메시지·대화별 누적 요약·메모리의 세션·개인 기억이다.
+     * 방송 기억과 남의 기록은 건드리지 않는다. 답변을 만드는 중인 대화는 답변을 저장하지 못하고 끝난다.
      */
-    clearMemories(ownerId: string): number {
-      return deps.memoryStore.removeByOwner(ownerId);
+    clearAll(ownerId: string): { conversations: number; messages: number; memories: number } {
+      // 세션 키는 소유자로 시작한다(keyOf).
+      const prefix = keyOf(ownerId, "");
+      for (const key of sessions.keys()) {
+        if (key.startsWith(prefix)) sessions.delete(key);
+      }
+      const removed = deps.store.removeOwner(ownerId);
+      return { ...removed, memories: clearMemories(ownerId) };
     },
   };
 }

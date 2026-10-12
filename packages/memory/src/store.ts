@@ -7,6 +7,14 @@ import { MEMORY_FILE_VERSION, migrateMemoryFile } from "./migrate.js";
 import { isSameMemoryEmbedding, isSameMemoryText } from "./similar.js";
 import type { EmbeddingProvider, MemoryAccess, MemoryCandidate, MemoryRecord, MemorySearchHit, MemorySettings } from "./types.js";
 
+export type MemoryAddOptions = {
+  /**
+   * 임베딩을 기다린 뒤 저장 직전에 부른다. true면 아무것도 저장하지 않고 0을 돌려준다.
+   * 기다리는 사이 그 소유자의 기억을 모두 지웠다면, 지우기 전에 시작한 저장이 삭제를 되돌리지 않게 한다.
+   */
+  isStale?: () => boolean;
+};
+
 export type MemoryStoreOptions = {
   /** 마이그레이션 결과를 남길 곳. 기본은 콘솔이다. */
   log?: (message: string) => void;
@@ -89,8 +97,8 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
    * 같은 뜻은 두 단계로 본다. 먼저 문자열 규칙으로, 남은 것은 임베딩이 있으면 유사도로 본다(similar.ts).
    * 비교 대상은 공개 범위·소유자·종류가 모두 같은 기억뿐이다. 다른 사람의 기억과는 뜻이 같아도 합치지 않는다.
    */
-  async function add(candidates: readonly MemoryCandidate[], settings: MemorySettings, embedding: EmbeddingProvider | null): Promise<number> {
-    if (candidates.length === 0) return 0;
+  async function add(candidates: readonly MemoryCandidate[], settings: MemorySettings, embedding: EmbeddingProvider | null, options: MemoryAddOptions = {}): Promise<number> {
+    if (candidates.length === 0 || options.isStale?.()) return 0;
 
     const now = Date.now();
     const seenAt = new Date(now).toISOString();
@@ -141,6 +149,9 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
         // 임베딩 실패는 저장을 막지 않는다.
       }
     }
+
+    // isStale은 그 소유자의 기억을 지운 뒤에 true가 된다. 위에서 반복 횟수를 올린 기존 기억도 이미 목록에 없다.
+    if (options.isStale?.()) return 0;
 
     // 문자열로 못 잡은 바꿔 쓰기를 임베딩으로 한 번 더 합친다. 임베딩이 없는 기억끼리는 비교하지 않는다.
     const kept: MemoryRecord[] = [];
