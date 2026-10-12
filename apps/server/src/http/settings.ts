@@ -95,6 +95,8 @@ const memoryRules: { readonly [K in keyof MemorySettings]: FieldRule } = {
   minSimilarity: { kind: "number", min: 0, max: 1 },
   retentionDays: { kind: "number", min: 1, max: 3650, integer: true },
   embeddingModel: { kind: "string", pattern: MODEL_NAME, description: "모델 이름(영숫자와 . _ : -, 100자 이하)" },
+  // 0은 LLM 기억 정리를 끈다.
+  privateDigestEveryMessages: { kind: "number", min: 0, max: 50, integer: true },
 };
 
 export function validateMemorySettingsPatch(input: unknown): PatchResult<MemorySettings> {

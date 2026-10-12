@@ -21,7 +21,7 @@ export type FakeEngineHarness = {
   nextOutcome: LlmOutcome | null;
 };
 
-export const testMemorySettings: MemorySettings = { enabled: true, maxMemories: 5, minSimilarity: 0.3, retentionDays: 30, embeddingModel: "test" };
+export const testMemorySettings: MemorySettings = { enabled: true, maxMemories: 5, minSimilarity: 0.3, retentionDays: 30, embeddingModel: "test", privateDigestEveryMessages: 6 };
 
 export function createFakeEngineHarness(): FakeEngineHarness {
   const harness: FakeEngineHarness = {

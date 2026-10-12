@@ -152,3 +152,86 @@ describe("다시 읽기", () => {
     assert.deepEqual(store.messages(OWNER, "a")?.map(message => message.content), ["정상"]);
   });
 });
+
+describe("누적 요약", () => {
+  test("요약을 저장하면 다시 읽어도 남고, 목록 순서(updatedAt)는 바뀌지 않는다", () => {
+    const store = createConversationStore(filePath, { log: silent, now: steppingClock() });
+    const conversation = store.create(OWNER, "제목");
+    store.append(OWNER, conversation.id, { role: "user", content: "안녕" });
+    const updatedAt = store.get(OWNER, conversation.id)?.updatedAt;
+
+    assert.equal(store.setSummary(OWNER, conversation.id, "음악 이야기를 나눴다."), true);
+    assert.equal(store.get(OWNER, conversation.id)?.updatedAt, updatedAt);
+
+    const reloaded = createConversationStore(filePath, { log: silent });
+    reloaded.load();
+    assert.equal(reloaded.summaryOf(OWNER, conversation.id), "음악 이야기를 나눴다.");
+    const stored = JSON.parse(readFileSync(filePath, "utf8")) as { version: number; conversations: { summary?: string; summaryUpdatedAt?: string }[] };
+    assert.equal(stored.version, 2);
+    assert.equal(stored.conversations[0].summary, "음악 이야기를 나눴다.");
+    assert.equal(typeof stored.conversations[0].summaryUpdatedAt, "string");
+  });
+
+  test("요약은 밖으로 나가는 대화에 실리지 않는다", () => {
+    const store = createConversationStore(filePath, { log: silent });
+    const conversation = store.create(OWNER, "제목");
+    store.setSummary(OWNER, conversation.id, "내부 요약");
+    assert.ok(!JSON.stringify(store.list(OWNER)).includes("내부 요약"));
+    assert.ok(!JSON.stringify(store.get(OWNER, conversation.id)).includes("내부 요약"));
+  });
+
+  test("남의 대화에는 요약을 저장하지도 읽지도 못한다", () => {
+    const store = createConversationStore(filePath, { log: silent });
+    const theirs = store.create(OTHER, "남의 대화");
+    store.setSummary(OTHER, theirs.id, "남의 요약");
+    assert.equal(store.setSummary(OWNER, theirs.id, "덮어쓰기"), false);
+    assert.equal(store.summaryOf(OWNER, theirs.id), "");
+    assert.equal(store.summaryOf(OTHER, theirs.id), "남의 요약");
+  });
+
+  test("버전 1 파일은 요약 없이 그대로 읽고, 다음에 쓸 때 버전 2가 된다", () => {
+    writeFileSync(filePath, JSON.stringify({
+      version: 1,
+      conversations: [{ id: "a", ownerId: OWNER, title: "옛 대화", createdAt: "2026-10-12T00:00:00Z", updatedAt: "2026-10-12T00:00:00Z" }],
+      messages: [{ id: "m1", conversationId: "a", ownerId: OWNER, role: "user", content: "옛 메시지", createdAt: "2026-10-12T00:00:00Z" }],
+    }), "utf8");
+    const store = createConversationStore(filePath, { log: silent });
+    store.load();
+
+    assert.deepEqual(store.messages(OWNER, "a")?.map(message => message.content), ["옛 메시지"]);
+    assert.equal(store.summaryOf(OWNER, "a"), "");
+    assert.equal(readdirSync(dir).filter(name => name.includes(".unreadable-")).length, 0, "이전 버전은 백업하지 않는다");
+
+    store.setSummary(OWNER, "a", "요약");
+    assert.equal((JSON.parse(readFileSync(filePath, "utf8")) as { version: number }).version, 2);
+  });
+
+  test("문자열이 아닌 요약은 읽을 때 버린다", () => {
+    writeFileSync(filePath, JSON.stringify({
+      version: CONVERSATION_FILE_VERSION,
+      conversations: [{ id: "a", ownerId: OWNER, title: "제목", createdAt: "2026-10-12T00:00:00Z", updatedAt: "2026-10-12T00:00:00Z", summary: { text: "객체" } }],
+      messages: [],
+    }), "utf8");
+    const store = createConversationStore(filePath, { log: silent });
+    store.load();
+    assert.equal(store.summaryOf(OWNER, "a"), "");
+  });
+
+  test("활동 기록은 대화마다 첫·마지막 메시지 시각과 요약을 준다", () => {
+    const store = createConversationStore(filePath, { log: silent, now: steppingClock(Date.parse("2026-10-12T00:00:00Z")) });
+    const a = store.create(OWNER, "A");
+    store.append(OWNER, a.id, { role: "user", content: "하나" });
+    store.append(OWNER, a.id, { role: "bori", content: "둘" });
+    store.setSummary(OWNER, a.id, "A 요약");
+    const empty = store.create(OWNER, "빈 대화");
+
+    const activity = store.activity(OWNER);
+    assert.deepEqual(activity.find(entry => entry.id === a.id), {
+      id: a.id,
+      firstMessageAt: Date.parse("2026-10-12T00:00:02Z"),
+      lastMessageAt: Date.parse("2026-10-12T00:00:03Z"),
+      summary: "A 요약",
+    });
+    assert.deepEqual(activity.find(entry => entry.id === empty.id), { id: empty.id, firstMessageAt: null, lastMessageAt: null, summary: "" });
+  });
+});

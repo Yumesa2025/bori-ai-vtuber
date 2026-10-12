@@ -8,7 +8,7 @@ export type { LlmAdapter, LlmAdapterConfig, LlmRequest, LlmValidation } from "./
 export { validateLlmOutput } from "./validate.js";
 export { buildPromptLayers, buildSystemPrompt, buildUserPrompt, promptLayerOrder, type PromptLayer, type PromptLayerId } from "./prompt.js";
 export type { ConversationMode } from "@bori/character";
-export { summarizeBroadcast, summarizeSessionProgress, type BroadcastSummary, type SummaryTurn } from "./summarize.js";
+export { digestPrivateMemories, PRIVATE_MEMORY_DIGEST_LIMIT, summarizeBroadcast, summarizeSessionProgress, type BroadcastSummary, type SummaryTurn } from "./summarize.js";
 export {
   synthesizeSpeech,
   listVoices,

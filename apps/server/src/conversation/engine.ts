@@ -72,11 +72,14 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
   const policies = deps.policies ?? conversationPolicies;
   const makeAdapter = deps.createAdapter ?? createAdapter;
 
-  function createSession(mode: ConversationMode): ConversationSession {
+  /** onSummary를 주면 누적 요약이 갱신될 때마다 부른다. 1:1은 대화 레코드에 요약을 저장한다. */
+  function createSession(mode: ConversationMode, options: { onSummary?: (summary: string) => void } = {}): ConversationSession {
     const policy = policies[mode];
     // 모드를 모르면 다른 모드 정책으로 대신하지 않는다. 방송 규칙이 1:1 대화로 새거나 그 반대가 된다.
     if (!policy) throw new Error(`알 수 없는 대화 모드입니다: ${String(mode)}`);
-    return createSessionState(policy);
+    const session = createSessionState(policy);
+    if (options.onSummary) session.onSummary = options.onSummary;
+    return session;
   }
 
   const pick = (session: ConversationSession, values: readonly string[]) => pickReply(session, values, deps.replyCooldownMinutes());
@@ -205,13 +208,20 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     session.summaryInFlight = true;
     const consumed = session.summarizedTurnCount + pending.length;
 
-    void summarizeSessionProgress(adapter, session.summary, pending, { timeoutMs: Math.max(settings.timeoutMs, 15_000) })
+    // 모드별 지시문을 쓴다. 1:1 대화를 방송 기준("시청자", "방송")으로 요약하지 않는다.
+    void summarizeSessionProgress(adapter, session.summary, pending, { timeoutMs: Math.max(settings.timeoutMs, 15_000), mode: session.mode })
       .then(updated => {
         if (!updated) return;
         session.summary = updated;
         // 실패했을 때는 개수를 올리지 않는다. 접지 못한 대화가 다음 시도에 다시 넘어간다.
         session.summarizedTurnCount = consumed;
         console.log(`[bori-server] 누적 요약 갱신 (${consumed}턴까지)`);
+        // 저장이 실패해도 세션의 요약은 그대로 쓴다. 재시작 뒤에만 이 요약이 빠진다.
+        try {
+          session.onSummary?.(updated);
+        } catch (error) {
+          console.error("[bori-server] 누적 요약 저장 실패:", error);
+        }
       })
       .catch(error => { console.error("[bori-server] 누적 요약 실패:", error); })
       .finally(() => { session.summaryInFlight = false; });
@@ -236,7 +246,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     createSession,
     respond,
     record,
-    /** 저장된 대화로 새 세션의 최근 대화를 채운다. 누적 요약은 부르지 않는다. */
+    /** 저장된 대화와 누적 요약으로 새 세션을 채운다. 누적 요약 호출은 하지 않는다. */
     restore: restoreTurns,
     /** 답변이 실제로 나갔을 때 부른다. 그 시점은 모드가 정한다. */
     tickMacros,

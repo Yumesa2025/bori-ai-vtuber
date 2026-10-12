@@ -34,3 +34,15 @@ test("방송은 규칙 문장·무반응·서버 폴백을 그대로 쓰고, 1:1
   assert.ok(companion.refusalReplies.length > 0);
   assert.ok((companion.fallbackReplies ?? []).length > 0);
 });
+
+test("1:1 정책에 관계 맥락 지침(초안)이 있고, 방송 정책 문장은 그대로다", () => {
+  const rules = conversationPolicies.companion.rules.join("\n");
+  for (const phrase of ["처음 대화한다고 되어 있으면", "반가움을 표현한다", "[기억]이나 지난 대화 요약에 있는 것만", "아는 척하지 않는다", "그 상황에 먼저 반응한다"]) {
+    assert.ok(rules.includes(phrase), phrase);
+  }
+  assert.deepEqual(conversationPolicies.broadcast.rules, [
+    "- 밝고 편안한 소통 방송 진행자다.",
+    "- 시청자를 부를 때는 '여러분'이라고 한다.",
+    "- 시청자 닉네임은 절대 부르지 않는다.",
+  ]);
+});
