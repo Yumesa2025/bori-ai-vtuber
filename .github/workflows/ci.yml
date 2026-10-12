@@ -1,0 +1,47 @@
+# 공개 저장소에서 돌릴 수 있는 검사만 모은다.
+# 비밀값(secrets)을 쓰지 않고, 실모델 평가(eval:model)는 넣지 않는다. 외부 API는 tools/test의 mock 서버가 대신한다.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # 관리자 앱 빌드는 Vite 렌더러만 만든다. Electron 실행 파일은 받지 않아도 된다.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      # package.json에 engines가 없어 개발에 쓰는 Node 24를 따른다.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: npm run eval:test
+      - run: npm run eval:typecheck
+      - run: npm run eval:static
+      # mock OpenAI와 보리 서버를 띄우는 통합 검사. 포트는 기본값(4390/4391)을 쓴다.
+      - run: npm run test
+
+      # 비공개 자산 없이 되는 빌드만 돈다.
+      # 방송 화면(build:broadcast)과 1:1 화면(build:companion)은 빌드 마지막에 구매 Live2D 모델(maolili/)과
+      # Cubism SDK(private-assets/)를 dist로 복사한다(tools/vite/private-assets.ts). 두 폴더는 재배포 금지라
+      # 저장소에 없으므로 CI에서는 빌드가 실패한다. 두 화면의 타입 검사는 위 typecheck가 맡는다.
+      - run: npm run build:shared
+      - run: npm run build:server
+      - run: npm run build:admin

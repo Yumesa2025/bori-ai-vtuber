@@ -3,6 +3,11 @@ import { hostname, userInfo } from "node:os";
 
 const ALGORITHM = "aes-256-gcm";
 const PREFIX = "enc.v1:";
+/**
+ * 인증 태그 길이(바이트). 풀 때도 이 길이를 강제한다.
+ * 지정하지 않으면 GCM이 4바이트까지 잘린 태그를 받아 주므로, 파일을 고친 사람이 위조한 값이 통과하기 쉬워진다.
+ */
+const AUTH_TAG_BYTES = 16;
 
 /**
  * 로컬 저장용 키를 만든다.
@@ -22,7 +27,7 @@ export function encryptSecret(plain: string): string {
   if (plain.length === 0) return "";
 
   const iv = randomBytes(12);
-  const cipher = createCipheriv(ALGORITHM, deriveKey(), iv);
+  const cipher = createCipheriv(ALGORITHM, deriveKey(), iv, { authTagLength: AUTH_TAG_BYTES });
   const encrypted = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
 
@@ -39,7 +44,7 @@ export function decryptSecret(stored: string): string {
 
   try {
     const [ivPart, tagPart, dataPart] = stored.slice(PREFIX.length).split(":");
-    const decipher = createDecipheriv(ALGORITHM, deriveKey(), Buffer.from(ivPart, "base64"));
+    const decipher = createDecipheriv(ALGORITHM, deriveKey(), Buffer.from(ivPart, "base64"), { authTagLength: AUTH_TAG_BYTES });
     decipher.setAuthTag(Buffer.from(tagPart, "base64"));
     return Buffer.concat([decipher.update(Buffer.from(dataPart, "base64")), decipher.final()]).toString("utf8");
   } catch {
