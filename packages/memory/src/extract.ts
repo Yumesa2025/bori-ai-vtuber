@@ -14,6 +14,24 @@ const experiencePattern = /(퇴근|출근|시험|졸업|이사|아팠|아파|생
 export type ConversationTurn = { role: "viewer" | "bori"; text: string; viewerId?: string };
 
 /**
+ * 발언 하나가 장기 기억 후보인지 규칙으로 판정한다. 후보가 아니면 null이다.
+ * 방송과 1:1이 같은 기준을 쓰고, 공개 범위와 소유자는 호출하는 쪽이 정한다.
+ */
+function classifyMemoryText(raw: string): { text: string; importance: number } | null {
+  const text = raw.trim();
+  if (text.length < 6) return null;
+  if (excludePattern.test(text)) return null;
+  if (trivialPattern.test(text)) return null;
+
+  const isPreference = preferencePattern.test(text);
+  const isExperience = experiencePattern.test(text);
+  if (!isPreference && !isExperience) return null;
+
+  // 취향은 반복해서 확인되는 편이라 조금 더 높게 잡는다.
+  return { text, importance: isPreference ? 0.6 : 0.45 };
+}
+
+/**
  * 방송 대화에서 장기 기억 후보를 규칙으로 추린다.
  * 후보는 말한 시청자 소유의 방송 기억이 된다.
  * 익명 발언은 누구의 것인지 알 수 없으므로 후보로 만들지 않는다.
@@ -25,28 +43,37 @@ export function extractMemoryCandidates(turns: readonly ConversationTurn[]): Mem
     if (turn.role !== "viewer") continue;
     if (isAnonymousViewer(turn.viewerId)) continue;
 
-    const text = turn.text.trim();
-    if (text.length < 6) continue;
-    if (excludePattern.test(text)) continue;
-    if (trivialPattern.test(text)) continue;
-
-    const isPreference = preferencePattern.test(text);
-    const isExperience = experiencePattern.test(text);
-    if (!isPreference && !isExperience) continue;
+    const classified = classifyMemoryText(turn.text);
+    if (!classified) continue;
 
     candidates.push({
-      text,
+      text: classified.text,
       kind: "viewer",
       scope: "broadcast",
       ownerId: turn.viewerId,
-      // 취향은 반복해서 확인되는 편이라 조금 더 높게 잡는다.
-      importance: isPreference ? 0.6 : 0.45,
+      importance: classified.importance,
       // 규칙으로만 뽑은 단계라 확신은 중간이다. LLM 요약을 거치면 올라간다.
       confidence: 0.5,
     });
   }
 
   return candidates;
+}
+
+/**
+ * 1:1 대화의 사용자 메시지에서 개인 기억 후보를 추린다.
+ * 후보는 그 사용자 소유의 private 기억이 되고, 방송 기억으로는 만들지 않는다.
+ * 소유자를 모르면 누구의 기억인지 알 수 없으므로 후보를 만들지 않는다.
+ */
+export function extractPrivateMemoryCandidates(texts: readonly string[], ownerId: string): MemoryCandidate[] {
+  if (ownerId.trim().length === 0 || isAnonymousViewer(ownerId)) return [];
+
+  return texts.flatMap(text => {
+    const classified = classifyMemoryText(text);
+    if (!classified) return [];
+    // kind는 사람에 관한 기억이라는 뜻으로 viewer를 그대로 쓴다. 누구의 것인지는 scope와 ownerId가 정한다.
+    return [{ text: classified.text, kind: "viewer" as const, scope: "private" as const, ownerId, importance: classified.importance, confidence: 0.5 }];
+  });
 }
 
 /** 위험하거나 개인정보가 섞인 요약은 저장 직전에 한 번 더 막는다. */

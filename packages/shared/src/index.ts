@@ -153,3 +153,63 @@ export type BroadcastState = {
   /** 이번 답변의 음성 식별자. `/api/tts/{id}`로 받아 재생한다. 음성이 없으면 비어 있다. */
   currentAudioId?: string;
 };
+
+// ── 1:1 대화(companion) API ─────────────────────────────────
+// 소유자는 서버가 정한다. 응답에는 소유자 ID를 싣지 않는다.
+
+/** 1:1 대화 하나. 목록은 updatedAt 내림차순이다. */
+export type Conversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+};
+
+/**
+ * 보리 답변이 만들어진 경로.
+ * llm: LLM 답변, rule: 규칙 문장, fallback: LLM을 쓸 수 없어 쓴 폴백 문장, blocked: 위험 주제 거절 문장.
+ */
+export type ConversationMessageSource = "llm" | "rule" | "fallback" | "blocked";
+
+/** 1:1 대화 메시지. emotion·actions·source는 보리 메시지에만 있다. */
+export type ConversationMessage = {
+  id: string;
+  role: "user" | "bori";
+  content: string;
+  createdAt: string;
+  emotion?: { primary: string; intensity: number; durationSeconds: number };
+  actions?: { name: string; layer: CharacterResponse["actions"][number]["layer"]; priority: number }[];
+  source?: ConversationMessageSource;
+};
+
+/** `POST /api/conversations/:id/messages` 응답. 폴백 문장을 썼으면 failure에 이유의 종류가 있다. */
+export type SendConversationMessageResult = {
+  userMessage: ConversationMessage;
+  reply: ConversationMessage;
+  /** 음성 식별자. `/api/tts/{id}`로 받는다. 요청하지 않았거나 만들지 못했으면 없다. */
+  audioId?: string;
+  failure?: { kind: string };
+};
+
+/** 1:1 사용자 본인의 개인 기억. 원문과 수명만 보여 준다. */
+export type CompanionMemory = {
+  id: string;
+  text: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+/** 1:1 화면에 보여 줄 캐릭터 정보. 시스템 프롬프트 전체나 내부 규칙은 담지 않는다. */
+export type CharacterProfile = {
+  name: string;
+  personaLines: string[];
+  companionPolicyTitle: string;
+};
+
+/** 1:1 화면이 쓸 수 있는 감정·표정·모션 이름. */
+export type CharacterCatalog = {
+  emotions: string[];
+  expressions: string[];
+  motions: { name: string; description: string }[];
+};
