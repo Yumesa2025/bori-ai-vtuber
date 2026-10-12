@@ -3,10 +3,10 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings } from "@bori/shared";
+import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
 import { boriEmotionNames, boriExpressionNames, boriMotionDescriptions, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { buildSystemPrompt, createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, summarizeSessionProgress, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
-import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
+import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemoryAccess, type MemorySettings } from "@bori/memory";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
@@ -508,7 +508,7 @@ function fallbackResponse(): CharacterResponse {
  * 규칙 우선, 규칙에 없으면 LLM, LLM이 실패하면 폴백 문장 순서로 답을 만든다.
  * 차단된 채팅은 null을 돌려주고 보리는 무반응한다.
  */
-async function makeResponse(content: string): Promise<CharacterResponse | null> {
+async function makeResponse(content: string, viewerId?: string): Promise<CharacterResponse | null> {
   // 키가 없거나 회로가 열려 있으면 LLM을 쓸 수 없으므로 규칙이 그대로 답한다.
   const llmAvailable = llmSettings.enabled && llmApiKey.trim().length > 0 && !llm.isCircuitOpen();
 
@@ -522,10 +522,12 @@ async function makeResponse(content: string): Promise<CharacterResponse | null> 
   activateMacros(content);
 
   // 관련 기억을 찾아 문맥에 넣는다. 검색이 실패해도 답변은 계속 만든다.
+  // 방송에서는 말한 시청자 본인의 기억과 소유자 없는 기억만 꺼낸다. 익명 채팅은 소유 기억을 하나도 보지 못한다.
   let memories: string[] = [];
   if (memorySettings.enabled) {
+    const access: MemoryAccess = isAnonymousViewer(viewerId) ? { mode: "broadcast" } : { mode: "broadcast", speakerId: viewerId };
     try {
-      const hits = await memoryStore.search(content, memorySettings, currentEmbedding());
+      const hits = await memoryStore.search(content, memorySettings, currentEmbedding(), access);
       memories = hits.map(hit => hit.record.text);
     } catch (error) {
       console.error("[bori-server] 기억 검색 실패:", error);
@@ -632,7 +634,8 @@ function maybeUpdateRollingSummary() {
 async function persistSessionMemories() {
   if (!memorySettings.enabled || sessionTurns.length === 0) return;
 
-  const candidates = extractMemoryCandidates(sessionTurns, "virtual-viewer")
+  // 익명 발언은 누구의 기억인지 알 수 없어 후보에서 빠진다.
+  const candidates = extractMemoryCandidates(sessionTurns)
     .filter(candidate => isStorableMemory(candidate.text));
 
   // 방송 전체 요약은 LLM이 만든다. 실패해도 규칙으로 뽑은 후보는 그대로 저장한다.
@@ -644,11 +647,11 @@ async function persistSessionMemories() {
         if (summary) {
           // 요약도 저장 직전에 위험 내용을 한 번 더 검사한다.
           if (isStorableMemory(summary.summary)) {
-            candidates.push({ text: summary.summary, kind: "broadcast", importance: 0.7, confidence: 0.8 });
+            candidates.push({ text: summary.summary, kind: "broadcast", scope: "broadcast", importance: 0.7, confidence: 0.8 });
           }
           for (const highlight of summary.highlights) {
             if (isStorableMemory(highlight)) {
-              candidates.push({ text: highlight, kind: "broadcast", importance: 0.6, confidence: 0.75 });
+              candidates.push({ text: highlight, kind: "broadcast", scope: "broadcast", importance: 0.6, confidence: 0.75 });
             }
           }
           console.log(`[bori-server] 방송 요약 생성 (하이라이트 ${summary.highlights.length}건)`);
@@ -767,7 +770,7 @@ function scheduleNext() {
   });
 
   // 답변과 음성을 대기와 나란히 만든다. 실패는 각 함수가 안에서 처리한다.
-  const prepared = makeResponse(chat.content).then(async responseForChat => {
+  const prepared = makeResponse(chat.content, chat.viewerId).then(async responseForChat => {
     if (!responseForChat) return null;
     return { response: responseForChat, audioId: await prepareAudio(responseForChat.reply) };
   });
@@ -916,7 +919,7 @@ const server = createServer((request, response) => {
     response.end(audio);
     return;
   }
-  // 장기 기억. 원문은 관리자만 본다.
+  // 장기 기억. 원문은 관리자만 본다. 공개 범위(scope)와 소유자(ownerId)도 함께 보낸다.
   if (request.method === "GET" && request.url === "/api/memory") {
     const records = memoryStore.all()
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
@@ -1018,8 +1021,9 @@ const server = createServer((request, response) => {
           category: isQuestion(content) ? "question" : "normal",
         };
 
-        // \uBC29\uC1A1 \uD654\uBA74\uC5D0 \uB118\uAE30\uB294 \uBAA9\uB85D\uC5D0\uC11C\uB294 \uB2C9\uB124\uC784\uC744 \uC9C0\uC6B4\uB2E4.
-        const visible: ChatMessage = { ...chat, viewerNickname: undefined };
+        // \uBC29\uC1A1 \uD654\uBA74\uC5D0 \uB118\uAE30\uB294 \uBAA9\uB85D\uC5D0\uB294 \uD654\uBA74\uC5D0 \uD544\uC694\uD55C \uAC12\uB9CC \uB2F4\uB294\uB2E4.
+        // viewerId\uB3C4 \uB2C9\uB124\uC784\uC5D0\uC11C \uB9CC\uB4E0 \uAC12\uC774\uB77C \uD568\uAED8 \uBE7C\uC57C \uB2C9\uB124\uC784\uC774 \uB4DC\uB7EC\uB098\uC9C0 \uC54A\uB294\uB2E4.
+        const visible: VisibleChat = { id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) };
         state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
 
         if (queue.length >= settings.maxQueueSize) queue.shift();

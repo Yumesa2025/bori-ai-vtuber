@@ -6,7 +6,9 @@
 npm run test
 ```
 
-32건을 약 100초에 검사한다. 실패하면 종료 코드 1이다.
+44건을 약 130초에 검사한다. 실패하면 종료 코드 1이다.
+
+순수 함수 수준의 단위 검사는 따로 `npm run test:unit`으로 돌린다(`packages/*/test/*.test.ts`, Node 내장 `node:test` + `tsx`).
 
 ## 왜 이 형태인가
 
@@ -27,9 +29,10 @@ npm run test
 | `mock-openai.mjs` | 가짜 API 서버. 답변·임베딩·음성 세 경로와 검사용 엔드포인트 |
 | `latency.mjs` | 체감 지연 시나리오 |
 | `behavior.mjs` | 동작 시나리오 |
-| `fixtures/` | 시나리오가 쓰는 설정·기억·매크로 고정 자료 |
+| `isolation.mjs` | 기억 격리 시나리오. 시청자 A의 기억이 B 채팅의 LLM 요청에 들어가지 않는지, 기동 시 기억 파일 마이그레이션 |
+| `fixtures/` | 시나리오가 쓰는 설정·기억·매크로 고정 자료. `memories.json`은 마이그레이션 경로를 타도록 일부러 예전(v1) 형식이다 |
 
-시나리오는 `meta`와 `run`을 내보내는 모듈이다. `meta.timing`으로 가짜 API의 응답 지연을 정하고, `run({ bori, mock, report })`에서 검사한다. 실행기가 시나리오마다 서버를 새로 띄우고 임시 데이터 디렉터리를 새로 만든다.
+시나리오는 `meta`와 `run`을 내보내는 모듈이다. `meta.timing`으로 가짜 API의 응답 지연을 정하고, `run({ bori, mock, report, dataDir })`에서 검사한다. 실행기가 시나리오마다 서버를 새로 띄우고 임시 데이터 디렉터리를 새로 만든다.
 
 ```js
 export const meta = { name: "지연", timing: { llm: 2000, tts: 1500, embed: 300 } };

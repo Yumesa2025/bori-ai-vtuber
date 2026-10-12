@@ -167,7 +167,9 @@ export function createBoriClient(baseUrl) {
     llm: async () => (await send("/api/llm")).body,
     patchSettings: next => withJson("PATCH", "/api/settings", next),
     patchLlm: next => withJson("PATCH", "/api/llm", next),
-    chat: content => withJson("POST", "/api/chat", { content }),
+    /** 닉네임을 주면 서버가 그 시청자의 내부 ID(local:닉네임)로 받는다. 없으면 익명 채팅이다. */
+    chat: (content, nickname) => withJson("POST", "/api/chat", { content, ...(nickname ? { nickname } : {}) }),
+    memory: async () => (await send("/api/memory")).body,
     startSession: () => send("/api/session/start", { method: "POST" }),
     endSession: () => send("/api/session/end", { method: "POST" }),
     reloadMacros: () => send("/api/macros/reload", { method: "POST" }),

@@ -5,6 +5,8 @@ import { boriExpressionLabels, boriExpressionNames, boriMotionGroupNames, boriMo
 import './styles.css';
 
 const initialState: BroadcastState = { status: 'idle', layout: 'chat', currentEmotion: 'calm', queueSize: 0, visibleChatCount: 0, lastError: null, visibleChats: [], unprocessedCount: 0 };
+// 기억 공개 범위 표시 이름. 알 수 없는 값은 원문 그대로 보여 준다.
+const memoryScopeLabels: Record<string, string> = { character: '캐릭터', broadcast: '방송', private: '1:1' };
 
 export default function AdminApp() {
   const [state, setState] = useState<BroadcastState>(initialState);
@@ -17,7 +19,7 @@ export default function AdminApp() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [tts, setTts] = useState<{ settings: { enabled: boolean; provider: string; model: string; voice: string; speed: number; stability: number; similarity: number }; voices: { id: string; name: string; description?: string }[]; providers: string[]; defaultModels: Record<string, string>; hasApiKey: boolean; hasElevenLabsKey: boolean; failureCount: number; lastError: string | null } | null>(null);
   const [elevenKeyInput, setElevenKeyInput] = useState('');
-  const [memory, setMemory] = useState<{ settings: { enabled: boolean; maxMemories: number; minSimilarity: number; retentionDays: number }; count: number; records: { id: string; text: string; kind: string; importance: number; repeatCount: number; createdAt: string }[] } | null>(null);
+  const [memory, setMemory] = useState<{ settings: { enabled: boolean; maxMemories: number; minSimilarity: number; retentionDays: number }; count: number; records: { id: string; text: string; kind: string; scope: string; ownerId?: string; importance: number; repeatCount: number; createdAt: string }[] } | null>(null);
   // 서버가 죽으면 버튼을 눌러도 아무 일이 없어 원인을 알 수 없다.
   // Vite dev 프록시는 백엔드가 죽어도 5xx 응답을 돌려주므로, fetch 예외만으로는 판단할 수 없다.
   async function request(path: string, init?: RequestInit): Promise<Response | null> {
@@ -144,7 +146,7 @@ export default function AdminApp() {
         <label>보관 기간(일)<input type="number" min="1" value={memory.settings.retentionDays} onChange={event => setMemory({ ...memory, settings: { ...memory.settings, retentionDays: Number(event.target.value) } })} onBlur={() => void saveMemory({ retentionDays: memory.settings.retentionDays })} /></label>
         <label>저장된 기억<input value={`${memory.count}건`} readOnly /></label>
       </div>
-      {memory.records.length > 0 && <ul className="memory-list">{memory.records.map(record => <li key={record.id}><span className="memory-text">{record.text}</span><span className="memory-meta">중요도 {record.importance.toFixed(2)} · {record.repeatCount}회</span><button onClick={() => void deleteMemory(record.id)}>삭제</button></li>)}</ul>}
+      {memory.records.length > 0 && <ul className="memory-list">{memory.records.map(record => <li key={record.id}><span className="memory-text">{record.text}</span><span className="memory-meta">{memoryScopeLabels[record.scope] ?? record.scope} · {record.ownerId ?? '소유자 없음'} · 중요도 {record.importance.toFixed(2)} · {record.repeatCount}회</span><button onClick={() => void deleteMemory(record.id)}>삭제</button></li>)}</ul>}
       {memory.count > 0 && <button onClick={() => void deleteMemory('all')}>기억 전체 삭제</button>}
     </section>}
     <section className="panel"><h2>표정·모션 테스트</h2><p>방송 시작 전에도 방송 화면에서 바로 실행됩니다. 표정은 효과를 켠 채 <strong>멈춰 있고</strong>, 모션은 같은 효과를 <strong>계속 움직입니다</strong>. 정지 화면으로는 구분되지 않고 움직임으로만 차이가 납니다.</p><div className="action-group"><span className="action-label">표정<br />정지</span><div className="action-buttons">{boriExpressionNames.map(name => <button key={name} onClick={() => void runTestAction('expression', name)}>{boriExpressionLabels[name]}</button>)}</div></div><div className="action-group"><span className="action-label">모션<br />움직임</span><div className="action-buttons">{boriMotionGroupNames.map(name => <button key={name} onClick={() => void runTestAction('motion', name)}>{boriMotionLabels[name]}</button>)}</div></div><p className="hint">같은 이름이 양쪽에 있으면 모션 버튼이 상위 버전입니다. 예를 들어 화남은 표정 버튼이 김이 멈춘 상태, 모션 버튼이 김이 계속 뿜어지는 상태입니다. 슬픔·어이없음·멍함·긴 머리는 모션이 없어 표정만 있습니다.</p></section>

@@ -1,3 +1,11 @@
+/**
+ * 기억의 공개 범위.
+ * character: 캐릭터 자신에 대한 기억. 방송과 1:1 어디서나 쓴다.
+ * broadcast: 방송에서 생긴 기억. 소유자가 없으면 방송 요약, 있으면 그 시청자에게 답할 때만 쓴다.
+ * private: 1:1 대화의 개인 기억. 소유자 본인과의 1:1에서만 쓴다.
+ */
+export type MemoryScope = "character" | "broadcast" | "private";
+
 /** 장기 기억 한 건. 계획서 12장의 항목을 그대로 담는다. */
 export type MemoryRecord = {
   id: string;
@@ -5,8 +13,10 @@ export type MemoryRecord = {
   text: string;
   /** broadcast: 방송 전체 요약, viewer: 시청자 관련 기억 */
   kind: "broadcast" | "viewer";
-  /** 시청자별 기억일 때의 내부 사용자 ID. 닉네임은 저장하지 않는다. */
-  viewerId?: string;
+  /** 누구에게 답할 때 이 기억을 꺼낼 수 있는지 정한다. */
+  scope: MemoryScope;
+  /** 시청자·사용자 소유 기억일 때의 내부 ID. 닉네임은 저장하지 않는다. */
+  ownerId?: string;
   /** 0~1. 낮은 기억은 검색에서 밀린다. */
   importance: number;
   /** 0~1. 확신이 낮은 기억은 혼잣말에 쓰지 않는다. */
@@ -23,10 +33,20 @@ export type MemoryRecord = {
 export type MemoryCandidate = {
   text: string;
   kind: MemoryRecord["kind"];
-  viewerId?: string;
+  scope: MemoryScope;
+  ownerId?: string;
   importance: number;
   confidence: number;
 };
+
+/**
+ * 검색하는 쪽이 누구인지. 검색할 때마다 반드시 넘긴다.
+ * broadcast: 방송에서 speakerId 시청자에게 답할 때. 익명 채팅이면 speakerId를 비운다.
+ * private: 1:1에서 userId 사용자에게 답할 때.
+ */
+export type MemoryAccess =
+  | { mode: "broadcast"; speakerId?: string }
+  | { mode: "private"; userId: string };
 
 /** 임베딩 제공자. 업체를 바꿔도 검색 코드는 그대로 둔다. */
 export type EmbeddingProvider = {

@@ -32,6 +32,12 @@ export type ChatMessage = {
   category?: ChatCategory;
 };
 
+/**
+ * 방송 상태로 내보내는 채팅. 화면에 필요한 값만 남긴다.
+ * viewerId는 닉네임에서 만든 값(`local:<닉네임>`)이라 내보내면 닉네임이 그대로 드러난다.
+ */
+export type VisibleChat = Pick<ChatMessage, "id" | "content" | "receivedAt" | "category">;
+
 export type CharacterResponse = {
   reply: string;
   emotion: {
@@ -139,7 +145,7 @@ export type BroadcastState = {
   queueSize: number;
   visibleChatCount: number;
   lastError: string | null;
-  visibleChats: ChatMessage[];
+  visibleChats: VisibleChat[];
   unprocessedCount: number;
   currentResponse?: CharacterResponse;
   topAlert?: { message: string; severity: "info" | "error" };
