@@ -1,12 +1,16 @@
 export type {
   EmbeddingProvider,
+  MemoryAccess,
   MemoryCandidate,
   MemoryRecord,
+  MemoryScope,
   MemorySearchHit,
   MemorySettings,
 } from "./types.js";
 export { cosineSimilarity, createOpenAiEmbedding } from "./embedding.js";
-export { createMemoryStore, type MemoryStore } from "./store.js";
+export { ANONYMOUS_VIEWER_ID, canAccessMemory, isAnonymousViewer } from "./access.js";
+export { MEMORY_FILE_VERSION, migrateMemoryFile, type MemoryMigrationResult } from "./migrate.js";
+export { createMemoryStore, type MemoryStore, type MemoryStoreOptions } from "./store.js";
 export { extractMemoryCandidates, isStorableMemory, type ConversationTurn } from "./extract.js";
 
 import type { MemorySettings } from "./types.js";
