@@ -129,7 +129,9 @@ export const conversationPolicies: Record<ConversationMode, ConversationPolicy> 
     replySentences: "1~3문장",
     speakerLabels: { user: "상대", bori: "보리" },
     sectionTitles: { status: "대화 상황", summary: "지금까지의 대화", input: "답변할 메시지" },
-    noMemoryLine: "이 대화와 관련해 저장된 기억이 없다. 지난 대화를 묻는 질문이면 기억나지 않는다고 솔직히 답하고 내용을 지어내지 않는다.",
+    // 검토 필요: 기억이 0건이어도 [대화 상황]에 지난 대화 요약이 있을 수 있다. "기억나지 않는다"와 요약이 서로 부딪히지 않도록
+    // 요약에 있는 내용은 말하고, 요약에도 없을 때만 기억나지 않는다고 답하게 했다. 지어내지 않는다는 취지는 그대로다.
+    noMemoryLine: "이 대화와 관련해 저장된 기억이 없다. 지난 대화를 묻는 질문이면 [대화 상황]의 지난 대화 요약에 있는 내용만 말하고, 지난 대화 요약에도 없으면 기억나지 않는다고 솔직히 답한다. 내용을 지어내지 않는다.",
     // 사용자 결정: 1:1은 규칙 문장 없이 LLM이 답한다.
     ruleReplies: false,
     // 검토 필요: 거절 문장 초안. 차단 주제에 자해가 들어 있어 도움을 권하는 문장을 함께 두었다. 주제별 문장이 필요한지 정해야 한다.
