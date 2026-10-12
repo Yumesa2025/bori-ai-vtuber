@@ -18,7 +18,7 @@
 | 명령 | 결과 |
 |---|---|
 | `npm run typecheck` | 종료 코드 0. 8개 워크스페이스(shared·server·broadcast·admin·live2d·llm·memory·character) |
-| `npm run test:unit` | 66건 중 66건 통과, 0건 실패 |
+| `npm run test:unit` | 83건 중 83건 통과, 0건 실패 |
 | `MOCK_PORT=4470 BORI_TEST_PORT=4471 npm run test` | 46건 중 46건 통과, 0건 실패 (128.6초) |
 
 ### 단위 검사 (`packages/*/test/*.test.ts`, `node:test` + `tsx`)

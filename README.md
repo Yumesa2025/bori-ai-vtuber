@@ -139,7 +139,9 @@ npm run build
 
 루트 `typecheck`는 8개 워크스페이스(`shared`, `server`, `broadcast`, `admin`, `live2d`, `llm`, `memory`, `character`)를 차례로 검사한다. 하나만 검사하려면 `npm run typecheck:<이름>`을 쓴다.
 
-`npm run test:unit`은 `packages/*/test/*.test.ts`를 `node:test` + `tsx`로 돌린다. 2026-10-12 기준 66건이며, 기억 접근 규칙표 전 칸·검색 필터·마이그레이션·추출, 프롬프트 계층 구성, 캐릭터 정책 데이터를 확인한다.
+`npm run test:unit`은 `packages/*/test/*.test.ts`와 `apps/*/test/*.test.ts`를 `node:test` + `tsx`로 돌린다. 2026-10-12 기준 83건이며, 기억 접근 규칙표 전 칸·검색 필터·마이그레이션·추출, 프롬프트 계층 구성, 캐릭터 정책 데이터, 공통 대화 엔진(세션 간 상태 분리, 모드별 기억 접근)을 확인한다.
+
+`npm run eval:static`은 대화 시나리오 27건으로 모드별 프롬프트 구성과 기억 격리를 키 없이 평가한다. 실제 모델 답변을 평가하는 `npm run eval:model`은 `OPENAI_API_KEY`가 있을 때만 돈다. 기준과 결과는 [docs/content/evaluation.md](docs/content/evaluation.md)에 있다.
 
 `npm run test`는 실제 서버를 가짜 OpenAI API에 붙여 띄우고 방송을 짧게 돌려 46건을 확인한다(지연 16, 동작 16, 기억 격리 14). API 키도 요금도 필요 없고, `data/`도 건드리지 않는다. 답변 대기와 생성이 겹치는지, 세션을 다시 시작했을 때 이전 타이머가 새 답변을 건드리지 않는지, 시청자 A의 기억이 B의 LLM 요청에 들어가지 않는지처럼 서버를 통째로 띄워야 보이는 동작이 대상이다. 포트는 `MOCK_PORT`·`BORI_TEST_PORT`로 바꿀 수 있다. 자세한 내용은 [tools/test/README.md](tools/test/README.md)에 있다.
 
@@ -173,6 +175,7 @@ API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면�
 | [docs/content/character-bible.md](docs/content/character-bible.md) | 캐릭터 정체성·성격·말투 설정과 출처 |
 | [docs/content/persona-guidelines.md](docs/content/persona-guidelines.md) | 대화 금지·제한, 방송·1:1 대화 정책, 프롬프트 계층 |
 | [docs/content/dialogue-scenarios.md](docs/content/dialogue-scenarios.md) | 답변 평가용 대화 시나리오 |
+| [docs/content/evaluation.md](docs/content/evaluation.md) | 대화 품질 평가 기준(자동·수동)과 결과 |
 | [tools/test/README.md](tools/test/README.md) | 통합 검사 구조와 실행 방법 |
 
 ## 현재 상태와 한계
@@ -180,7 +183,7 @@ API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면�
 MVP 범위에서 동작하는 상태이며 다음 한계가 있다.
 
 - **치지직 실연동이 없다.** 방송 플랫폼 연동 코드는 존재하지 않으며 MVP 범위 밖이다. 채팅 입력 경로는 관리자 앱, 방송 화면 입력창, 별도 채팅 화면 3가지다.
-- **CI가 없다.** 단위 검사 66건과 통합 검사 46건은 로컬에서 직접 실행한다. 두 검사는 가짜 API를 쓰므로 실제 LLM·TTS 응답과 화면은 수동 검증에만 기댄다.
+- **CI가 없다.** 단위 검사 83건과 통합 검사 46건은 로컬에서 직접 실행한다. 두 검사는 가짜 API를 쓰므로 실제 LLM·TTS 응답과 화면은 수동 검증에만 기댄다.
 - **2026-09 이후 기능은 실 API로 확인하지 않았다.** 방송 중 누적 요약, 키워드 매크로, 대기·생성 병렬화, 프롬프트 7계층 분리는 가짜 API 통합 검사와 단위 검사로만 확인했다.
 - **Electron 방송 창을 지원하지 않는다.** 방송 화면은 브라우저 전용이며 OBS Browser Source로 송출한다.
 - **Anthropic 어댑터는 미검증이다.** OpenAI는 실 API 환경에서 검증했다.
