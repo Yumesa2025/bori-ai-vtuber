@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, describeError, type Memory } from "../api";
+import { ConfirmDialog } from "./ConfirmDialog";
 
-type Props = { open: boolean; onClose: () => void };
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  /** 1:1 기록을 모두 지운 뒤 부른다. 대화 목록과 열린 대화를 비운다. */
+  onDataCleared: () => void;
+};
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "numeric", day: "numeric" });
 const formatDate = (iso: string | null) => {
@@ -13,13 +19,15 @@ const formatDate = (iso: string | null) => {
 /**
  * 보리가 나에 대해 기억하는 내용(본인 private 기억)을 보고 지운다.
  * 서버가 본인 기억만 돌려주므로 화면은 받은 목록을 그대로 보여 준다.
+ * 기억만 지우면 대화 기록은 남으므로, 대화까지 지우는 "1:1 기록 모두 지우기"를 따로 둔다.
  */
-export function MemoryDialog({ open, onClose }: Props) {
+export function MemoryDialog({ open, onClose, onDataCleared }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
+  const [confirmData, setConfirmData] = useState(false);
   const [notice, setNotice] = useState("");
 
   const load = useCallback(() => {
@@ -34,7 +42,7 @@ export function MemoryDialog({ open, onClose }: Props) {
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) { dialog.showModal(); setConfirmAll(false); load(); }
+    if (open && !dialog.open) { dialog.showModal(); setConfirmAll(false); setConfirmData(false); load(); }
     if (!open && dialog.open) dialog.close();
   }, [open, load]);
 
@@ -57,6 +65,20 @@ export function MemoryDialog({ open, onClose }: Props) {
       .finally(() => setBusyId(null));
   };
 
+  const removeEverything = () => {
+    setBusyId("data");
+    setNotice("");
+    api.deleteAllData()
+      .then(deleted => {
+        setMemories([]);
+        setConfirmAll(false);
+        setNotice(`대화 ${deleted.conversations}개와 기억 ${deleted.memories}개를 지웠어요.`);
+        onDataCleared();
+      })
+      .catch(error => setNotice(describeError(error)))
+      .finally(() => { setBusyId(null); setConfirmData(false); });
+  };
+
   return (
     <dialog ref={dialogRef} className="memory-dialog" aria-labelledby="memory-title" onCancel={event => { event.preventDefault(); onClose(); }}>
       <header className="dialog-header">
@@ -64,6 +86,7 @@ export function MemoryDialog({ open, onClose }: Props) {
         <button type="button" className="icon-button" aria-label="닫기" onClick={onClose}>×</button>
       </header>
       <p className="muted">보리가 1:1 대화에서 기억한 내 이야기예요. 방송에는 쓰이지 않아요.</p>
+      <p className="muted">기억을 지워도 대화 기록은 남아요. 대화까지 지우려면 아래의 "1:1 기록 모두 지우기"를 써 주세요.</p>
       {notice && <p className="inline-notice" role="status">{notice}</p>}
       {loading && <p className="muted">불러오는 중</p>}
       {!loading && memories.length === 0 && <p className="muted">기억된 내용이 없어요.</p>}
@@ -92,10 +115,22 @@ export function MemoryDialog({ open, onClose }: Props) {
               <button type="button" className="danger-button" onClick={removeAll} disabled={busyId !== null}>{busyId === "*" ? "지우는 중" : "모두 지우기"}</button>
             </>
           ) : (
-            <button type="button" className="danger-button" onClick={() => setConfirmAll(true)} disabled={busyId !== null}>전체 삭제</button>
+            <button type="button" className="danger-button" onClick={() => setConfirmAll(true)} disabled={busyId !== null}>기억 전체 삭제</button>
           )}
         </div>
       )}
+      <div className="dialog-actions">
+        <button type="button" className="danger-button" onClick={() => setConfirmData(true)} disabled={busyId !== null}>1:1 기록 모두 지우기</button>
+      </div>
+      <ConfirmDialog
+        open={confirmData}
+        title="1:1 기록을 모두 지울까요?"
+        description="모든 1:1 대화와 메시지, 대화 요약, 보리가 기억한 내 이야기가 지워져요. 방송 기록은 그대로예요. 되돌릴 수 없어요."
+        confirmLabel="모두 지우기"
+        busy={busyId === "data"}
+        onConfirm={removeEverything}
+        onCancel={() => setConfirmData(false)}
+      />
     </dialog>
   );
 }

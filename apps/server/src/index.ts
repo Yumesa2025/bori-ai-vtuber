@@ -3,15 +3,18 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
+import type { BroadcastState, ChatMessage, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
+import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
-import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
+import { createAdapter as createProviderAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
-import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, type ConversationSession } from "./conversation/index.js";
-import { createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
-import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
+import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, pickNextChatIndex, type ConversationSession } from "./conversation/index.js";
+import { COMPANION_LOCAL_OWNER, createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
+import { createApiKeySlot } from "./secret-store.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
-import { isValidVoice, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
+import { isValidVoice, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
+import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
+import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 let settings: QueueSettings = {
@@ -54,6 +57,9 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
  * 환경변수로 옮길 수 있게 해서, 실제 방송 데이터를 건드리지 않고 서버를 띄워 볼 수 있다.
  */
 const dataRoot = process.env.BORI_DATA_DIR ? resolve(process.env.BORI_DATA_DIR) : resolve(projectRoot, "data");
+// 보관 기간이 지난 백업·이전 관리자 로그를 지운다. 사용자 데이터 원본은 지우지 않는다(retention.ts).
+const purgedBackups = purgeExpiredBackups(dataRoot);
+if (purgedBackups.length > 0) console.log(`[bori-server] ${BACKUP_RETENTION_DAYS}일 지난 백업·로그 ${purgedBackups.length}건 정리`);
 const llmConfigPath = resolve(dataRoot, "llm-config.json");
 
 let llmSettings: LlmSettings = {
@@ -68,15 +74,34 @@ let llmSettings: LlmSettings = {
   rollingSummaryTurns: 10,
   macroEnabled: true,
 };
-// 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓴다.
-let llmApiKey = process.env.OPENAI_API_KEY ?? "";
+// 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓰고, 환경변수 키는 파일에 쓰지 않는다.
+const llmKey = createApiKeySlot(process.env.OPENAI_API_KEY);
+/** 지금 쓰는 키. llmKey가 바뀔 때마다 맞춘다. */
+let llmApiKey = llmKey.current();
+
+// ── API 사용량 ────────────────────────────────────────────────
+// 기능·모드·모델별 호출 수와 토큰·글자 수만 날짜별로 센다. 대화 내용·닉네임·소유자 ID는 넘기지 않는다(ADR-018).
+const usageStore = createUsageStore(resolve(dataRoot, "usage.json"));
+usageStore.load();
+const usagePricesPath = resolve(dataRoot, "usage-prices.json");
+
+/** 어댑터를 직접 쓰는 호출(요약·기억 정리)을 기능 이름으로 세는 생성기. */
+const trackedAdapterFactory = (feature: "summary" | "digest"): typeof createProviderAdapter => (provider, config) => {
+  const adapter = createProviderAdapter(provider, config);
+  return adapter ? trackAdapter(adapter, config.model, feature, usageStore.record) : null;
+};
+/**
+ * 요약용 어댑터 생성기. 방송 요약(persistSessionMemories)과 엔진의 누적 요약이 이 이름으로 어댑터를 만들어
+ * 모두 summary로 센다. 업체 어댑터를 그대로 만들려면 createProviderAdapter를 쓴다.
+ */
+const createAdapter = trackedAdapterFactory("summary");
 
 /**
  * LLM 클라이언트는 모드마다 따로 둔다. 회로 차단기와 통계가 클라이언트 안에 있어서,
  * 하나를 같이 쓰면 1:1 연속 실패가 방송 회로를 연다.
  * 관리자 화면과 기존 라우트가 보는 llm은 방송 것이고, reset만 두 모드에 함께 적용한다.
  */
-const llmClients = createModeLlmClients(createLlmClient);
+const llmClients = createModeLlmClients(() => createLlmClient({ onCall: call => usageStore.record({ feature: "reply", ...call }) }));
 const llm = { ...llmClients.llmFor("broadcast"), reset: llmClients.resetAll };
 
 function loadLlmConfig() {
@@ -84,19 +109,14 @@ function loadLlmConfig() {
     const saved = JSON.parse(readFileSync(llmConfigPath, "utf8")) as { settings?: Partial<LlmSettings>; apiKey?: string };
     if (saved.settings) llmSettings = { ...llmSettings, ...saved.settings };
 
-    if (typeof saved.apiKey === "string" && saved.apiKey.length > 0) {
-      const decrypted = decryptSecret(saved.apiKey);
-      if (decrypted.length > 0) {
-        llmApiKey = decrypted;
-        // 이전 버전이 평문으로 남긴 키는 즉시 암호문으로 바꿔 저장한다.
-        if (!isEncrypted(saved.apiKey)) {
-          saveLlmConfig();
-          console.log("[bori-server] 평문으로 저장돼 있던 API 키를 암호화했습니다.");
-        }
-      } else {
-        console.warn("[bori-server] 저장된 API 키를 풀지 못했습니다. 다른 컴퓨터에서 만든 파일일 수 있습니다.");
-      }
+    const keyState = llmKey.load(saved.apiKey);
+    llmApiKey = llmKey.current();
+    // 이전 버전이 평문으로 남긴 키는 즉시 암호문으로 바꿔 저장한다.
+    if (keyState === "plaintext") {
+      saveLlmConfig();
+      console.log("[bori-server] 평문으로 저장돼 있던 API 키를 암호화했습니다.");
     }
+    if (keyState === "unreadable") console.warn("[bori-server] 저장된 API 키를 풀지 못했습니다. 다른 컴퓨터에서 만든 파일일 수 있습니다.");
     console.log("[bori-server] LLM 설정을 불러왔습니다.");
   } catch {
     // 파일이 없으면 기본값으로 시작한다.
@@ -106,8 +126,8 @@ function loadLlmConfig() {
 function saveLlmConfig() {
   try {
     mkdirSync(dirname(llmConfigPath), { recursive: true });
-    // 키는 항상 암호화해서 저장한다.
-    writeFileSync(llmConfigPath, JSON.stringify({ settings: llmSettings, apiKey: encryptSecret(llmApiKey) }, null, 2), "utf8");
+    // 화면에서 넣은 키만 암호화해서 저장한다. 환경변수 키는 파일에 남기지 않는다.
+    writeFileSync(llmConfigPath, JSON.stringify({ settings: llmSettings, apiKey: llmKey.stored() }, null, 2), "utf8");
   } catch (error) {
     console.error("[bori-server] LLM 설정을 저장하지 못했습니다:", error);
   }
@@ -117,8 +137,9 @@ loadLlmConfig();
 
 // ── 음성 합성 ─────────────────────────────────────────────────
 let ttsSettings: TtsSettings = { ...defaultTtsSettings };
-/** ElevenLabs는 LLM과 다른 키를 쓴다. 이 키도 암호화해 저장한다. */
-let elevenLabsApiKey = process.env.ELEVENLABS_API_KEY ?? "";
+/** ElevenLabs는 LLM과 다른 키를 쓴다. 이 키도 화면에서 넣은 것만 암호화해 저장한다. */
+const elevenLabsKey = createApiKeySlot(process.env.ELEVENLABS_API_KEY);
+let elevenLabsApiKey = elevenLabsKey.current();
 const ttsConfigPath = resolve(dataRoot, "tts-config.json");
 
 const ttsCredentials = () => ({ openAiApiKey: llmApiKey, elevenLabsApiKey });
@@ -133,12 +154,15 @@ let ttsLastError: string | null = null;
 function loadTtsConfig() {
   try {
     const saved = JSON.parse(readFileSync(ttsConfigPath, "utf8")) as Partial<TtsSettings> & { elevenLabsApiKey?: string };
-    if (typeof saved.elevenLabsApiKey === "string" && saved.elevenLabsApiKey.length > 0) {
-      const decrypted = decryptSecret(saved.elevenLabsApiKey);
-      if (decrypted.length > 0) elevenLabsApiKey = decrypted;
-    }
+    const keyState = elevenLabsKey.load(saved.elevenLabsApiKey);
+    elevenLabsApiKey = elevenLabsKey.current();
     delete saved.elevenLabsApiKey;
     ttsSettings = { ...ttsSettings, ...saved };
+    // LLM 키와 같이, 평문으로 남은 키는 다음 저장을 기다리지 않고 바로 암호문으로 바꾼다.
+    if (keyState === "plaintext") {
+      saveTtsConfig();
+      console.log("[bori-server] 평문으로 저장돼 있던 ElevenLabs 키를 암호화했습니다.");
+    }
   } catch {
     // 파일이 없으면 기본값으로 시작한다.
   }
@@ -147,8 +171,8 @@ function loadTtsConfig() {
 function saveTtsConfig() {
   try {
     mkdirSync(dirname(ttsConfigPath), { recursive: true });
-    // 키는 LLM 설정과 같은 방식으로 암호화해 저장한다.
-    writeFileSync(ttsConfigPath, JSON.stringify({ ...ttsSettings, elevenLabsApiKey: encryptSecret(elevenLabsApiKey) }, null, 2), "utf8");
+    // 키는 LLM 설정과 같은 방식으로, 화면에서 넣은 것만 암호화해 저장한다.
+    writeFileSync(ttsConfigPath, JSON.stringify({ ...ttsSettings, elevenLabsApiKey: elevenLabsKey.stored() }, null, 2), "utf8");
   } catch (error) {
     console.error("[bori-server] 음성 설정을 저장하지 못했습니다:", error);
   }
@@ -158,11 +182,14 @@ function saveTtsConfig() {
  * 답변 음성을 만든다.
  * 실패해도 방송은 그대로 진행하고 음성만 빠진다.
  */
-async function prepareAudio(text: string): Promise<string | undefined> {
+async function prepareAudio(text: string, mode: ConversationMode = "broadcast"): Promise<string | undefined> {
   if (!ttsSettings.enabled || !ttsHasKey()) return undefined;
 
+  // 합성 중에 설정이 바뀔 수 있으므로 부를 때의 모델로 센다. 글자 수만 세고 문장은 넘기지 않는다.
+  const usage = { feature: "tts" as const, mode, model: ttsSettings.model };
   try {
     const result = await synthesizeSpeech(ttsCredentials(), ttsSettings, text);
+    usageStore.record({ ...usage, ok: true, characters: Array.from(text).length });
     const id = randomUUID();
     audioCache.set(id, result.audio);
     while (audioCache.size > AUDIO_CACHE_LIMIT) {
@@ -173,6 +200,7 @@ async function prepareAudio(text: string): Promise<string | undefined> {
     ttsLastError = null;
     return id;
   } catch (error) {
+    usageStore.record({ ...usage, ok: false });
     ttsFailureCount += 1;
     ttsLastError = error instanceof Error ? error.message : String(error);
     console.error("[bori-server] 음성 합성 실패:", ttsLastError);
@@ -211,7 +239,7 @@ function saveMemoryConfig() {
 function currentEmbedding(): EmbeddingProvider | null {
   if (!memorySettings.enabled || llmApiKey.trim().length === 0) return null;
   if (llmSettings.provider !== "openai") return null;
-  return createOpenAiEmbedding({ apiKey: llmApiKey, model: memorySettings.embeddingModel });
+  return trackEmbedding(createOpenAiEmbedding({ apiKey: llmApiKey, model: memorySettings.embeddingModel }), memorySettings.embeddingModel, usageStore.record);
 }
 
 loadMemoryConfig();
@@ -289,6 +317,8 @@ const engine = createConversationEngine({
   embedding: currentEmbedding,
   macros: () => macros,
   replyCooldownMinutes: () => settings.sameReplyCooldownMinutes,
+  // 누적 요약 호출을 사용량에 센다.
+  createAdapter,
 });
 /**
  * 지금 방송의 대화 세션. 방송을 시작할 때마다 새로 만든다.
@@ -304,12 +334,14 @@ const handleCompanionRoute = createCompanionHandler({
   memoryStore,
   memorySettings: () => memorySettings,
   embedding: currentEmbedding,
-  prepareAudio,
+  // 1:1 음성은 사용량에 companion으로 센다.
+  prepareAudio: text => prepareAudio(text, "companion"),
   // LLM 기억 정리는 1:1 회로가 열려 있으면 건너뛴다. 방송 회로와는 상관없다.
   digestMemories: createPrivateMemoryDigest({
     llmSettings: () => llmSettings,
     apiKey: () => llmApiKey,
     isCircuitOpen: () => llmClients.llmFor("companion").isCircuitOpen(),
+    createAdapter: trackedAdapterFactory("digest"),
   }),
 });
 
@@ -472,7 +504,10 @@ function scheduleMonologue() {
     speaking = true;
     void prepareAudio(monologue.reply)
       .then(audioId => {
-        if (generation !== sessionGeneration || state.status !== "live") { speaking = false; return; }
+        // 기다리는 사이 방송이 끝났거나 다시 시작했으면 버린다. 발화권은 시작·종료가 이미 풀었다.
+        // 여기서 풀면 새 세션이 답변을 만드느라 쥔 발화권을 빼앗아 다음 답변이 겹쳐 시작된다.
+        if (generation !== sessionGeneration) return;
+        if (state.status !== "live") { speaking = false; return; }
         // 혼잣말도 방송에 나간 발화다. 기록하지 않으면 보리가 방금 한 말을 스스로 모른다.
         engine.record(session, { role: "bori", text: monologue.reply });
         speak(monologue, audioId);
@@ -498,9 +533,8 @@ function scheduleMonologue() {
 function scheduleNext() {
   if (responseTimer || speaking || state.status !== "live" || queue.length === 0) return;
 
-  // 질문을 약간 더 자주 고른다.
-  const index = queue.reduce((best, item, current) => isQuestion(item.content) && !isQuestion(queue[best].content) ? current : best, 0);
-  const chat = queue.splice(index, 1)[0];
+  // 질문을 먼저 고르되, 오래 기다린 채팅은 질문에 밀리지 않게 한다.
+  const chat = queue.splice(pickNextChatIndex(queue), 1)[0];
   syncQueueState();
 
   // 생성이 끝나기 전에 혼잣말이 끼어들지 않도록 발화권을 먼저 잡는다.
@@ -523,6 +557,8 @@ function scheduleNext() {
     speaker: { ownerId: isAnonymousViewer(chat.viewerId) ? null : chat.viewerId },
     statusLines: broadcastStatusLines(),
   }).then(async outcome => {
+    // 만드는 사이 방송이 끝났거나 다시 시작했으면 음성도 오류 표시도 만들지 않는다. 답변은 아래에서 버린다.
+    if (generation !== sessionGeneration) return null;
     // 차단된 채팅에는 보리가 무반응한다.
     if (outcome.kind === "blocked") return null;
     // 실패는 관리자에게만 알리고 방송은 폴백 문장으로 이어간다.
@@ -557,14 +593,16 @@ function scheduleNext() {
       // 여기까지 온 예외는 예상하지 못한 것이다.
       // 발화권을 놓지 않으면 방송이 그대로 멈추므로 반드시 풀어 준다.
       console.error("[bori-server] 답변 처리 실패:", error);
-      state = { ...state, lastError: `답변 처리 실패: ${error instanceof Error ? error.message : String(error)}` };
+      // 끝난 방송의 실패는 관리자 화면에 새로 띄우지 않는다.
       if (generation !== sessionGeneration) return;
+      state = { ...state, lastError: `답변 처리 실패: ${error instanceof Error ? error.message : String(error)}` };
       speaking = false;
       scheduleNext();
       scheduleMonologue();
     });
 }
 
+const isLoopbackAddress = (address: string | undefined) => address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 function sendJson(response: import("node:http").ServerResponse, status: number, body: unknown) { response.writeHead(status); response.end(JSON.stringify(body)); }
 // 브라우저가 이 서버를 부를 수 있는 Origin. 그 밖의 웹사이트는 응답을 읽지도 상태를 바꾸지도 못한다.
 const guardOptions = { allowedOrigins: allowedOriginsFrom(process.env.BORI_ALLOWED_ORIGINS) };
@@ -575,6 +613,24 @@ const server = createServer((request, response) => {
   if (request.method === "GET" && request.url === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
   if (request.method === "GET" && request.url === "/api/state") { sendJson(response, 200, state); return; }
   if (request.method === "GET" && request.url === "/api/settings") { sendJson(response, 200, settings); return; }
+  // 장시간 운영 검사용 진단 값. 서버는 127.0.0.1에만 열리지만 같은 컴퓨터에서 온 요청인지 한 번 더 본다.
+  if (request.method === "GET" && request.url === "/api/diagnostics") {
+    if (!isLoopbackAddress(request.socket.remoteAddress)) { sendJson(response, 403, { error: "같은 컴퓨터에서만 볼 수 있습니다." }); return; }
+    const usage = process.memoryUsage();
+    sendJson(response, 200, {
+      uptimeSeconds: Math.round(process.uptime()),
+      memory: { rss: usage.rss, heapUsed: usage.heapUsed, heapTotal: usage.heapTotal, external: usage.external },
+      status: state.status,
+      queueSize: queue.length,
+      speaking,
+      responsePending: responseTimer !== undefined,
+      sessionGeneration,
+      sessionTurns: broadcastSession.sessionTurns.length,
+      recentChatKeys: recentContents.size,
+      audioCacheSize: audioCache.size,
+    });
+    return;
+  }
   // LLM 상태. API 키 자체는 내보내지 않고 설정 여부만 알린다.
   if (request.method === "GET" && request.url === "/api/llm") {
     // status는 방송 클라이언트 것이다. 1:1 회로와 통계는 companionStatus로 따로 보여 준다.
@@ -592,15 +648,13 @@ const server = createServer((request, response) => {
   if (request.method === "PATCH" && request.url === "/api/llm") {
     readBody(request, response, body => {
       try {
-        const next = JSON.parse(body) as Partial<LlmSettings> & { apiKey?: string };
+        // 키·업체·타입·범위를 먼저 모두 검사한다. 틀리면 키도 설정도 바꾸지 않는다.
+        const checked = validateLlmSettingsPatch(JSON.parse(body));
+        if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
+        const next = checked.patch;
 
-        if (next.provider !== undefined && !supportedProviders.includes(next.provider as LlmProvider)) {
-          sendJson(response, 400, { error: "지원하지 않는 제공 업체입니다." });
-          return;
-        }
-
-        // 키는 설정과 분리해 다룬다. 빈 문자열이 오면 키를 지우는 뜻이다.
-        if (typeof next.apiKey === "string") llmApiKey = next.apiKey.trim();
+        // 키는 설정과 분리해 다룬다. 빈 문자열이 오면 저장한 키를 지우는 뜻이고, 환경변수 키가 있으면 그것으로 돌아간다.
+        if (typeof next.apiKey === "string") { llmKey.set(next.apiKey); llmApiKey = llmKey.current(); }
         delete next.apiKey;
 
         llmSettings = { ...llmSettings, ...next };
@@ -614,6 +668,20 @@ const server = createServer((request, response) => {
         sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels, macro: macroStatus(), systemPromptChars: engine.systemPromptChars("broadcast") });
       } catch { sendJson(response, 400, { error: "Invalid JSON" }); }
     });
+    return;
+  }
+  // 호출량과 추정 비용. 숫자만 담고, 단가 파일은 요청마다 다시 읽는다.
+  if (request.method === "GET" && request.url === "/api/usage") {
+    sendJson(response, 200, buildUsageReport(usageStore.days(), loadPriceTable(usagePricesPath), Date.now()));
+    return;
+  }
+  // 1:1 사용 통계. 대화 제목·내용·기억 문장 없이 개수만 보낸다.
+  if (request.method === "GET" && request.url === "/api/companion/stats") {
+    const stats: CompanionStats = {
+      ...handleCompanionRoute.stats(),
+      privateMemories: memoryStore.all().filter(record => record.scope === "private" && record.ownerId === COMPANION_LOCAL_OWNER).length,
+    };
+    sendJson(response, 200, stats);
     return;
   }
   // 음성 설정과 재생. 오디오는 방송 화면이 바로 받아 재생한다.
@@ -641,8 +709,8 @@ const server = createServer((request, response) => {
         if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
         const next = checked.patch;
 
-        // 키는 설정과 분리해 다룬다. 빈 문자열이면 키를 지우는 뜻이다.
-        if (typeof next.elevenLabsApiKey === "string") elevenLabsApiKey = next.elevenLabsApiKey.trim();
+        // 키는 설정과 분리해 다룬다. 빈 문자열이면 저장한 키를 지우는 뜻이고, 환경변수 키가 있으면 그것으로 돌아간다.
+        if (typeof next.elevenLabsApiKey === "string") { elevenLabsKey.set(next.elevenLabsApiKey); elevenLabsApiKey = elevenLabsKey.current(); }
         delete next.elevenLabsApiKey;
 
         ttsSettings = { ...ttsSettings, ...next };
@@ -791,7 +859,8 @@ const server = createServer((request, response) => {
         const visible: VisibleChat = { id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) };
         state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
 
-        if (queue.length >= settings.maxQueueSize) queue.shift();
+        // 상한을 줄였으면 큐가 이미 넘쳐 있을 수 있으므로 상한 안으로 들어올 때까지 오래된 것부터 버린다.
+        while (queue.length >= settings.maxQueueSize) queue.shift();
         queue.push(chat);
         syncQueueState();
         cancelMonologue();

@@ -255,6 +255,20 @@ export function createConversationStore(filePath: string, options: ConversationS
       );
       return true;
     },
+
+    /** 소유자의 대화와 메시지를 모두 지운다. 요약은 대화 레코드에 있어 함께 지워진다. 남의 대화는 남는다. */
+    removeOwner(ownerId: string): { conversations: number; messages: number } {
+      const removed = {
+        conversations: conversations.filter(entry => entry.ownerId === ownerId).length,
+        messages: messages.filter(entry => entry.ownerId === ownerId).length,
+      };
+      if (removed.conversations === 0 && removed.messages === 0) return removed;
+      commit(
+        conversations.filter(entry => entry.ownerId !== ownerId),
+        messages.filter(entry => entry.ownerId !== ownerId),
+      );
+      return removed;
+    },
   };
 }
 

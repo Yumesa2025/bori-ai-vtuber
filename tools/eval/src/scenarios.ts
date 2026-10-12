@@ -84,6 +84,8 @@ export type ScenarioSet = {
   version: number;
   source: string;
   commonForbiddenPatterns: ForbiddenPattern[];
+  /** 1:1 시나리오에만 더하는 금지 표현("당신" 호칭 등). */
+  companionForbiddenPatterns?: ForbiddenPattern[];
   scenarios: Scenario[];
 };
 
@@ -98,6 +100,7 @@ export function parseScenarioSet(raw: unknown): ScenarioSet {
   if (!Array.isArray(data.scenarios)) throw new Error("scenarios 배열이 없습니다.");
 
   for (const pattern of data.commonForbiddenPatterns ?? []) checkPattern(pattern, "공통", problems);
+  for (const pattern of data.companionForbiddenPatterns ?? []) checkPattern(pattern, "1:1 공통", problems);
 
   const seen = new Set<string>();
   for (const scenario of data.scenarios) {

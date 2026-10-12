@@ -30,8 +30,8 @@ export function judgeForbidden(reply: string, patterns: readonly ForbiddenPatter
 const honorificEnding = /(요|니다|니까|죠|소서)$/;
 /** 문장 끝에 붙는 웃음·울음 표기와 따옴표·괄호. 어미를 보기 전에 떼어 낸다. */
 const trailingNoise = /[\sㅋㅎㅠㅜ^~"'”’)\]]+$/;
-/** 끝에 붙은 호칭. "반가워요, 여러분!"처럼 어미 뒤에 오는 경우다. */
-const trailingVocative = /,?\s*여러분$/;
+/** 끝에 붙은 호칭. "반가워요, 여러분!", "반가워요, 민지님!"처럼 어미 뒤에 오는 경우다. */
+const trailingVocative = /,?\s*(여러분|[가-힣]{1,8}\s?(님|씨))$/;
 
 /**
  * 존댓말 휴리스틱. 문장마다 끝맺음이 존댓말 어미인지 본다.
@@ -89,8 +89,8 @@ export function judgeAllowlist(
     : { id: "allowlist", label: "감정·모션 allowlist", status: "fail", detail: unknown.join(", ") };
 }
 
-/** 모른다·기억나지 않는다를 인정하는 표현. "기억이 안 나요", "모르겠어요", "못 들었어요", "알 수 없어요" 등. */
-export const admissionPattern = /(기억(이|은|까지는|까진)?\s?(안\s?나|나지\s?않|없|잘\s?안)|모르(겠|는|고|지)|몰라|알\s?수\s?(없|가\s?없)|알지\s?못|못\s?들|듣지\s?못|말씀(을)?\s?안\s?하|말씀하지\s?않|안\s?알려|알려\s?주지\s?않)/;
+/** 모른다·기억나지 않는다를 인정하는 표현. "기억이 안 나요", "기억하지 못해요", "모르겠어요", "못 들었어요", "알 수 없어요" 등. */
+export const admissionPattern = /(기억(이|은|까지는|까진)?\s?(안\s?나|나지\s?않|없|잘\s?안)|기억(을|하지|은)?\s?못|모르(겠|는|고|지)|몰라|알\s?수\s?(없|가\s?없)|알지\s?못|못\s?들|듣지\s?못|말씀(을)?\s?안\s?하|말씀하지\s?않|안\s?알려|알려\s?주지\s?않)/;
 
 /**
  * 지어내기 후보 패턴에 걸린 부분 중 근거 말(grounded)로 설명되지 않는 것.
@@ -136,4 +136,57 @@ export function judgeFabrication(reply: string, guard: FabricationGuard): CheckR
         : { id: "fabrication", label, status: "manual", detail: `수동 평가 필요: 지어내기 후보는 없지만 ${(guard.mentions ?? []).join("·")} 언급을 찾지 못했다` };
     }
   }
+}
+
+/** 문장 단위로 나눈다. 마침표·물음표·느낌표·말줄임표·줄바꿈 뒤에서 자른다. */
+function splitSentences(reply: string): string[] {
+  return reply.split(/(?<=[.!?…])\s+|\n+/).map(sentence => sentence.trim()).filter(sentence => sentence.length > 0);
+}
+
+/**
+ * 기억하고 있다고 말하는 표현. "기억해요", "기억나요", "기억하고 있어요", "~라고 하셨죠", "말씀하셨던" 등.
+ * 부정형("기억이 나지 않아요")은 어미가 달라 걸리지 않는다.
+ */
+export const memoryClaimPattern = /(기억(해요|하죠|하지요|하고\s?있(어요|죠|답니다|습니다)|하고말고요|(이\s?)?나(요|죠|네요))|(다|라|자|냐)고\s?(말씀\s?)?하셨(죠|잖아요|던|었죠)|(말씀|얘기|이야기)\s?하셨(죠|잖아요|던|었죠))/;
+
+/**
+ * 기억에 없는 일을 기억한다고 말하지 않았는지. 고정값(기억·지난 대화 요약)에 근거가 없는 1:1 시나리오에서 쓴다.
+ * 모른다고 인정하는 문장은 건너뛰고, 근거 말(grounded)이 같은 문장에 있으면 실제 기억을 말한 것으로 본다.
+ * 걸리면 실패 후보다. 사람이 답을 읽고 확정한다.
+ */
+export function judgeMemoryClaim(reply: string, grounded: readonly string[] = []): CheckResult {
+  const label = "기억에 없는 일을 기억한다고 하지 않음";
+  const claims = splitSentences(reply).filter(sentence =>
+    !admissionPattern.test(sentence) && memoryClaimPattern.test(sentence) && !grounded.some(term => sentence.includes(term)));
+  return claims.length === 0
+    ? { id: "memory_claim", label, status: "pass" }
+    : { id: "memory_claim", label, status: "fail", detail: `기억 주장 후보: ${claims.map(s => `"${s}"`).join(", ")}. 답변을 직접 확인한다` };
+}
+
+/** 방송이나 다른 사람을 가리키는 말. "어제 방송에서는", "다른 분들은", "팬분들이" 등. */
+const outsideReference = /(방송\s?(에서|때|중에)|다른\s?(분|사람|시청자|이용자)들?|팬\s?분들|시청자\s?분?들)/;
+/** 알려 줄 수 없다는 표현. 모른다는 인정(admissionPattern)과 함께 "말할 수 없다"도 통과로 본다. */
+const outsideRefusal = /((알려|말씀|전해)\s?드리기|(알려|말씀|전해)\s?드릴\s?수|볼\s?수|들을\s?수|공유할\s?수)\s?(가\s?)?(없|어려|힘들)|비밀/;
+/** 실제 있었던 일처럼 말하는 표현. "나눴어요", "하셨답니다", "하더라고요", "주로 ~ 나누어요", "많이 해요" 등. */
+const factualTone = /((었|았|였|했|셨|눴|웠)(어요|답니다|죠|습니다)|더라(고요|구요)|주로|많이|자주)/;
+
+/**
+ * 1:1에서 방송·다른 사람의 이야기를 사실처럼 말하지 않았는지. 1:1에는 방송 기억과 다른 사람의 기억이 들어오지 않으므로
+ * 그런 이야기를 사실처럼 말하면 지어낸 것이다.
+ *   방송·다른 사람을 가리키는 문장이 모른다·말할 수 없다는 표현과 함께 나오면 통과
+ *   그런 표현 없이 있었던 일처럼 끝나면 실패 후보. 사람이 답을 읽고 확정한다
+ *   어느 쪽도 아니면 수동 평가로 넘긴다
+ */
+export function judgeOutsideStory(reply: string): CheckResult {
+  const label = "방송·다른 사람 이야기를 지어내지 않음(문자열 판정)";
+  const mentions = splitSentences(reply).filter(sentence => outsideReference.test(sentence));
+  const unadmitted = mentions.filter(sentence => !admissionPattern.test(sentence) && !outsideRefusal.test(sentence));
+  const asserted = unadmitted.filter(sentence => factualTone.test(sentence));
+  if (asserted.length > 0) {
+    return { id: "outside_story", label, status: "fail", detail: `지어내기 후보: ${asserted.map(s => `"${s}"`).join(", ")}. 답변을 직접 확인한다` };
+  }
+  if (unadmitted.length > 0) {
+    return { id: "outside_story", label, status: "manual", detail: `수동 평가 필요: 방송·다른 사람을 언급했지만 모른다는 표현이 없다: ${unadmitted.map(s => `"${s}"`).join(", ")}` };
+  }
+  return { id: "outside_story", label, status: "pass", detail: mentions.length > 0 ? "언급했지만 모른다고 함께 말함" : "언급 없음" };
 }

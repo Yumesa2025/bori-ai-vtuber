@@ -1,12 +1,26 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { BroadcastState, LlmProvider, LlmSettings, LlmStatus, MacroStatus, QueueSettings } from '@bori/shared';
+import type { BroadcastState, CompanionStats, LlmProvider, LlmSettings, LlmStatus, MacroStatus, QueueSettings, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
 import { boriExpressionLabels, boriExpressionNames, boriMotionGroupNames, boriMotionLabels } from '@bori/live2d';
 import './styles.css';
 
 const initialState: BroadcastState = { status: 'idle', layout: 'chat', currentEmotion: 'calm', queueSize: 0, visibleChatCount: 0, lastError: null, visibleChats: [], unprocessedCount: 0 };
 // 기억 공개 범위 표시 이름. 알 수 없는 값은 원문 그대로 보여 준다.
 const memoryScopeLabels: Record<string, string> = { character: '캐릭터', broadcast: '방송', private: '1:1' };
+const usageFeatureLabels: Record<UsageFeature, string> = { reply: '답변', summary: '요약', digest: '기억 정리', embedding: '임베딩', tts: '음성' };
+const usageModeLabels: Record<UsageMode, string> = { broadcast: '방송', companion: '1:1', none: '공통' };
+// 추정 비용 표시. 계산할 수 있는 것이 없으면 추정 불가, 일부만 계산했으면 +를 붙인다.
+function formatCost(cost: number | null, complete: boolean): string {
+  if (cost === null) return '추정 불가';
+  const value = cost > 0 && cost < 0.0001 ? '<$0.0001' : `$${cost.toFixed(4)}`;
+  return complete ? value : `${value}+`;
+}
+// 줄 단위 비용은 빠진 이유(단가 없음, 토큰 정보 없음)를 그대로 보여 준다.
+function formatRowCost(row: UsageRow): string {
+  if (row.estimatedCostUsd === null) return row.costNote ?? '추정 불가';
+  return row.costNote ? `${formatCost(row.estimatedCostUsd, row.costComplete)} (${row.costNote})` : formatCost(row.estimatedCostUsd, row.costComplete);
+}
+const formatTokens = (totals: UsageTotals) => `${totals.inputTokens.toLocaleString()} / ${totals.outputTokens.toLocaleString()}`;
 
 export default function AdminApp() {
   const [state, setState] = useState<BroadcastState>(initialState);
@@ -19,6 +33,8 @@ export default function AdminApp() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [tts, setTts] = useState<{ settings: { enabled: boolean; provider: string; model: string; voice: string; speed: number; stability: number; similarity: number }; voices: { id: string; name: string; description?: string }[]; providers: string[]; defaultModels: Record<string, string>; hasApiKey: boolean; hasElevenLabsKey: boolean; failureCount: number; lastError: string | null } | null>(null);
   const [elevenKeyInput, setElevenKeyInput] = useState('');
+  const [usage, setUsage] = useState<UsageReport | null>(null);
+  const [companionStats, setCompanionStats] = useState<CompanionStats | null>(null);
   const [memory, setMemory] = useState<{ settings: { enabled: boolean; maxMemories: number; minSimilarity: number; retentionDays: number }; count: number; records: { id: string; text: string; kind: string; scope: string; ownerId?: string; importance: number; repeatCount: number; createdAt: string }[] } | null>(null);
   // 서버가 죽으면 버튼을 눌러도 아무 일이 없어 원인을 알 수 없다.
   // Vite dev 프록시는 백엔드가 죽어도 5xx 응답을 돌려주므로, fetch 예외만으로는 판단할 수 없다.
@@ -40,6 +56,10 @@ export default function AdminApp() {
     if (memoryResponse?.ok) setMemory(await memoryResponse.json() as typeof memory);
     const ttsResponse = await request('/api/tts');
     if (ttsResponse?.ok) setTts(await ttsResponse.json() as typeof tts);
+    const usageResponse = await request('/api/usage');
+    if (usageResponse?.ok) setUsage(await usageResponse.json() as UsageReport);
+    const statsResponse = await request('/api/companion/stats');
+    if (statsResponse?.ok) setCompanionStats(await statsResponse.json() as CompanionStats);
   }
   async function saveTts(patch: Record<string, unknown>) {
     const response = await request('/api/tts', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
@@ -116,6 +136,15 @@ export default function AdminApp() {
       {llm.status.circuitOpen && <div className="notice">연속 실패로 LLM 호출을 잠시 멈췄습니다. {llm.settings.cooldownSeconds}초 뒤 다시 시도합니다.</div>}
       {llm.status.lastError && <div className="notice">마지막 오류: {llm.status.lastError}</div>}
       <p className="hint">API 키는 <code>data/llm-config.json</code>에 저장되며 관리자 화면으로 다시 표시되지 않습니다. 이 파일은 Git에서 제외되어 있습니다.</p>
+    </section>}
+    {usage && <section className="panel"><h2>API 사용량</h2><p>LLM·임베딩·음성 호출을 기능과 모드별로 셉니다. 숫자만 기록하고 대화 내용은 남기지 않습니다. 비용은 단가표로 계산한 추정치입니다.</p>
+      <div className="metrics llm-metrics"><div><strong>{usage.today.totals.calls}</strong><span>오늘 호출</span></div><div><strong>{usage.today.totals.failures}</strong><span>오늘 실패</span></div><div><strong>{formatTokens(usage.today.totals)}</strong><span>오늘 입력/출력 토큰</span></div><div><strong>{usage.today.totals.characters.toLocaleString()}</strong><span>오늘 음성 글자</span></div><div><strong>{formatCost(usage.today.totals.estimatedCostUsd, usage.today.totals.costComplete)}</strong><span>오늘 추정 비용</span></div></div>
+      <div className="metrics llm-metrics"><div><strong>{usage.last7Days.totals.calls}</strong><span>7일 호출</span></div><div><strong>{usage.last7Days.totals.failures}</strong><span>7일 실패</span></div><div><strong>{formatTokens(usage.last7Days.totals)}</strong><span>7일 입력/출력 토큰</span></div><div><strong>{usage.last7Days.totals.characters.toLocaleString()}</strong><span>7일 음성 글자</span></div><div><strong>{formatCost(usage.last7Days.totals.estimatedCostUsd, usage.last7Days.totals.costComplete)}</strong><span>7일 추정 비용</span></div></div>
+      {usage.last7Days.rows.length > 0 && <table className="usage-table"><thead><tr><th>기능</th><th>모드</th><th>모델</th><th>호출</th><th>실패</th><th>입력/출력 토큰·글자</th><th>7일 추정 비용</th></tr></thead><tbody>{usage.last7Days.rows.map(row => <tr key={`${row.feature}-${row.mode}-${row.model}`}><td>{usageFeatureLabels[row.feature]}</td><td>{usageModeLabels[row.mode]}</td><td>{row.model}</td><td>{row.calls}</td><td>{row.failures}</td><td>{row.feature === 'tts' ? `${row.characters.toLocaleString()}자` : formatTokens(row)}</td><td>{formatRowCost(row)}</td></tr>)}</tbody></table>}
+      {usage.last7Days.unpricedModels.length > 0 && <div className="notice">단가 없음: {usage.last7Days.unpricedModels.join(', ')}. 이 모델의 비용은 합계에서 빠졌습니다. <code>data/usage-prices.json</code>에 단가를 넣으면 계산합니다.</div>}
+      {usage.prices.fileError && <div className="notice">단가 파일 오류: {usage.prices.fileError} 기본 단가만 씁니다.</div>}
+      <p className="hint">{usage.prices.note} 단가 파일 {usage.prices.fileLoaded ? '적용 중' : '없음'}. 금액 뒤의 +는 단가나 토큰 정보가 없어 일부 호출이 빠졌다는 뜻입니다. 최근 31일 호출 {usage.last31Days.totals.calls}회, 추정 {formatCost(usage.last31Days.totals.estimatedCostUsd, usage.last31Days.totals.costComplete)}.</p>
+      {companionStats && <><h2 className="subheading">1:1 대화</h2><div className="metrics"><div><strong>{companionStats.conversations}</strong><span>대화</span></div><div><strong>{companionStats.messages}</strong><span>메시지</span></div><div><strong>{companionStats.privateMemories}</strong><span>1:1 기억</span></div></div></>}
     </section>}
     {tts && <section className="panel"><h2>음성 (TTS)</h2><p>보리의 답변을 OpenAI 음성으로 읽습니다. 방송 화면에서 재생되고 입 모양도 소리에 맞춰 움직입니다. LLM과 같은 API 키를 씁니다.</p>
       <label className="toggle-row"><input type="checkbox" checked={tts.settings.enabled} disabled={!tts.hasApiKey} onChange={event => void saveTts({ enabled: event.target.checked })} /><span>음성 사용{!tts.hasApiKey && ' (API 키를 먼저 저장하세요)'}</span></label>

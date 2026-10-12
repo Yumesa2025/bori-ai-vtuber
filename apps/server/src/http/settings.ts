@@ -5,8 +5,8 @@
  * 키 허용 목록·타입·범위를 먼저 검사하고, 하나라도 틀리면 아무것도 병합하지 않는다.
  * 범위는 관리자 화면 입력값과 기본값, 통합 검사가 쓰는 값을 모두 받도록 정했다.
  */
-import type { QueueSettings } from "@bori/shared";
-import { openAiVoices, type TtsProvider, type TtsSettings } from "@bori/llm";
+import type { LlmSettings, QueueSettings } from "@bori/shared";
+import { openAiVoices, supportedProviders, type TtsProvider, type TtsSettings } from "@bori/llm";
 import type { MemorySettings } from "@bori/memory";
 
 type FieldRule =
@@ -23,6 +23,7 @@ const MODEL_NAME = /^[A-Za-z0-9._:-]{1,100}$/;
 const ELEVENLABS_VOICE_ID = /^[A-Za-z0-9]{1,64}$/;
 /** API 키는 형식이 업체마다 달라 길이만 제한한다. */
 const API_KEY_MAX_LENGTH = 512;
+const apiKeyRule: FieldRule = { kind: "string", pattern: new RegExp(`^[\\s\\S]{0,${API_KEY_MAX_LENGTH}}$`), description: `${API_KEY_MAX_LENGTH}자 이하 문자열` };
 
 function describeRule(rule: FieldRule): string {
   switch (rule.kind) {
@@ -129,8 +130,7 @@ const ttsRules: { readonly [K in keyof TtsSettings]: FieldRule } = {
 
 /** 목소리는 바뀐 뒤의 업체 기준으로 검사한다. 업체만 바꾸는 요청은 목소리를 보지 않는다. */
 export function validateTtsSettingsPatch(input: unknown, current: TtsSettings): PatchResult<TtsSettingsPatch> {
-  const keyRule: FieldRule = { kind: "string", pattern: new RegExp(`^[\\s\\S]{0,${API_KEY_MAX_LENGTH}}$`), description: `${API_KEY_MAX_LENGTH}자 이하 문자열` };
-  const result = checkFields<TtsSettingsPatch>(input, { ...ttsRules, elevenLabsApiKey: keyRule });
+  const result = checkFields<TtsSettingsPatch>(input, { ...ttsRules, elevenLabsApiKey: apiKeyRule });
   if (!result.ok) return result;
 
   const { voice, provider } = result.patch;
@@ -138,4 +138,45 @@ export function validateTtsSettingsPatch(input: unknown, current: TtsSettings): 
     return { ok: false, error: `${provider ?? current.provider}에서 쓸 수 없는 목소리입니다: ${voice}` };
   }
   return result;
+}
+
+// ── 외부 LLM ─────────────────────────────────────────────────
+
+/** 키는 설정과 함께 오지만 설정에 병합하지 않는다. 빈 문자열은 키를 지우는 뜻이다. */
+export type LlmSettingsPatch = Partial<LlmSettings> & { apiKey?: string };
+
+/**
+ * 검증 표
+ *
+ * | 키                    | 규칙                                                                  |
+ * | --------------------- | --------------------------------------------------------------------- |
+ * | enabled               | true 또는 false                                                        |
+ * | provider              | 어댑터가 있는 업체(supportedProviders: openai, anthropic)              |
+ * | model                 | 모델 이름(영숫자와 . _ : -, 1~100자)                                   |
+ * | maxReplyLength        | 20~1000 정수(관리자 화면 하한 20)                                      |
+ * | timeoutMs             | 1000~120000 정수                                                       |
+ * | failureThreshold      | 1~100 정수                                                             |
+ * | cooldownSeconds       | 0~3600                                                                 |
+ * | rollingSummaryEnabled | true 또는 false                                                        |
+ * | rollingSummaryTurns   | 0~1000 정수. 4 미만은 거부하지 않고 라우트가 4로 올린다(기존 동작)     |
+ * | macroEnabled          | true 또는 false                                                        |
+ * | apiKey                | 512자 이하 문자열                                                      |
+ */
+const llmRules: { readonly [K in keyof LlmSettingsPatch]-?: FieldRule } = {
+  enabled: { kind: "boolean" },
+  provider: { kind: "enum", values: supportedProviders },
+  model: { kind: "string", pattern: MODEL_NAME, description: "모델 이름(영숫자와 . _ : -, 100자 이하)" },
+  maxReplyLength: { kind: "number", min: 20, max: 1000, integer: true },
+  timeoutMs: { kind: "number", min: 1000, max: 120_000, integer: true },
+  failureThreshold: { kind: "number", min: 1, max: 100, integer: true },
+  cooldownSeconds: { kind: "number", min: 0, max: 3600 },
+  rollingSummaryEnabled: { kind: "boolean" },
+  rollingSummaryTurns: { kind: "number", min: 0, max: 1000, integer: true },
+  macroEnabled: { kind: "boolean" },
+  apiKey: apiKeyRule,
+};
+
+/** TTS와 같이 모두 검사한 뒤 하나라도 틀리면 아무것도 바꾸지 않는다. */
+export function validateLlmSettingsPatch(input: unknown): PatchResult<LlmSettingsPatch> {
+  return checkFields<LlmSettingsPatch>(input, llmRules);
 }

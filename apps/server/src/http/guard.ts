@@ -73,6 +73,20 @@ function hasBody(request: IncomingMessage): boolean {
   return Number(request.headers["content-length"] ?? 0) > 0;
 }
 
+/**
+ * 경로의 퍼센트 인코딩이 올바른지. 쿼리는 쓰는 라우트가 없어 보지 않는다.
+ * 라우트가 경로 조각을 decodeURIComponent로 풀 때 "%E0%A4%A" 같은 값이면 예외가 나고,
+ * 요청 처리기 안의 동기 예외는 서버 프로세스를 그대로 종료시킨다.
+ */
+function hasValidPathEncoding(url: string): boolean {
+  try {
+    decodeURIComponent(url.split("?")[0]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isJsonContentType(value: string | undefined): boolean {
   // charset 같은 매개변수는 허용한다.
   return (value ?? "").split(";")[0].trim().toLowerCase() === "application/json";
@@ -97,6 +111,7 @@ function rejectTooLarge(request: IncomingMessage, response: ServerResponse) {
  * - Host 호스트명이 루프백이 아니면 421 (DNS rebinding 방지). Vite 프록시가 포트를 바꾸므로 호스트명만 본다.
  * - Origin이 있으면 허용 목록만 통과, 아니면 403. Origin이 없는 요청(curl, 테스트 도구)은 통과한다.
  * - 허용된 Origin에는 `*` 대신 그 Origin을 되돌려 준다. 사전 요청(OPTIONS)은 여기서 끝낸다.
+ * - 경로의 퍼센트 인코딩이 깨져 있으면 400. 라우트의 decodeURIComponent 예외로 서버가 죽지 않게 한다.
  * - 본문이 있는 POST·PATCH·PUT은 application/json만 받는다(415). 본문 없는 POST는 Content-Type 없이 통과한다.
  * - 선언된 본문 길이가 상한을 넘으면 읽지 않고 413. 길이를 선언하지 않은 본문은 `readBody`가 끊는다.
  */
@@ -123,6 +138,11 @@ export function guardRequest(request: IncomingMessage, response: ServerResponse,
   if (request.method === "OPTIONS") {
     response.writeHead(204);
     response.end();
+    return false;
+  }
+
+  if (!hasValidPathEncoding(request.url ?? "/")) {
+    sendError(response, 400, "요청 경로의 인코딩이 올바르지 않습니다.");
     return false;
   }
 

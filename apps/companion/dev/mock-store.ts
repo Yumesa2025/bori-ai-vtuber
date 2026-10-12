@@ -151,6 +151,19 @@ export function createMockStore() {
       return { status: 200, body: { deleted: count } };
     },
 
+    /** 1:1 기록 모두 지우기. 대화·메시지·기억을 한 번에 지우고 개수를 돌려준다. */
+    deleteAllData(): MockResult {
+      const deleted = {
+        conversations: conversations.size,
+        messages: [...messages.values()].reduce((sum, list) => sum + list.length, 0),
+        memories: memories.length,
+      };
+      conversations.clear();
+      messages.clear();
+      memories.length = 0;
+      return { status: 200, body: { deleted } };
+    },
+
     profile(): MockResult {
       return { status: 200, body: { name: "보리", personaLines: ["가짜 API가 돌려주는 예시 문장입니다."], companionPolicyTitle: "1:1 대화" } };
     },

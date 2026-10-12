@@ -1,7 +1,7 @@
 import { boriEmotionNames, boriMotionGroupNames, resolveMotion } from "@bori/live2d";
 import { createAdapter, defaultModels, validateLlmOutput, type LlmAdapter } from "@bori/llm";
-import { judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeReaction } from "./judge.js";
-import { buildScenarioRequest, evalReplyLimit } from "./request.js";
+import { judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeMemoryClaim, judgeOutsideStory, judgeReaction } from "./judge.js";
+import { buildScenarioRequest, evalReplyLimit, selectMemories } from "./request.js";
 import type { ExpectedReaction, Scenario, ScenarioSet } from "./scenarios.js";
 import { countStatuses, statusFromChecks, type CheckResult, type EvalResultFile, type ScenarioResult } from "./types.js";
 
@@ -93,10 +93,15 @@ async function evaluateScenarioWithModel(scenario: Scenario, set: ScenarioSet, a
     { id: "validation", label: "출력 검증 통과", status: "pass" },
     judgeAllowlist(response.emotion.primary, actionNames, boriEmotionNames, boriMotionGroupNames),
     judgeLength(response.reply, evalReplyLimit),
-    judgeForbidden(response.reply, [...set.commonForbiddenPatterns, ...(scenario.forbiddenPatterns ?? [])]),
+    judgeForbidden(response.reply, [
+      ...set.commonForbiddenPatterns,
+      ...(scenario.mode === "companion" ? set.companionForbiddenPatterns ?? [] : []),
+      ...(scenario.forbiddenPatterns ?? []),
+    ]),
     judgeHonorific(response.reply),
     judgeReaction(response.emotion.primary, displayedMotion, expectation.reactions),
     ...(scenario.fabricationGuard ? [judgeFabrication(response.reply, scenario.fabricationGuard)] : []),
+    ...groundingChecks(scenario, response.reply),
     ...manualChecks(scenario),
   ];
 
@@ -106,6 +111,22 @@ async function evaluateScenarioWithModel(scenario: Scenario, set: ScenarioSet, a
     checks,
     response: { reply: response.reply, emotion: response.emotion.primary, actions: actionNames, displayedMotion, latencyMs },
   };
+}
+
+/**
+ * 1:1 시나리오의 지어내기 판정. 1:1에는 방송 기억과 다른 사람의 기억이 들어오지 않으므로 언제나 본다.
+ * 기억 주장은 고정값에 묻는 일의 근거가 없을 때만 본다. 보이는 기억도 지난 대화 요약도 없거나,
+ * 시나리오가 모른다는 답을 기대할 때(fabricationGuard.expect가 admit)다.
+ */
+export function groundingChecks(scenario: Scenario, reply: string): CheckResult[] {
+  if (scenario.mode !== "companion") return [];
+  const guard = scenario.fabricationGuard;
+  const hasSummary = (scenario.statusLines ?? []).some(line => line.startsWith("지난 대화 요약:"));
+  const ungrounded = guard?.expect === "admit" || (selectMemories(scenario).visible.length === 0 && !hasSummary);
+  return [
+    judgeOutsideStory(reply),
+    ...(ungrounded ? [judgeMemoryClaim(reply, guard?.grounded ?? [])] : []),
+  ];
 }
 
 /** 문자열로 판정할 수 없는 기대값. 평가자가 답변을 읽고 채운다. */

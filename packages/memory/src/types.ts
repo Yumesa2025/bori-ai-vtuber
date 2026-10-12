@@ -24,6 +24,8 @@ export type MemoryRecord = {
   /** 여러 방송에서 반복해서 나온 횟수. */
   repeatCount: number;
   createdAt: string;
+  /** 같은 뜻의 기억이 마지막으로 다시 들어온 시각. 한 번만 나왔으면 비어 있다. */
+  lastSeenAt?: string;
   expiresAt: string;
   /** 임베딩. 아직 계산하지 못했으면 비어 있고, 그때는 검색에서 최신순으로만 다룬다. */
   embedding?: number[];

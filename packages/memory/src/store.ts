@@ -4,7 +4,16 @@ import { randomUUID } from "node:crypto";
 import { canAccessMemory } from "./access.js";
 import { cosineSimilarity } from "./embedding.js";
 import { MEMORY_FILE_VERSION, migrateMemoryFile } from "./migrate.js";
+import { isSameMemoryEmbedding, isSameMemoryText } from "./similar.js";
 import type { EmbeddingProvider, MemoryAccess, MemoryCandidate, MemoryRecord, MemorySearchHit, MemorySettings } from "./types.js";
+
+export type MemoryAddOptions = {
+  /**
+   * 임베딩을 기다린 뒤 저장 직전에 부른다. true면 아무것도 저장하지 않고 0을 돌려준다.
+   * 기다리는 사이 그 소유자의 기억을 모두 지웠다면, 지우기 전에 시작한 저장이 삭제를 되돌리지 않게 한다.
+   */
+  isStale?: () => boolean;
+};
 
 export type MemoryStoreOptions = {
   /** 마이그레이션 결과를 남길 곳. 기본은 콘솔이다. */
@@ -82,30 +91,38 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
 
   /**
    * 후보를 기억으로 저장한다.
-   * 같은 문장이 이미 있으면 새로 만들지 않고 반복 횟수와 수명을 올린다.
+   * 같은 뜻의 기억이 이미 있으면 새로 만들지 않고 반복 횟수·수명·마지막 시각만 올린다.
    * 계획서의 "여러 방송에서 반복된 내용"을 중요하게 다루기 위한 처리다.
+   *
+   * 같은 뜻은 두 단계로 본다. 먼저 문자열 규칙으로, 남은 것은 임베딩이 있으면 유사도로 본다(similar.ts).
+   * 비교 대상은 공개 범위·소유자·종류가 모두 같은 기억뿐이다. 다른 사람의 기억과는 뜻이 같아도 합치지 않는다.
    */
-  async function add(candidates: readonly MemoryCandidate[], settings: MemorySettings, embedding: EmbeddingProvider | null): Promise<number> {
-    if (candidates.length === 0) return 0;
+  async function add(candidates: readonly MemoryCandidate[], settings: MemorySettings, embedding: EmbeddingProvider | null, options: MemoryAddOptions = {}): Promise<number> {
+    if (candidates.length === 0 || options.isStale?.()) return 0;
 
     const now = Date.now();
+    const seenAt = new Date(now).toISOString();
     const expiresAt = new Date(now + settings.retentionDays * 86_400_000).toISOString();
     const fresh: MemoryRecord[] = [];
+
+    // 공개 범위나 소유자가 다르면 같은 문장이라도 다른 기억이다. 합치면 남의 기억이 섞인다.
+    const sameOwner = (record: MemoryRecord, other: Pick<MemoryRecord, "kind" | "scope" | "ownerId">) =>
+      record.kind === other.kind && record.scope === other.scope && record.ownerId === other.ownerId;
+    const repeat = (record: MemoryRecord) => {
+      record.repeatCount += 1;
+      record.importance = Math.min(1, record.importance + 0.1);
+      record.expiresAt = expiresAt;
+      record.lastSeenAt = seenAt;
+    };
 
     for (const candidate of candidates) {
       const normalized = candidate.text.trim();
       if (normalized.length === 0) continue;
 
-      // 같은 문장이라도 공개 범위나 소유자가 다르면 다른 기억이다. 합치면 남의 기억이 섞인다.
-      const existing = records.find(record =>
-        record.text === normalized
-        && record.kind === candidate.kind
-        && record.scope === candidate.scope
-        && record.ownerId === candidate.ownerId);
+      // 같은 묶음 안에서 앞서 나온 후보와도 비교한다. 한 방송에서 같은 말을 두 번 해도 한 건이다.
+      const existing = [...records, ...fresh].find(record => sameOwner(record, candidate) && (record.text === normalized || isSameMemoryText(record.text, normalized)));
       if (existing) {
-        existing.repeatCount += 1;
-        existing.importance = Math.min(1, existing.importance + 0.1);
-        existing.expiresAt = expiresAt;
+        repeat(existing);
         continue;
       }
 
@@ -118,12 +135,12 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
         importance: candidate.importance,
         confidence: candidate.confidence,
         repeatCount: 1,
-        createdAt: new Date(now).toISOString(),
+        createdAt: seenAt,
         expiresAt,
       });
     }
 
-    // 임베딩은 있으면 좋고 없어도 저장은 된다. 검색 품질만 떨어진다.
+    // 임베딩은 있으면 좋고 없어도 저장은 된다. 검색 품질과 뜻 비교만 문자열 규칙으로 떨어진다.
     if (fresh.length > 0 && embedding?.isConfigured()) {
       try {
         const vectors = await embedding.embed(fresh.map(record => record.text));
@@ -133,9 +150,27 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
       }
     }
 
-    records.push(...fresh);
+    // isStale은 그 소유자의 기억을 지운 뒤에 true가 된다. 위에서 반복 횟수를 올린 기존 기억도 이미 목록에 없다.
+    if (options.isStale?.()) return 0;
+
+    // 문자열로 못 잡은 바꿔 쓰기를 임베딩으로 한 번 더 합친다. 임베딩이 없는 기억끼리는 비교하지 않는다.
+    const kept: MemoryRecord[] = [];
+    for (const record of fresh) {
+      const vector = record.embedding;
+      const match = vector && [...records, ...kept].find(other =>
+        sameOwner(other, record)
+        && other.embedding !== undefined
+        && isSameMemoryEmbedding({ text: other.text, embedding: other.embedding }, { text: record.text, embedding: vector }));
+      if (match) {
+        repeat(match);
+        continue;
+      }
+      kept.push(record);
+    }
+
+    records.push(...kept);
     save();
-    return fresh.length;
+    return kept.length;
   }
 
   /**
