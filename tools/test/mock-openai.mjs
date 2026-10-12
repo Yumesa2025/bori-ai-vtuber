@@ -14,6 +14,7 @@
  *   GET /__timing?llm=&tts=&embed=   응답 지연 변경(ms)
  *   GET /__fail?on=1           답변 생성 요청을 500으로 실패시키기
  */
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 
 const port = Number(process.env.MOCK_PORT ?? 4390);
@@ -114,13 +115,26 @@ const server = createServer(async (request, response) => {
     const inputs = Array.isArray(parsed.input) ? parsed.input : [parsed.input];
     calls.push({ kind: "embed", at, count: inputs.length });
     await sleep(timing.embed);
-    // 모든 벡터를 같은 값으로 준다. 유사도가 1이 되어 기억이 항상 검색된다.
-    sendJson(response, 200, { data: inputs.map((_, index) => ({ index, embedding: [1, 0, 0, 0] })) });
+    // 같은 문장은 같은 벡터, 다른 문장끼리는 유사도 대략 0.6이다. 검색 임계(0.3)는 넘어 기억이 항상 검색되고,
+    // 기억 병합 임계(0.92)는 넘지 않아 서로 다른 기억이 합쳐지지 않는다.
+    sendJson(response, 200, { data: inputs.map((text, index) => ({ index, embedding: embeddingFor(String(text)) })) });
     return;
   }
 
   sendJson(response, 404, { error: "Not found" });
 });
+
+/**
+ * 문장 해시로 만든 결정적 벡터. 공통 성분 하나와 ±1 부호 32개(단위 길이로 맞춤)로 이뤄진다.
+ * 다른 문장끼리는 부호가 반쯤 겹쳐 유사도가 대략 0.6이고, 0.92를 넘으려면 부호 29개 이상이 같아야 해서 사실상 없다.
+ * 고정 자료(fixtures/memories.json)의 [1, 0, …, 0]과는 항상 0.77이다.
+ */
+const EMBEDDING_SIGNS = 32;
+function embeddingFor(text) {
+  const hash = createHash("sha256").update(text).digest();
+  const signs = Array.from({ length: EMBEDDING_SIGNS }, (_, bit) => ((hash[bit >> 3] >> (bit & 7)) & 1 ? 1 : -1) / Math.sqrt(EMBEDDING_SIGNS));
+  return [Math.sqrt(1.5), ...signs];
+}
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`[mock-openai] listening on http://127.0.0.1:${port}`);
