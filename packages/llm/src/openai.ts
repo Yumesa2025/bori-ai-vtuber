@@ -1,4 +1,5 @@
 import { buildSystemPrompt, buildUserPrompt, responseJsonSchema } from "./prompt.js";
+import { redactSecrets } from "./redact.js";
 import type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest } from "./types.js";
 import { tokenUsageFrom } from "./usage.js";
 
@@ -44,8 +45,8 @@ export function createOpenAiAdapter(config: LlmAdapterConfig): LlmAdapter {
         });
 
         if (!response.ok) {
-          // 응답 본문에 키가 섞여 들어가지 않도록 앞부분만 남긴다.
-          const detail = (await response.text()).slice(0, 200);
+          // 응답 본문에 키가 섞여 들어가지 않도록 키 모양 문자열을 가린 뒤 앞부분만 남긴다.
+          const detail = redactSecrets(await response.text(), [config.apiKey]).slice(0, 200);
           throw new Error(`OpenAI ${response.status}: ${detail}`);
         }
 

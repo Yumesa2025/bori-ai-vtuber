@@ -1,3 +1,5 @@
+import { redactSecrets } from "./redact.js";
+
 /** 프록시나 호환 엔드포인트로 돌릴 때 환경변수로 바꾼다. */
 const OPENAI_BASE_URL = process.env.BORI_OPENAI_BASE_URL ?? "https://api.openai.com/v1";
 const ELEVENLABS_BASE_URL = process.env.BORI_ELEVENLABS_BASE_URL ?? "https://api.elevenlabs.io/v1";
@@ -61,7 +63,8 @@ async function synthesizeWithOpenAi(apiKey: string, settings: TtsSettings, text:
       body: JSON.stringify({ model: settings.model, voice: settings.voice, input: text, speed: settings.speed, response_format: "mp3" }),
       signal,
     });
-    if (!response.ok) throw new Error(`OpenAI TTS ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    // 업체 오류 본문은 키 모양 문자열을 가린 뒤 앞부분만 남긴다.
+    if (!response.ok) throw new Error(`OpenAI TTS ${response.status}: ${redactSecrets(await response.text(), [apiKey]).slice(0, 200)}`);
     return Buffer.from(await response.arrayBuffer());
   } finally {
     done();
@@ -81,7 +84,7 @@ async function synthesizeWithElevenLabs(apiKey: string, settings: TtsSettings, t
       }),
       signal,
     });
-    if (!response.ok) throw new Error(`ElevenLabs ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    if (!response.ok) throw new Error(`ElevenLabs ${response.status}: ${redactSecrets(await response.text(), [apiKey]).slice(0, 200)}`);
     return Buffer.from(await response.arrayBuffer());
   } finally {
     done();
