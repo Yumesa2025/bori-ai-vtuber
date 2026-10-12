@@ -4,6 +4,7 @@
  */
 export {
   createConversationEngine,
+  MEMORY_SEARCH_TIMEOUT_MS,
   memoryAccessFor,
   type ConversationEngine,
   type ConversationEngineDeps,
@@ -15,5 +16,5 @@ export {
 } from "./engine.js";
 export { RECENT_TURN_LIMIT, type ConversationSession, type SessionTurn, type Turn } from "./session.js";
 export { MACRO_ACTIVE_LIMIT } from "./macros.js";
-export { bodyAction, isQuestion, isUnsafeContent } from "./rules.js";
+export { bodyAction, isQuestion, isUnsafeContent, pickNextChatIndex, QUEUE_WAIT_LIMIT_MS } from "./rules.js";
 export { createModeLlmClients, type ModeLlmClients } from "./llm-clients.js";

@@ -32,6 +32,8 @@ export type ConversationEngineDeps = {
   policies?: Record<ConversationMode, ConversationPolicy>;
   /** 누적 요약용 어댑터 생성기. 테스트에서 가짜 어댑터로 바꾼다. */
   createAdapter?: typeof createAdapter;
+  /** 기억 검색 상한(ms). 지정하지 않으면 MEMORY_SEARCH_TIMEOUT_MS. 테스트에서 줄인다. */
+  memorySearchTimeoutMs?: number;
 };
 
 /** 말한 사람. ownerId가 null이면 누구인지 모르는 발언이라 소유 기억을 읽지 않는다. */
@@ -58,6 +60,19 @@ export type RespondResult =
 const allowedMotions = boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] }));
 
 /**
+ * 기억 검색 상한. 임베딩 호출에는 자체 타임아웃이 없어서, 응답이 오지 않으면 답변이 끝나지 않고
+ * 방송은 발화권을 쥔 채 큐가 멈춘다. 상한을 넘기면 기억 없이 답한다.
+ */
+export const MEMORY_SEARCH_TIMEOUT_MS = 5000;
+
+/** 정해진 시간 안에 끝나지 않으면 실패로 본다. 원래 작업은 취소하지 못하고 결과만 버린다. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
  * 모드와 화자로 기억 접근 범위를 정한다.
  * 방송은 소유자 없는 기억과 말한 시청자 본인의 기억만, 1:1은 그 사용자 본인의 기억만 꺼낸다.
  * 화자를 모르면 방송은 소유 기억 없이 찾고, 1:1은 아예 찾지 않는다(null).
@@ -71,6 +86,7 @@ export function memoryAccessFor(mode: ConversationMode, speaker: Speaker): Memor
 export function createConversationEngine(deps: ConversationEngineDeps) {
   const policies = deps.policies ?? conversationPolicies;
   const makeAdapter = deps.createAdapter ?? createAdapter;
+  const memorySearchTimeoutMs = deps.memorySearchTimeoutMs ?? MEMORY_SEARCH_TIMEOUT_MS;
 
   /** onSummary를 주면 누적 요약이 갱신될 때마다 부른다. 1:1은 대화 레코드에 요약을 저장한다. */
   function createSession(mode: ConversationMode, options: { onSummary?: (summary: string) => void } = {}): ConversationSession {
@@ -104,7 +120,11 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     if (!access) return [];
 
     try {
-      const hits = await deps.memoryStore.search(input.content, memorySettings, deps.embedding(), access);
+      const hits = await withTimeout(
+        deps.memoryStore.search(input.content, memorySettings, deps.embedding(), access),
+        memorySearchTimeoutMs,
+        `기억 검색이 ${memorySearchTimeoutMs}ms 안에 끝나지 않았습니다.`,
+      );
       return hits.map(hit => hit.record.text);
     } catch (error) {
       console.error("[bori-server] 기억 검색 실패:", error);
