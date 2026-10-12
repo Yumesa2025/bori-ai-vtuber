@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { compareResults, formatComparison, sanitizeLabel, timestampForFile } from "../src/results.js";
+import { compareResults, formatComparison, formatPassRate, modelTally, sanitizeLabel, tallyRuns, timestampForFile } from "../src/results.js";
 import { countStatuses, type EvalResultFile, type ScenarioResult } from "../src/types.js";
 
 function scenarioResult(id: string, status: ScenarioResult["status"], checks: ScenarioResult["checks"] = []): ScenarioResult {
@@ -68,6 +68,50 @@ describe("결과 비교", () => {
     assert.equal(comparison.statusChangeCount, 0);
     assert.equal(comparison.changes[0].replyChanged, true);
     assert.match(formatComparison(comparison, "a", "b"), /답변 문장이 달라짐/);
+  });
+});
+
+describe("반복 실행", () => {
+  const run = (statuses: Record<string, ScenarioResult["status"]>) =>
+    Object.entries(statuses).map(([id, status]) => scenarioResult(id, status));
+  const model = (runs: ScenarioResult[][]) => ({
+    provider: "openai" as const, model: "m", baseUrl: null,
+    counts: countStatuses(runs[0]), scenarios: runs[0],
+    ...(runs.length > 1 ? { repeat: runs.length, runs: runs.map(scenarios => ({ counts: countStatuses(scenarios), scenarios })), tally: tallyRuns(runs) } : {}),
+  });
+
+  test("회차별 결과를 시나리오별 통과 횟수로 모은다. 범위 밖은 판정 횟수에서 뺀다", () => {
+    const tally = tallyRuns([
+      run({ "C-15": "fail", "C-20": "pass", "B-01": "out_of_scope" }),
+      run({ "C-15": "pass", "C-20": "error", "B-01": "out_of_scope" }),
+      run({ "C-15": "pass", "C-20": "pass", "B-01": "out_of_scope" }),
+    ]);
+    assert.deepEqual(tally.map(entry => [entry.id, formatPassRate(entry)]), [["C-15", "2/3"], ["C-20", "2/3"], ["B-01", "-"]]);
+    assert.deepEqual(tally[0].statuses, ["fail", "pass", "pass"]);
+  });
+
+  test("반복하지 않은 결과는 1회짜리로 본다", () => {
+    const single = resultFile([], { model: model([run({ "C-15": "fail" })]) });
+    assert.deepEqual(modelTally(single).map(entry => formatPassRate(entry)), ["0/1"]);
+  });
+
+  test("한쪽이라도 반복 결과면 시나리오별 통과 횟수를 비교한다", () => {
+    const before = resultFile([], { model: model([run({ "C-15": "fail", "C-20": "fail" }), run({ "C-15": "fail", "C-20": "pass" }), run({ "C-15": "fail", "C-20": "fail" })]) });
+    const after = resultFile([], { model: model([run({ "C-15": "pass", "C-20": "fail" }), run({ "C-15": "pass", "C-20": "pass" }), run({ "C-15": "fail", "C-20": "fail" })]) });
+    const comparison = compareResults(before, after);
+    assert.deepEqual(comparison.passRates.map(rate => [rate.id, formatPassRate(rate.before ?? undefined), formatPassRate(rate.after ?? undefined)]), [
+      ["C-15", "0/3", "2/3"],
+      ["C-20", "1/3", "1/3"],
+    ]);
+    const text = formatComparison(comparison, "a", "b");
+    assert.match(text, /전체 1\/6 → 3\/6/);
+    assert.match(text, /\* C-15 0\/3 → 2\/3/);
+    assert.match(text, /  C-20 1\/3 → 1\/3/);
+  });
+
+  test("둘 다 1회 결과면 통과 횟수 비교를 하지 않는다", () => {
+    const single = resultFile([], { model: model([run({ "C-15": "fail" })]) });
+    assert.deepEqual(compareResults(single, single).passRates, []);
   });
 });
 
