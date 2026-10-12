@@ -64,6 +64,18 @@ export async function run({ bori, report }) {
     report.check("localhost Host는 포트가 달라도 통과한다", loopback === 200, `status=${loopback}`);
   }
 
+  // ── 경로 인코딩 ────────────────────────────────────────────
+  {
+    // 예전에는 /api/tts/:id의 decodeURIComponent 예외로 서버 프로세스가 그대로 죽었다.
+    const host = new URL(bori.baseUrl).host;
+    const statuses = [
+      await getWithHost(bori.baseUrl, "/api/tts/%E0%A4%A", host),
+      await getWithHost(bori.baseUrl, "/api/memory/%", host),
+    ];
+    const alive = await fetch(url("/api/health")).then(response => response.status).catch(() => 0);
+    report.check("깨진 경로 인코딩은 400이고 서버는 계속 응답한다", statuses.every(status => status === 400) && alive === 200, `status=${statuses.join(",")} health=${alive}`);
+  }
+
   // ── Content-Type과 본문 크기 ───────────────────────────────
   await bori.startSession();
   {

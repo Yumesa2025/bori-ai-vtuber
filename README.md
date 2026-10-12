@@ -146,7 +146,9 @@ npm run build
 
 `npm run test`는 실제 서버를 가짜 OpenAI API에 붙여 띄우고 방송을 짧게 돌려 46건을 확인한다(지연 16, 동작 16, 기억 격리 14). API 키도 요금도 필요 없고, `data/`도 건드리지 않는다. 답변 대기와 생성이 겹치는지, 세션을 다시 시작했을 때 이전 타이머가 새 답변을 건드리지 않는지, 시청자 A의 기억이 B의 LLM 요청에 들어가지 않는지처럼 서버를 통째로 띄워야 보이는 동작이 대상이다. 포트는 `MOCK_PORT`·`BORI_TEST_PORT`로 바꿀 수 있다. 자세한 내용은 [tools/test/README.md](tools/test/README.md)에 있다.
 
-두 검사 모두 실제 LLM·TTS 응답과 화면은 다루지 않는다. 이 부분은 [docs/verification-log.md](docs/verification-log.md)의 수동 검증 기록이 뒷받침한다. CI 설정은 없어 검사는 로컬에서 직접 실행한다.
+두 검사 모두 실제 LLM·TTS 응답과 화면은 다루지 않는다. 이 부분은 [docs/verification-log.md](docs/verification-log.md)의 수동 검증 기록이 뒷받침한다.
+
+GitHub Actions CI(`.github/workflows/ci.yml`)가 push·PR마다 위 검사와 평가기 검사·정적 평가, 비공개 자산이 필요 없는 빌드(shared·server·admin)를 돈다. 비밀값과 실모델 평가는 쓰지 않는다. 방송·1:1 화면 빌드는 비공개 Live2D 자산이 있어야 해서 로컬에서만 확인한다. 보안 점검 결과는 [docs/security-review.md](docs/security-review.md), 치지직 실연동 검토는 [docs/chzzk-integration-review.md](docs/chzzk-integration-review.md)에 있다.
 
 빌드 산출물로 방송 화면을 확인하려면 다음과 같이 실행한다.
 
