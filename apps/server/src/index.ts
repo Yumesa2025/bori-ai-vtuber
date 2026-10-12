@@ -14,6 +14,7 @@ import { createApiKeySlot } from "./secret-store.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
 import { isValidVoice, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
 import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
+import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 let settings: QueueSettings = {
@@ -56,6 +57,9 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
  * 환경변수로 옮길 수 있게 해서, 실제 방송 데이터를 건드리지 않고 서버를 띄워 볼 수 있다.
  */
 const dataRoot = process.env.BORI_DATA_DIR ? resolve(process.env.BORI_DATA_DIR) : resolve(projectRoot, "data");
+// 보관 기간이 지난 백업·이전 관리자 로그를 지운다. 사용자 데이터 원본은 지우지 않는다(retention.ts).
+const purgedBackups = purgeExpiredBackups(dataRoot);
+if (purgedBackups.length > 0) console.log(`[bori-server] ${BACKUP_RETENTION_DAYS}일 지난 백업·로그 ${purgedBackups.length}건 정리`);
 const llmConfigPath = resolve(dataRoot, "llm-config.json");
 
 let llmSettings: LlmSettings = {
