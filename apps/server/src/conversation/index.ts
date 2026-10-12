@@ -15,4 +15,5 @@ export {
 } from "./engine.js";
 export { RECENT_TURN_LIMIT, type ConversationSession, type SessionTurn, type Turn } from "./session.js";
 export { MACRO_ACTIVE_LIMIT } from "./macros.js";
-export { bodyAction, isQuestion } from "./rules.js";
+export { bodyAction, isQuestion, isUnsafeContent } from "./rules.js";
+export { createModeLlmClients, type ModeLlmClients } from "./llm-clients.js";
