@@ -586,6 +586,7 @@ LLM 클라이언트(`createLlmClient`)는 회로 차단기와 호출 통계를 �
 - **LLM 회로 분리**: `createModeLlmClients`가 모드마다 `createLlmClient()`를 하나씩 만든다. 관리자 `/api/llm`의 `status`는 방송 것이고 1:1은 `companionStatus`로 따로 보여 준다. 설정을 바꿀 때의 reset은 두 클라이언트에 함께 적용한다.
 - **개인 기억**: 사용자 메시지를 저장할 때 `extractPrivateMemoryCandidates`로 후보를 뽑아 `scope: "private"`, `ownerId: companion:local`로 저장한다. 방송 추출과 같은 규칙을 쓰고 공개 범위와 소유자만 다르다. 차단한 입력은 후보로 만들지 않는다. 저장은 답변 생성과 나란히 돌리고, 실패해도 답변은 나간다.
 - **라우트**: `index.ts`에는 처리기 한 줄만 둔다. 경로 판정은 동기로 하고 응답은 모듈 안에서 비동기로 보낸다. 방송 상태·큐·방송 세션은 이 모듈에 넘기지 않는다.
+- **본문 읽기**: 1:1 라우트의 본문은 `companion/body.ts`의 `readBody(request, response, onBody)` 하나로 읽는다. API 보안 작업의 `readBody`와 시그니처·상한(64KB, 초과 413)이 같아 병합할 때 그쪽 함수로 바꿔 끼운다.
 
 ### 근거
 

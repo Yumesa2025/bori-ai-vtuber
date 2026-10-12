@@ -346,7 +346,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 1:1 대화 API 구현(`feature/private-chat-api`, 병합 전). 결정 근거는 [설계 결정 기록](./decisions.md) ADR-015에 있다.
 
-1. 선행: API 보안 강화(CORS 출처 제한, 로컬 토큰, 요청 본문 크기 제한, 설정값 검증)는 별도 작업으로 진행 중이다. 1:1 API는 그 작업과 함께 병합해야 보안 경계 없이 열린 상태가 생기지 않는다. 1:1 라우트는 자체적으로 본문 16KB 상한(413)만 둔다
+1. 선행: API 보안 강화(CORS 출처 제한, 로컬 토큰, 요청 본문 크기 제한, 설정값 검증)는 별도 작업으로 진행 중이다. 1:1 API는 그 작업과 함께 병합해야 보안 경계 없이 열린 상태가 생기지 않는다. 1:1 라우트의 본문 읽기는 보안 작업의 `readBody`와 같은 시그니처·같은 64KB 상한(413)으로 `companion/body.ts`에 모아 두어 병합 때 바꿔 끼울 수 있게 했다
 2. 완료: 1:1 대화 라우트 `/api/conversations`·`/api/conversations/:id/messages`·`/api/me/memories`·`/api/character/profile`·`/api/character/catalog`(`apps/server/src/companion/`). 소유자는 서버가 `companion:local`로 고정한다
 3. 완료: 대화 저장소. `data/companion-conversations.json`에 소유자별로 저장하고 임시 파일 + rename으로 원자적으로 쓴다. 재시작 뒤 처음 접근할 때 저장된 최근 메시지로 세션의 최근 대화를 되살린다
 4. 완료: 1:1 정책. 규칙 문장 없이 LLM이 답하고, 위험 주제는 거절 문장(`source: "blocked"`), LLM을 못 쓰면 1:1 폴백 문장(`source: "fallback"`, `failure.kind`)으로 답한다. 거절·폴백 문장은 초안이며 `검토 필요`다. 방송 규칙·무반응·폴백은 그대로다

@@ -112,6 +112,10 @@ export async function run({ bori, mock, report }) {
     const notString = await sendMessage(first.id, 123);
     report.check("빈 내용·500자 초과·문자열이 아닌 내용은 400이다", [empty, tooLong, notString].every(result => result.status === 400 && typeof result.body?.error === "string"), [empty.status, tooLong.status, notString.status].join(","));
 
+    // 한글 한 글자는 UTF-8 3바이트라 3만 자면 64KB를 넘는다.
+    const huge = await send("POST", `/api/conversations/${first.id}/messages`, undefined, JSON.stringify({ content: "가".repeat(30_000) }));
+    report.check("64KB를 넘는 본문은 413이다", huge.status === 413 && typeof huge.body?.error === "string", `status=${huge.status}`);
+
     const badJson = await send("POST", `/api/conversations/${first.id}/messages`, undefined, "{");
     const badTitle = await send("POST", "/api/conversations", { title: 5 });
     report.check("잘못된 JSON과 문자열이 아닌 제목은 400이다", badJson.status === 400 && badTitle.status === 400, `${badJson.status},${badTitle.status}`);
