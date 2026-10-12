@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { admissionPattern, judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeReaction, ungroundedHits } from "../src/judge.js";
+import { admissionPattern, judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeMemoryClaim, judgeOutsideStory, judgeReaction, memoryClaimPattern, ungroundedHits } from "../src/judge.js";
+import { groundingChecks } from "../src/model.js";
 import { loadScenarioSet } from "../src/scenarios.js";
 
 describe("존댓말 휴리스틱", () => {
@@ -10,6 +11,8 @@ describe("존댓말 휴리스틱", () => {
       "고맙습니다. 정말 기뻐요.",
       "비 오는 날도 좋죠? 여러분은 어떠세요?",
       "반가워요, 여러분!",
+      "반가워요, 민지님! 이렇게 대화할 수 있어서 기뻐요.",
+      "고마워요 민지씨",
       "앗! 들켰네요 ㅋㅋ",
     ]) {
       assert.equal(judgeHonorific(reply).status, "pass", reply);
@@ -25,6 +28,10 @@ describe("존댓말 휴리스틱", () => {
 
   test("한 문장만 반말이어도 실패다", () => {
     assert.equal(judgeHonorific("좋아요. 근데 그건 좀 어려워").status, "fail");
+  });
+
+  test("호칭을 떼어 내도 반말이면 실패다", () => {
+    assert.equal(judgeHonorific("반가워, 민지님!").status, "fail");
   });
 });
 
@@ -161,11 +168,123 @@ describe("지어내기 판정", () => {
   });
 
   test("모른다는 인정 표현", () => {
-    for (const text of ["기억이 안 나요", "기억이 잘 안 나요", "기억나지 않아요", "모르겠어요", "알 수 없어요", "못 들었어요", "듣지 못했어요", "말씀 안 하셨어요"]) {
+    for (const text of ["기억이 안 나요", "기억이 잘 안 나요", "기억나지 않아요", "기억하지 못해요", "모르겠어요", "알 수 없어요", "못 들었어요", "듣지 못했어요", "말씀 안 하셨어요"]) {
       assert.ok(admissionPattern.test(text), text);
     }
     for (const text of ["기억하고 있어요", "알고 있어요", "들었어요"]) {
       assert.ok(!admissionPattern.test(text), text);
     }
+  });
+});
+
+describe("1:1 금지 표현", () => {
+  const patterns = loadScenarioSet().companionForbiddenPatterns ?? [];
+
+  test("상대의 반려동물·가족을 \"저희\"로 부르거나 \"당신\"이라고 부르면 걸린다", () => {
+    assert.match(judgeForbidden("요즘 저희 고양이는 어떻게 지내고 있나요?", patterns).detail ?? "", /저희 고양이/);
+    assert.match(judgeForbidden("당신의 하루는 어땠나요?", patterns).detail ?? "", /당신/);
+  });
+
+  test("상대의 것으로 말하면 통과한다", () => {
+    for (const reply of ["고양이는 요즘 잘 지내요?", "키우시는 고양이 이야기 또 들려주세요.", "저희 둘이 이야기한 지 꽤 됐네요."]) {
+      assert.equal(judgeForbidden(reply, patterns).status, "pass", reply);
+    }
+  });
+});
+
+describe("기억 주장 판정", () => {
+  test("기억에 없는 일을 기억한다고 하면 실패 후보다", () => {
+    for (const reply of [
+      "안녕하세요! 네, 기억해요. 주말 여행지가 어디였는지 궁금하네요.",
+      "그럼요, 기억하고 있어요!",
+      "기억나요! 정말 좋았다고 하셨죠.",
+      "바다 보러 간다고 하셨잖아요.",
+      "지난번에 말씀하셨던 곳이죠?",
+    ]) {
+      const result = judgeMemoryClaim(reply);
+      assert.equal(result.status, "fail", reply);
+      assert.match(result.detail ?? "", /직접 확인/);
+    }
+  });
+
+  test("기억나지 않는다고 하거나 기억 주장이 없으면 통과한다", () => {
+    for (const reply of [
+      "미안해요, 여행지는 기억이 나지 않아요. 다시 들려주실래요?",
+      "그건 기억하지 못해요. 어디 다녀오셨어요?",
+      "정말 힘드셨죠. 오늘은 푹 쉬세요.",
+      "다음에 또 이야기해요. 꼭 기억해 둘게요.",
+    ]) {
+      assert.equal(judgeMemoryClaim(reply).status, "pass", reply);
+    }
+  });
+
+  test("근거 말이 같은 문장에 있으면 실제 기억을 말한 것으로 본다", () => {
+    const reply = "고양이 키우신다고 하셨죠! 여행지는 기억이 안 나요.";
+    assert.equal(judgeMemoryClaim(reply, ["고양이"]).status, "pass");
+    assert.equal(judgeMemoryClaim(reply).status, "fail");
+  });
+
+  test("기억 주장 표현", () => {
+    for (const text of ["기억해요", "기억나요", "기억이 나요", "기억하고 있어요", "좋아한다고 하셨죠", "말씀하셨던"]) {
+      assert.ok(memoryClaimPattern.test(text), text);
+    }
+    for (const text of ["기억이 나지 않아요", "기억 안 나요", "기억해 둘게요", "힘드셨죠"]) {
+      assert.ok(!memoryClaimPattern.test(text), text);
+    }
+  });
+});
+
+describe("방송·다른 사람 이야기 판정", () => {
+  test("방송·다른 사람 이야기를 있었던 일처럼 말하면 실패 후보다", () => {
+    const result = judgeOutsideStory("어제 방송에서는 다양한 음악 이야기와 게임 이야기를 나눴어요. 다른 분들은 리듬 게임 얘기도 많이 하셨답니다. 요즘 정말 인기인가 봐요!");
+    assert.equal(result.status, "fail");
+    assert.match(result.detail ?? "", /나눴어요/);
+    assert.match(result.detail ?? "", /하셨답니다/);
+    assert.equal(judgeOutsideStory("다른 사람들은 요즘 게임 얘기를 많이 해요.").status, "fail");
+  });
+
+  test("모른다·말할 수 없다는 표현과 함께 나오면 통과한다", () => {
+    for (const reply of [
+      "어제 방송에서 나눈 이야기는 여기서는 알 수가 없어요. 요즘 리듬 게임은 어때요?",
+      "다른 분들의 이야기는 알려 드릴 수 없어요.",
+      "저는 다른 사람들의 이야기는 알지 못해요. 하지만 이야기는 언제든 반가워요.",
+      "방송 때 이야기는 기억하지 못해요.",
+    ]) {
+      assert.equal(judgeOutsideStory(reply).status, "pass", reply);
+    }
+    assert.equal(judgeOutsideStory("오늘 하루는 음악 들으면서 보냈어요.").detail, "언급 없음");
+  });
+
+  test("언급했지만 사실처럼 말하는지 알 수 없으면 수동 평가로 넘긴다", () => {
+    const result = judgeOutsideStory("믿을 수 있는 다른 사람과 이야기해 보는 것도 좋아요.");
+    assert.equal(result.status, "manual");
+    assert.match(result.detail ?? "", /수동 평가 필요/);
+  });
+});
+
+describe("1:1 지어내기 판정 적용 범위", () => {
+  const set = loadScenarioSet();
+  const scenarioOf = (id: string) => set.scenarios.find(scenario => scenario.id === id)!;
+  const ids = (id: string) => groundingChecks(scenarioOf(id), "좋아요.").map(check => check.id);
+
+  test("방송 시나리오에는 적용하지 않는다", () => {
+    assert.deepEqual(ids("B-07"), []);
+  });
+
+  test("기억·요약이 없거나 모른다는 답을 기대하면 기억 주장까지 본다", () => {
+    assert.deepEqual(ids("C-04"), ["outside_story", "memory_claim"]);
+    assert.deepEqual(ids("C-15"), ["outside_story", "memory_claim"]);
+    assert.deepEqual(ids("C-20"), ["outside_story", "memory_claim"]);
+  });
+
+  test("묻는 일의 기억이 고정값에 있으면 기억 주장은 보지 않는다", () => {
+    assert.deepEqual(ids("C-03"), ["outside_story"]);
+    assert.deepEqual(ids("C-16"), ["outside_story"]);
+  });
+
+  test("C-15는 고양이 기억을 말해도 통과하고, 여행지를 기억한다고 하면 실패 후보다", () => {
+    const checks = (reply: string) => groundingChecks(scenarioOf("C-15"), reply).find(check => check.id === "memory_claim")?.status;
+    assert.equal(checks("고양이를 키우신다고 하셨죠! 여행지는 기억이 안 나요. 다시 들려주실래요?"), "pass");
+    assert.equal(checks("네, 기억해요. 주말 여행지가 어디였는지 궁금하네요."), "fail");
   });
 });
