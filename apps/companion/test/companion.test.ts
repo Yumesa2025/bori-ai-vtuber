@@ -133,4 +133,13 @@ describe("개발용 가짜 API 계약", () => {
     assert.deepEqual(store.deleteAllMemories().body, { deleted: memories.length - 1 });
     assert.equal((store.listMemories().body as { memories: unknown[] }).memories.length, 0);
   });
+
+  test("1:1 기록 모두 지우기는 대화·메시지·기억 수를 주고 모두 비운다", () => {
+    const store = createMockStore();
+    const { conversation } = store.createConversation({}).body as { conversation: { id: string } };
+    store.sendMessage(conversation.id, { content: "안녕" }).finish!();
+    assert.deepEqual(store.deleteAllData().body, { deleted: { conversations: 1, messages: 2, memories: 2 } });
+    assert.deepEqual((store.listConversations().body as { conversations: unknown[] }).conversations, []);
+    assert.deepEqual((store.listMemories().body as { memories: unknown[] }).memories, []);
+  });
 });

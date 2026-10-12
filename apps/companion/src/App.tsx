@@ -153,6 +153,14 @@ export function App() {
     }
   };
 
+  // 1:1 기록을 모두 지웠으면 열린 대화도 없어졌다. 화면을 비우고 목록을 서버와 맞춘다.
+  const handleDataCleared = useCallback(() => {
+    setActiveId(null);
+    setMessages([]);
+    setNotice(null);
+    void refreshConversations();
+  }, [refreshConversations]);
+
   const toggleTts = () => {
     setTtsEnabled(current => { saveTtsEnabled(!current); return !current; });
   };
@@ -207,7 +215,7 @@ export function App() {
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}
       />
-      <MemoryDialog open={memoryOpen} onClose={() => setMemoryOpen(false)} />
+      <MemoryDialog open={memoryOpen} onClose={() => setMemoryOpen(false)} onDataCleared={handleDataCleared} />
     </div>
   );
 }

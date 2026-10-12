@@ -44,6 +44,7 @@ export function mockApi(): Plugin {
     { method: "GET", pattern: /^\/api\/me\/memories$/, handle: () => store.listMemories() },
     { method: "DELETE", pattern: /^\/api\/me\/memories$/, handle: () => store.deleteAllMemories() },
     { method: "DELETE", pattern: /^\/api\/me\/memories\/([^/]+)$/, handle: ([id]) => store.deleteMemory(id) },
+    { method: "DELETE", pattern: /^\/api\/me\/data$/, handle: () => store.deleteAllData() },
     { method: "GET", pattern: /^\/api\/character\/profile$/, handle: () => store.profile() },
     { method: "GET", pattern: /^\/api\/character\/catalog$/, handle: () => store.catalog() },
   ];

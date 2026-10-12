@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 type Props = {
   open: boolean;
@@ -16,6 +16,8 @@ type Props = {
  */
 export function ConfirmDialog({ open, title, description, confirmLabel, busy = false, onConfirm, onCancel }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // 기억 화면 안에서도 쓰므로 제목 id가 겹치지 않게 한다.
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -25,8 +27,8 @@ export function ConfirmDialog({ open, title, description, confirmLabel, busy = f
   }, [open]);
 
   return (
-    <dialog ref={dialogRef} className="confirm-dialog" aria-labelledby="confirm-title" onCancel={event => { event.preventDefault(); if (!busy) onCancel(); }}>
-      <h2 id="confirm-title">{title}</h2>
+    <dialog ref={dialogRef} className="confirm-dialog" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!busy) onCancel(); }}>
+      <h2 id={titleId}>{title}</h2>
       <p>{description}</p>
       <div className="dialog-actions">
         <button type="button" className="ghost-button" onClick={onCancel} disabled={busy}>취소</button>

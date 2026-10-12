@@ -6,6 +6,9 @@
 
 export type Conversation = { id: string; title: string; createdAt: string; updatedAt: string; messageCount: number };
 
+/** 1:1 기록 모두 지우기(DELETE /api/me/data)로 지운 개수. */
+export type ClearedData = { conversations: number; messages: number; memories: number };
+
 export type MessageEmotion = { primary: string; intensity: number; durationSeconds: number };
 export type MessageAction = { name: string; layer: string; priority: number };
 export type MessageSource = "llm" | "rule" | "fallback" | "blocked";
@@ -104,5 +107,7 @@ export const api = {
   listMemories: () => request<{ memories: Memory[] }>("/api/me/memories").then(body => body.memories),
   deleteMemory: (id: string) => request<{ deleted: true }>(`/api/me/memories/${encodeURIComponent(id)}`, { method: "DELETE" }),
   deleteAllMemories: () => request<{ deleted: number }>("/api/me/memories", { method: "DELETE" }).then(body => body.deleted),
+  /** 1:1 대화·메시지·대화 요약·기억을 모두 지운다. 방송 기록은 남는다. */
+  deleteAllData: () => request<{ deleted: ClearedData }>("/api/me/data", { method: "DELETE" }).then(body => body.deleted),
   getProfile: () => request<CharacterProfile>("/api/character/profile"),
 };

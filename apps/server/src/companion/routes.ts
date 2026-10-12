@@ -142,6 +142,12 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
     }
 
     if (resource === "me") {
+      // /api/me/data: 1:1 대화·요약·세션·개인 기억을 한 번에 지운다. 방송 기억은 남는다.
+      if (id === "data") {
+        if (method !== "DELETE") throw new HttpError(405, "지원하지 않는 메서드입니다.");
+        sendJson(response, 200, { deleted: service.clearAll(ownerId) });
+        return;
+      }
       // /api/me/memories
       if (segments.length === 3) {
         if (method === "GET") { sendJson(response, 200, { memories: service.listMemories(ownerId) }); return; }
@@ -183,7 +189,7 @@ function matches(segments: readonly string[]): boolean {
     case "conversations":
       return segments.length === 2 || segments.length === 3 || (segments.length === 4 && third === "messages");
     case "me":
-      return second === "memories" && (segments.length === 3 || segments.length === 4);
+      return (second === "memories" && (segments.length === 3 || segments.length === 4)) || (second === "data" && segments.length === 3);
     case "character":
       return segments.length === 3 && (second === "profile" || second === "catalog");
     default:

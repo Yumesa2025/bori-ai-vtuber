@@ -10,7 +10,7 @@ export type {
 export { cosineSimilarity, createOpenAiEmbedding } from "./embedding.js";
 export { ANONYMOUS_VIEWER_ID, canAccessMemory, isAnonymousViewer } from "./access.js";
 export { MEMORY_FILE_VERSION, migrateMemoryFile, type MemoryMigrationResult } from "./migrate.js";
-export { createMemoryStore, type MemoryStore, type MemoryStoreOptions } from "./store.js";
+export { createMemoryStore, type MemoryAddOptions, type MemoryStore, type MemoryStoreOptions } from "./store.js";
 export { CONTAINMENT_MIN_RATIO, MERGE_SIMILARITY, isSameMemoryEmbedding, isSameMemoryText } from "./similar.js";
 export { extractMemoryCandidates, extractPrivateMemoryCandidates, isStorableMemory, type ConversationTurn } from "./extract.js";
 
