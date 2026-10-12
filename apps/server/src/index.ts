@@ -311,6 +311,7 @@ function tickMacros() {
  */
 function systemPromptSize(): number {
   return buildSystemPrompt({
+    mode: "broadcast",
     content: "",
     recentTurns: [],
     memories: [],
@@ -535,6 +536,7 @@ async function makeResponse(content: string, viewerId?: string): Promise<Charact
   }
 
   const result = await llm.respond(llmSettings, llmApiKey, {
+    mode: "broadcast",
     content,
     recentTurns: [...recentTurns],
     memories,
