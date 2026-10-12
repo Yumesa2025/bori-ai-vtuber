@@ -19,15 +19,27 @@ export type CompanionOptions = Omit<CompanionServiceDeps, "store"> & {
   filePath: string;
 };
 
-/** 저장소를 읽고 라우트 처리기를 돌려준다. 처리한 경로면 true다. */
-export function createCompanionHandler(options: CompanionOptions): (request: IncomingMessage, response: ServerResponse) => boolean {
+/** 라우트 처리기. 처리한 경로면 true다. stats()는 관리자 통계용 숫자만 돌려준다. */
+export type CompanionHandler = ((request: IncomingMessage, response: ServerResponse) => boolean) & {
+  stats(): { conversations: number; messages: number };
+};
+
+/** 저장소를 읽고 라우트 처리기를 돌려준다. */
+export function createCompanionHandler(options: CompanionOptions): CompanionHandler {
   const { filePath, ...deps } = options;
   const store = createConversationStore(filePath);
   store.load();
   console.log(`[bori-server] 1:1 대화 ${store.list(COMPANION_LOCAL_OWNER).length}건 불러옴`);
 
   const service = createCompanionService({ ...deps, store });
-  return createCompanionRoutes({ service, store, ownerOf: () => COMPANION_LOCAL_OWNER });
+  const handler = createCompanionRoutes({ service, store, ownerOf: () => COMPANION_LOCAL_OWNER });
+  return Object.assign(handler, {
+    // 대화 제목·내용은 내보내지 않고 개수만 센다.
+    stats() {
+      const conversations = store.list(COMPANION_LOCAL_OWNER);
+      return { conversations: conversations.length, messages: conversations.reduce((sum, entry) => sum + entry.messageCount, 0) };
+    },
+  });
 }
 
 export { createConversationStore, CONVERSATION_FILE_VERSION, type ConversationStore } from "./store.js";

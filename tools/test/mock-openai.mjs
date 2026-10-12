@@ -13,6 +13,8 @@
  *   GET /__reset               요청 목록 비우기
  *   GET /__timing?llm=&tts=&embed=   응답 지연 변경(ms)
  *   GET /__fail?on=1           답변 생성 요청을 500으로 실패시키기
+ *
+ * 답변 생성 응답에는 고정 토큰 사용량(usage)을 붙인다. 사용량 집계를 확인할 때 쓴다.
  */
 import { createServer } from "node:http";
 
@@ -34,6 +36,9 @@ const sendJson = (response, status, body) => {
   response.writeHead(status, { "Content-Type": "application/json" });
   response.end(JSON.stringify(body));
 };
+
+/** 답변 생성 응답에 붙이는 토큰 사용량. 값은 usage.mjs와 맞춘다. */
+const MOCK_USAGE = { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 };
 
 /** 1:1 누적 요약 응답. 방송 요약과 구분해 지난 대화 요약·재시작 복원을 확인한다. */
 const MOCK_COMPANION_SUMMARY = "가짜 1:1 요약";
@@ -96,7 +101,7 @@ const server = createServer(async (request, response) => {
 
     calls.push({ kind: "llm", ...record });
     await sleep(timing.llm);
-    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema, record.system) } }] });
+    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema, record.system) } }], usage: MOCK_USAGE });
     return;
   }
 
