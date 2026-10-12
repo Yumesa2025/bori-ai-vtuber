@@ -1,6 +1,6 @@
 # 보안·개인정보 점검
 
-상태: 점검 완료(Phase 8-C), 후속 수정(Phase 8-D, 8절) · 작성일: 2026-10-12 · 기준: main `29ca722` + `feature/audit-ci`. 8절은 `feature/security-hardening`(`integration/wave5` 기반)
+상태: 점검 완료(Phase 8-C), 후속 수정(Phase 8-D, 8절) · 작성일: 2026-10-12 · 기준: main `29ca722` + `feature/audit-ci`. 8절은 `feature/security-hardening`(`integration/wave5` `4ff467c` 기반)
 
 1~7절은 점검 당시 기록이다. 줄 번호와 "범위 밖" 표시는 그때 기준이고, 이후 고친 항목은 요약 표와 8절에 적었다.
 
@@ -175,7 +175,7 @@
 
 ## 8. 후속 수정 (`feature/security-hardening`, Phase 8-D)
 
-7절의 범위 밖 제안을 처리했다. 항목마다 재현 검사를 먼저 쓰고, 수정 전 코드(`integration/wave5`)에서 실패하는 것을 확인한 뒤 고쳤다. git 이력(11번)은 사용자 결정 대기 그대로다. 8번(키 재료)·9번(인증 없음)은 알려진 한계 그대로다.
+7절의 범위 밖 제안을 처리했다. 항목마다 재현 검사를 먼저 쓰고, 수정 전 코드(`integration/wave5` `daefac9`)에서 실패하는 것을 확인한 뒤 고쳤다. git 이력(11번)은 사용자 결정 대기 그대로다. 8번(키 재료)·9번(인증 없음)은 알려진 한계 그대로다.
 
 | # | 고친 내용 | 수정 전 재현 | 검사 |
 |---|---|---|---|
