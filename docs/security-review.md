@@ -1,6 +1,8 @@
 # 보안·개인정보 점검
 
-상태: 점검 완료(Phase 8-C) · 작성일: 2026-10-12 · 기준: main `29ca722` + 이 브랜치(`feature/audit-ci`)
+상태: 점검 완료(Phase 8-C), 후속 수정(Phase 8-D, 8절) · 작성일: 2026-10-12 · 기준: main `29ca722` + `feature/audit-ci`. 8절은 `feature/security-hardening`(`integration/wave5` 기반)
+
+1~7절은 점검 당시 기록이다. 줄 번호와 "범위 밖" 표시는 그때 기준이고, 이후 고친 항목은 요약 표와 8절에 적었다.
 
 코드를 읽고 실제로 확인한 것만 적는다. 확인 방법을 항목마다 표시한다.
 
@@ -16,14 +18,14 @@
 |---|---|---|---|
 | 1 | 깨진 퍼센트 인코딩 경로 하나로 서버 프로세스가 종료됨 | 문제 [재현] | **이 브랜치에서 고침** (`guard.ts`) |
 | 2 | 비밀값 복호화가 4바이트까지 잘린 GCM 인증 태그를 받아 줌 | 문제 [재현] | **이 브랜치에서 고침** (`secret-store.ts`) |
-| 3 | 환경변수로 넣은 API 키가 설정을 한 번 바꾸면 `data/`에 저장됨 | 문제 [재현] | 범위 밖, 제안 |
-| 4 | `/api/me/memories` 전체 삭제가 대화 기록·대화 요약·진행 중인 기억 정리는 지우지 않음 | 한계 [코드] | 범위 밖, 제안 |
-| 5 | 백업 파일(`*.v1-backup-*`, `*.unreadable-*`)과 관리자 렌더러 로그를 지우는 경로가 없음 | 한계 [코드] | 범위 밖, 제안 |
-| 6 | Vite dev 비공개 자산 미들웨어의 경로 검사가 접두사 비교라 형제 폴더로 빠져나갈 수 있음 | 문제 [코드] | 범위 밖, 제안 |
-| 7 | 외부 API 오류 본문 200자가 로그와 관리자 API로 나감 | 한계 [코드] | 범위 밖, 제안 |
+| 3 | 환경변수로 넣은 API 키가 설정을 한 번 바꾸면 `data/`에 저장됨 | 문제 [재현] | **고침 (`feature/security-hardening`, 8절)** |
+| 4 | `/api/me/memories` 전체 삭제가 대화 기록·대화 요약·진행 중인 기억 정리는 지우지 않음 | 한계 [코드] | **고침 (`feature/security-hardening`, 8절)** |
+| 5 | 백업 파일(`*.v1-backup-*`, `*.unreadable-*`)과 관리자 렌더러 로그를 지우는 경로가 없음 | 한계 [코드] | **고침 (`feature/security-hardening`, 8절)** |
+| 6 | Vite dev 비공개 자산 미들웨어의 경로 검사가 접두사 비교라 형제 폴더로 빠져나갈 수 있음 | 문제 [코드] | **고침 (`feature/security-hardening`, 8절)** |
+| 7 | 외부 API 오류 본문 200자가 로그와 관리자 API로 나감 | 한계 [코드] | **고침 (`feature/security-hardening`, 8절)** (키 모양 문자열 가림) |
 | 8 | 비밀값 암호화 키가 사용자 이름·호스트 이름에서 나옴 | 알려진 한계 [코드] | 문서화 |
 | 9 | 인증이 없음. Origin 없는 로컬 요청은 모든 API를 부를 수 있음 | 알려진 한계 (ADR-015) | 문서화 |
-| 10 | `npm audit` 11건 (critical 2, high 5, moderate 4). 서버 런타임 의존성에는 없음 | 확인 | 제안 |
+| 10 | `npm audit` 11건 (critical 2, high 5, moderate 4). 서버 런타임 의존성에는 없음 | 확인 | **고침 (`feature/security-hardening`, 8절)** (0건) |
 | 11 | 초기 커밋 작성자 이메일이 개인 주소 | 알려진 문제 | **사용자 결정 대기** |
 
 서버 코드가 채팅 원문·닉네임·1:1 대화·개인 기억·API 키를 직접 로그에 찍는 곳은 찾지 못했다(2절).
@@ -159,7 +161,7 @@
 | `apps/server/src/http/guard.ts` | 깨진 경로 인코딩을 400으로 거른다 | `apps/server/test/guard-path.test.ts` 4건, `tools/test/security.mjs` 1건 |
 | `apps/server/src/secret-store.ts` | GCM 인증 태그 길이를 16바이트로 강제 | `apps/server/test/secret-store.test.ts` 8건 |
 
-### 범위 밖 제안 (이 브랜치에서 고치지 않음)
+### 범위 밖 제안 (이 브랜치에서 고치지 않음. git 이력을 빼고 8절에서 고침)
 
 | 위치 | 제안 |
 |---|---|
@@ -170,3 +172,28 @@
 | `packages/llm` 어댑터 오류 | 키 모양 문자열 가리기 (2절) |
 | 의존성 | `npm audit fix`, Electron 메이저 업그레이드 검토 (5절) |
 | git 이력 | 초기 커밋 이메일 처리 여부 결정 (6절) |
+
+## 8. 후속 수정 (`feature/security-hardening`, Phase 8-D)
+
+7절의 범위 밖 제안을 처리했다. 항목마다 재현 검사를 먼저 쓰고, 수정 전 코드(`integration/wave5`)에서 실패하는 것을 확인한 뒤 고쳤다. git 이력(11번)은 사용자 결정 대기 그대로다. 8번(키 재료)·9번(인증 없음)은 알려진 한계 그대로다.
+
+| # | 고친 내용 | 수정 전 재현 | 검사 |
+|---|---|---|---|
+| 3 | 키 출처(환경변수/화면 입력)를 기억하는 `createApiKeySlot`(`secret-store.ts`). 화면(PATCH)에서 넣은 키만 `llm-config.json`·`tts-config.json`에 암호화해 저장하고, 환경변수 키로 동작 중에 설정만 바꾸면 키 필드를 쓰지 않는다. 화면에서 키를 지우면 환경변수 키로 돌아간다(재시작했을 때와 같다). 저장된 키 우선·평문 키 암호화는 유지하고, ElevenLabs 평문 키도 시작할 때 바로 암호문으로 바꾼다 | 통합 4건 실패: LLM·TTS 설정만 바꿔도 키 저장, 키를 지워도 빈 값이 남고 환경변수로 안 돌아감, ElevenLabs 평문 유지 | `tools/test/secrets.mjs` 8건, `apps/server/test/api-key-slot.test.ts` 7건 |
+| 4 | `DELETE /api/me/data`: 소유자의 1:1 대화·메시지·대화별 누적 요약·메모리 세션·private 기억을 한 번에 지우고 지운 개수(`conversations`, `messages`, `memories`)를 돌려준다. `DELETE /api/me/memories`는 지금처럼 기억만 지운다. 두 삭제 모두 소유자별 세대 번호를 올리고, 그 전에 시작한 기억 저장·LLM 기억 정리는 결과를 버린다. 임베딩을 기다리는 사이 지운 경우는 `memoryStore.add`의 선택 인자 `isStale`로 막는다. Companion "내 기억"에 "대화 기록은 남는다" 안내와 확인 대화상자가 있는 "1:1 기록 모두 지우기"를 더했다 | 통합 3건(라우트 404), 단위: 기억만 지운 뒤에도 진행 중이던 정리 결과가 저장됨(기존 버그), 임베딩 대기 중 삭제 뒤 저장됨 | `tools/test/privacy.mjs` 6건(방송 기억 유지 포함), `apps/server/test/companion-clear.test.ts` 8건, `packages/memory/test/store-stale.test.ts` 4건, Companion 가짜 API 1건 |
+| 5 | 서버 시작 시 데이터 디렉터리 바로 아래의 `*.v1-backup-<시각>.json`, `*.unreadable-<시각>.json`, `admin-renderer.previous.log` 중 마지막 수정이 30일(`BACKUP_RETENTION_DAYS`) 지난 것만 지운다(`apps/server/src/retention.ts`). 이름 형식이 정확히 맞는 파일만 대상이고 하위 디렉터리는 보지 않으며 사용자 데이터 원본은 지우지 않는다. 관리자 앱은 실행할 때마다 지난 로그를 `admin-renderer.previous.log`로 넘기고 새로 써서 로그가 두 실행분을 넘지 않는다(`apps/admin/electron/log-file.cjs`). 관리자 로그도 `BORI_DATA_DIR`를 따른다 | 통합 1건: 40일 지난 백업·이전 로그가 남음 | `tools/test/privacy.mjs` 2건, `apps/server/test/retention.test.ts` 6건, `apps/admin/test/log-file.test.ts` 2건 |
+| 6 | `tools/vite/private-assets.ts` dev 미들웨어가 `relative()`로 폴더 밖·다른 드라이브를 거르고, dev에서도 `/private-core/`의 `include`(스크립트·라이선스)만 내준다. 빌드 복사는 그대로다 | 단위 2건: `/private-model/maolili/../maolili-x/…`, `/private-core/../CoreExtra/…`가 200, Core 소스맵·README가 200 | `apps/companion/test/private-assets.test.ts` 7건(빌드 복사 파일 목록 포함). 방송·1:1 `npm run build`로 산출물 자산 목록도 확인 |
+| 7 | `packages/llm/src/redact.ts`의 `redactSecrets`. OpenAI·Anthropic 어댑터와 OpenAI·ElevenLabs 음성 합성이 실패 본문을 메시지에 넣기 전에 `sk-` 키(OpenAI가 일부를 `*`로 가린 표기 포함), `Bearer` 토큰, 32자 이상 토큰, 호출에 쓴 키 값을 `[가림]`으로 바꾼다. 200자로 자르기 전에 가린다 | 단위 4건: 오류 메시지에 키 원문이 남음, 200자 경계에서 잘린 키 조각이 남음 | `packages/llm/test/redact.test.ts` 7건 |
+| 10 | (a) `npm audit fix`(메이저 변경 없음): concurrently 9.2.5, shell-quote 1.12.0, joi 18.2.9, http-cache-semantics 4.3.0, source-map-js 1.2.2. 11건 → 6건(high 2, moderate 4, 모두 electron 경로). (b) Electron 34.5.8 → 44.7.0(별도 커밋). `console-message`의 deprecated 위치 인자를 이벤트 객체 값으로 바꿨다. 6건 → **0건**(`--omit=dev`도 0건) | — | `build:admin` 통과. 검사용 서버와 빌드한 관리자 화면에 붙여 Electron 44를 실제로 띄워 창 생성·화면 로드·서버 설정 표시를 확인했고, 렌더러 로그에는 로드 1줄과 개발 모드 CSP 보안 경고 1줄만 있었다 |
+
+추가로, 방송 안정화 작업(PR #16)이 범위 밖으로 남긴 문제를 같이 고쳤다. `packages/memory` OpenAI 임베딩 fetch에 타임아웃이 없어 업체가 응답하지 않으면 1:1 기억 저장이 끝없이 기다렸다(수정 전 코드로 15초 동안 끝나지 않음을 확인). `AbortSignal.timeout`으로 `EMBEDDING_TIMEOUT_MS`(10초) 상한을 두고, 끊기면 다른 임베딩 실패와 같이 저장은 임베딩 없이, 검색은 최신·중요도 순으로 떨어진다. 검사: `packages/memory/test/embedding-timeout.test.ts` 5건.
+
+### 남은 한계
+
+- 실제 업체 API의 오류 본문 형식은 확인하지 않았다(**미검증**). 가리기 규칙은 알려진 키 형식과 호출한 키 값 기준이다. 32자 이상 토큰 규칙 때문에 요청 ID 같은 긴 값도 함께 가려진다.
+- 임베딩 오류 본문(`packages/memory/src/embedding.ts`)은 가리지 않았다. 저장소가 이 오류를 삼켜 로그·API로 나가지 않기 때문이다(2절).
+- 환경변수 키가 수정 전 버전에서 이미 `llm-config.json`·`tts-config.json`에 저장됐다면, 파일만 보고는 화면 입력 키와 구분할 수 없어 저장된 키로 계속 쓴다. 관리자 화면에서 키를 빈 값으로 저장하면 파일에서 빠지고 환경변수 키로 돌아간다.
+- 보관 정리는 서버를 시작할 때만 돈다. 30일은 설정이 아니라 코드 상수다. 관리자 로그는 한 실행 안에서는 크기 제한 없이 이어 쓴다.
+- 1:1 기록 전체 삭제는 백업 파일(`*.v1-backup-*`, `*.unreadable-*`)을 지우지 않는다. 백업은 30일 보관 정리로만 지워진다.
+- Electron 44에서 `sandbox: false`는 그대로다. 관리자 앱은 Electron 창으로 12초 띄워 확인했고, 화면 조작 전체를 Electron에서 다시 해 보지는 않았다.
+
