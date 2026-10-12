@@ -25,7 +25,32 @@ API 포트는 `BORI_SERVER_PORT`, 관리자 렌더러 주소는 `BORI_ADMIN_URL`
 
 `chat.html`을 휴대폰에서 열려면 Vite dev 서버를 LAN에 노출하고 로컬 머신의 LAN IP로 접속해야 한다.
 
+휴대폰 주소(예: `http://192.168.0.10:4173`)를 `BORI_ALLOWED_ORIGINS`에 넣어야 채팅을 보낼 수 있다. 넣지 않으면 서버가 403으로 거부한다(아래 "허용 Origin").
+
 **이 경로에는 인증이 전혀 없다.** 주소를 아는 누구나 채팅을 투입할 수 있으므로 신뢰할 수 있는 사설 네트워크에서만 사용한다. 공용 Wi-Fi나 포트 포워딩으로 외부에 여는 것은 권장하지 않는다.
+
+### 허용 Origin
+
+서버는 브라우저 요청의 Origin을 허용 목록으로 검사한다. 목록 밖 Origin은 403, 루프백이 아닌 Host는 421이다. 근거는 [ADR-015](./decisions.md)에 있다.
+
+기본 허용 목록은 아래 포트의 `http://127.0.0.1:{포트}`와 `http://localhost:{포트}`다.
+
+| 포트 | 클라이언트 |
+|---|---|
+| 4173 | 방송 화면·채팅 화면 (dev) |
+| 4174 | 방송 화면 빌드 프리뷰 |
+| 4175 | 1:1 대화 화면 (dev) |
+| 4176 | 1:1 대화 화면 빌드 프리뷰 |
+| 5174 | 관리자 렌더러 (Electron 창도 이 주소를 연다) |
+
+다른 주소에서 여는 클라이언트는 `BORI_ALLOWED_ORIGINS`에 쉼표로 덧붙인다. 휴대폰에서 LAN IP로 채팅 화면을 열 때와 `BORI_ADMIN_URL`로 관리자 렌더러 주소를 바꿀 때가 해당한다. 형식이 잘못된 항목은 서버가 기동할 때 경고를 남기고 무시한다.
+
+```powershell
+$env:BORI_ALLOWED_ORIGINS = "http://192.168.0.10:4173"
+npm run dev:server
+```
+
+Origin이 없는 요청(curl, 통합 검사, 평가 도구)은 Origin 검사를 받지 않는다. 본문이 있는 POST·PATCH·PUT은 `Content-Type: application/json`이어야 하고(아니면 415), 본문은 64KB를 넘을 수 없다(413).
 
 ## 2. LLM 설정
 
