@@ -161,7 +161,9 @@ npm --workspace apps/broadcast run preview   # 127.0.0.1:4174
 
 1:1 대화 화면은 `npm run build:companion` 후 `npm --workspace apps/companion run preview`(127.0.0.1:4176)로 같은 방식으로 확인한다. 서버 없이 화면만 보려면 `npm --workspace apps/companion run dev:mock`으로 계약대로 답하는 가짜 API를 붙여 띄운다(`apps/companion/dev/`, 빌드에 포함되지 않음).
 
-API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정한 뒤 서버를 띄운다. 서버는 `.env` 파일을 읽지 않으므로 `.env.example`은 변수 이름과 설명을 모은 목록으로만 쓴다. 그 안의 `ANTHROPIC_API_KEY`는 현재 어떤 코드도 읽지 않는다. 환경변수 키는 저장된 키가 없을 때만 사용된다.
+1:1 대화 화면의 "내 기억"에서 기억만 지우면 대화 기록은 남는다. "1:1 기록 모두 지우기"(`DELETE /api/me/data`)는 1:1 대화·메시지·대화 요약·개인 기억을 한 번에 지우고 방송 기억은 남긴다. `data/`의 30일 지난 백업(`*.v1-backup-*`, `*.unreadable-*`)과 이전 관리자 로그는 서버를 시작할 때 지운다.
+
+API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정한 뒤 서버를 띄운다. 서버는 `.env` 파일을 읽지 않으므로 `.env.example`은 변수 이름과 설명을 모은 목록으로만 쓴다. 그 안의 `ANTHROPIC_API_KEY`는 현재 어떤 코드도 읽지 않는다. 환경변수 키는 저장된 키가 없을 때만 사용되고, 화면에서 설정만 바꿔도 파일에 저장되지 않는다. 화면에서 저장한 키를 빈 값으로 지우면 환경변수 키로 돌아간다.
 
 실제 운영 절차 — 포트, LLM·TTS·기억 설정, OBS 송출, 튜닝 파라미터 — 는 [docs/operations.md](docs/operations.md)에 정리되어 있다.
 
