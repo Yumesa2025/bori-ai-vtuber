@@ -10,6 +10,8 @@ import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extrac
 import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, type ConversationSession } from "./conversation/index.js";
 import { createCompanionHandler } from "./companion/index.js";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
+import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
+import { isValidVoice, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 let settings: QueueSettings = {
@@ -558,9 +560,12 @@ function scheduleNext() {
 }
 
 function sendJson(response: import("node:http").ServerResponse, status: number, body: unknown) { response.writeHead(status); response.end(JSON.stringify(body)); }
+// 브라우저가 이 서버를 부를 수 있는 Origin. 그 밖의 웹사이트는 응답을 읽지도 상태를 바꾸지도 못한다.
+const guardOptions = { allowedOrigins: allowedOriginsFrom(process.env.BORI_ALLOWED_ORIGINS) };
 const server = createServer((request, response) => {
-  response.setHeader("Access-Control-Allow-Origin", "*"); response.setHeader("Access-Control-Allow-Headers", "Content-Type"); response.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  // 보안 경계(Host·Origin·Content-Type·본문 크기). 아래의 모든 라우트가 이 검사를 거친다.
+  if (!guardRequest(request, response, guardOptions)) return;
   if (request.method === "GET" && request.url === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
   if (request.method === "GET" && request.url === "/api/state") { sendJson(response, 200, state); return; }
   if (request.method === "GET" && request.url === "/api/settings") { sendJson(response, 200, settings); return; }
@@ -579,7 +584,7 @@ const server = createServer((request, response) => {
     return;
   }
   if (request.method === "PATCH" && request.url === "/api/llm") {
-    let body = ""; request.on("data", chunk => { body += chunk; }); request.on("end", () => {
+    readBody(request, response, body => {
       try {
         const next = JSON.parse(body) as Partial<LlmSettings> & { apiKey?: string };
 
@@ -623,14 +628,12 @@ const server = createServer((request, response) => {
     return;
   }
   if (request.method === "PATCH" && request.url === "/api/tts") {
-    let body = ""; request.on("data", chunk => { body += chunk; }); request.on("end", () => {
+    readBody(request, response, body => {
       try {
-        const next = JSON.parse(body) as Partial<TtsSettings> & { elevenLabsApiKey?: string };
-
-        if (next.provider !== undefined && next.provider !== "openai" && next.provider !== "elevenlabs") {
-          sendJson(response, 400, { error: "지원하지 않는 음성 업체입니다." });
-          return;
-        }
+        // 업체·목소리·범위를 먼저 모두 검사한다. 틀리면 키도 설정도 바꾸지 않는다.
+        const checked = validateTtsSettingsPatch(JSON.parse(body), ttsSettings);
+        if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
+        const next = checked.patch;
 
         // 키는 설정과 분리해 다룬다. 빈 문자열이면 키를 지우는 뜻이다.
         if (typeof next.elevenLabsApiKey === "string") elevenLabsApiKey = next.elevenLabsApiKey.trim();
@@ -639,6 +642,8 @@ const server = createServer((request, response) => {
         ttsSettings = { ...ttsSettings, ...next };
         // 업체를 바꿨는데 모델을 함께 보내지 않았으면 기본 모델로 맞춘다.
         if (next.provider && !next.model) ttsSettings.model = defaultTtsModels[next.provider as TtsProvider];
+        // 목소리도 새 업체에서 쓸 수 없으면 기본 목소리로 맞춘다. ElevenLabs voice id는 OpenAI에서 쓸 수 없다.
+        if (next.provider && !next.voice && !isValidVoice(ttsSettings.provider, ttsSettings.voice)) ttsSettings.voice = defaultTtsSettings.voice;
 
         ttsFailureCount = 0;
         ttsLastError = null;
@@ -676,10 +681,11 @@ const server = createServer((request, response) => {
     return;
   }
   if (request.method === "PATCH" && request.url === "/api/memory") {
-    let body = ""; request.on("data", chunk => { body += chunk; }); request.on("end", () => {
+    readBody(request, response, body => {
       try {
-        const next = JSON.parse(body) as Partial<MemorySettings>;
-        memorySettings = { ...memorySettings, ...next };
+        const checked = validateMemorySettingsPatch(JSON.parse(body));
+        if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
+        memorySettings = { ...memorySettings, ...checked.patch };
         saveMemoryConfig();
         sendJson(response, 200, { settings: memorySettings, count: memoryStore.count() });
       } catch { sendJson(response, 400, { error: "Invalid JSON" }); }
@@ -697,7 +703,7 @@ const server = createServer((request, response) => {
   // 관리자가 확인할 수 있는 표정·모션 목록. 이름은 모델 패키지가 단독으로 소유한다.
   if (request.method === "GET" && request.url === "/api/live2d/catalog") { sendJson(response, 200, { expressions: boriExpressionNames, motions: boriMotionGroupNames }); return; }
   if (request.method === "POST" && request.url === "/api/live2d/test") {
-    let body = ""; request.on("data", chunk => { body += chunk; }); request.on("end", () => {
+    readBody(request, response, body => {
       try {
         const input = JSON.parse(body) as { kind?: string; name?: string };
         const name = input.name ?? "";
@@ -709,7 +715,16 @@ const server = createServer((request, response) => {
       } catch { sendJson(response, 400, { error: "Invalid JSON" }); }
     }); return;
   }
-  if (request.method === "PATCH" && request.url === "/api/settings") { let body = ""; request.on("data", chunk => { body += chunk; }); request.on("end", () => { try { const next = JSON.parse(body) as Partial<QueueSettings>; settings = { ...settings, ...next }; cancelMonologue(); scheduleMonologue(); sendJson(response, 200, settings); } catch { sendJson(response, 400, { error: "Invalid JSON" }); } }); return; }
+  if (request.method === "PATCH" && request.url === "/api/settings") {
+    readBody(request, response, body => {
+      try {
+        // 잘못된 값이 하나라도 있으면 아무것도 병합하지 않는다.
+        const checked = validateQueueSettingsPatch(JSON.parse(body), settings);
+        if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
+        settings = { ...settings, ...checked.patch }; cancelMonologue(); scheduleMonologue(); sendJson(response, 200, settings);
+      } catch { sendJson(response, 400, { error: "Invalid JSON" }); }
+    }); return;
+  }
   if (request.method === "POST" && request.url === "/api/session/start") {
     // 세대를 올려 진행 중이던 이전 세션의 비동기 응답을 무효화한다.
     sessionGeneration += 1;
@@ -745,7 +760,7 @@ const server = createServer((request, response) => {
     return;
   }
   if (request.method === "POST" && request.url === "/api/chat") {
-    let body = ""; request.on("data", chunk => { body += chunk; }); request.on("end", () => {
+    readBody(request, response, body => {
       try {
         const input = JSON.parse(body) as { content?: string; nickname?: string };
         const content = input.content?.trim() ?? "";
