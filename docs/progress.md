@@ -224,7 +224,7 @@
 | 배경 일러스트 교체 | 미구현. 보라색 그라데이션을 하드코딩한다. Live2D 캔버스만 투명하고 화면 전체는 불투명하므로, OBS 오버레이로 쓰려면 `.broadcast-shell` 배경을 투명하게 바꿔야 한다 |
 | 기억 기반 혼잣말 | 미연결. 혼잣말은 여전히 하드코딩된 7문장 기반이다 |
 | 원문 채팅 로그 저장 | 없다. 메모리에만 있고 파일로 남기지 않는다. 요구사항의 원문 로그 수동 삭제 정책을 적용하려면 저장이 선행되어야 한다 |
-| 모순된 취향 처리 | 없다. 같은 문장만 합치고 모순 여부는 판단하지 않는다 |
+| 모순된 취향 처리 | 없다. 같은 문장·같은 뜻의 문장만 합치고(8.3절) 모순 여부는 판단하지 않는다 |
 | gemini 프로바이더 | 타입에만 존재하고 팩토리가 `null`이라 `supportedProviders`에서 자동 제외된다. 미구현이다 |
 | 대기 모션 | 없다. 이 모델의 모션 4개는 모두 짝 표정이 필요한 효과 애니메이션이라 대기용으로 쓸 수 없다. 대기 중 눈 깜빡임과 호흡은 SDK가 처리한다 |
 | TTS 스트리밍 | 미지원. 음성을 다 만든 뒤 말풍선을 띄운다. 소리와 자막을 맞추기 위한 선택이다. 생성은 연출 대기와 병렬이라 생성(LLM+TTS)이 대기보다 짧으면 추가 지연이 없고, 길면 그 차이만큼 늦어진다 |
@@ -239,10 +239,10 @@
 
 | 항목 | 내용 |
 |---|---|
-| 자동 검사 범위와 CI | 자동 검사는 단위 83건(`npm run test:unit`)과 통합 46건(`npm run test`)이다. CI 설정이 없어 로컬에서 직접 돌린다. 출력 검증기(`packages/llm/src/validate.ts`)와 서버 규칙 응답·위험 주제 차단에는 단위 검사가 없고, 두 검사 모두 실제 LLM·TTS와 화면은 다루지 않는다. 이전의 "자동화 테스트 0건"은 해소되었다 |
-| typecheck 범위 | 해소. 루트 `typecheck`가 shared·server·broadcast·admin·live2d·llm·memory·character 8개를 검사한다. 개별 `typecheck:<이름>` 스크립트도 남아 있다 |
-| 목소리 이름 미검증 | `PATCH /api/tts`가 업체만 검사하고 `voice`는 그대로 병합한다. 2026-08-30 수동 기록의 "허용 외 목소리 400"과 다르다([아키텍처 v2](./architecture-v2.md) 8절 #12) |
-| 설정값 검증 부재 | `PATCH /api/settings`·`/api/memory`·`/api/tts`가 타입·범위 검사 없이 병합한다. 큐 설정은 메모리에만 반영되어 서버를 재시작하면 기본값으로 돌아간다 |
+| 자동 검사 범위와 CI | 해소. 단위 333건(`npm run test:unit`), 통합 205건(`npm run test`), 평가기 84건(`npm run eval:test`), 정적 평가 38건(`npm run eval:static`)을 GitHub Actions CI(`.github/workflows/ci.yml`)가 push·PR마다 돈다(방송·1:1 화면 빌드는 비공개 자산이 필요해 로컬에서만). 출력 검증기(`packages/llm/src/validate.ts`)와 서버 규칙 응답·위험 주제 차단에는 전용 단위 검사가 없고, 자동 검사는 실제 LLM·TTS와 화면을 다루지 않는다 |
+| typecheck 범위 | 해소. 루트 `typecheck`가 shared·server·broadcast·admin·live2d·llm·memory·character·companion 9개를 검사한다. 개별 `typecheck:<이름>` 스크립트도 남아 있다 |
+| 목소리 이름 검증 | 해소. `PATCH /api/tts`가 업체별 목소리 허용 목록(OpenAI 고정 목록, ElevenLabs voice id 형식)을 검사하고 틀리면 400이다(`apps/server/src/http/settings.ts`) |
+| 설정값 검증 | 해소. `PATCH /api/settings`·`/api/memory`·`/api/tts`·`/api/llm`이 모든 값을 타입·범위 검사한 뒤에만 반영하고 하나라도 틀리면 400이다(ADR-015, ADR-018). 큐 설정은 여전히 메모리에만 반영되어 서버를 재시작하면 기본값으로 돌아간다 |
 | API 경계 | CORS `Access-Control-Allow-Origin: *`, 관리 API 인증 없음, 요청 본문 크기 제한 없음. 1:1 대화 API(Phase 4)를 열기 전에 해결해야 하는 선행 조건이다 |
 | TTS 자격 증명 | OpenAI TTS가 LLM 업체와 무관하게 `llmApiKey`를 OpenAI 키로 쓴다. LLM 업체를 Anthropic으로 두면 Anthropic 키가 OpenAI TTS로 간다 |
 | 죽은 코드 | `apps/admin/src/placeholder.ts`(어디서도 import되지 않는 스텁), `packages/live2d`의 `createUnavailableLive2DPort()`와 `Live2DModelPort` 인터페이스(구현체 없음, broadcast는 SDK 타입을 직접 사용), `physicsFile`·`Live2DModelManifest` |
@@ -268,13 +268,15 @@ TODO/FIXME/HACK 주석은 0건이다.
 
 ### 4.1 자동 검사
 
-2026-10-12, Node v24.12.0, Windows 11에서 실행한 결과다. 모두 가짜 API나 순수 함수를 대상으로 하므로 실제 LLM·TTS 응답과 화면은 확인하지 않는다.
+2026-10-12, Node v24.12.0, Windows 11에서 main(PR #17 병합 후)으로 실행한 결과다. 모두 가짜 API나 순수 함수를 대상으로 하므로 실제 LLM·TTS 응답과 화면은 확인하지 않는다. 실제 모델 답변은 [대화 품질 평가](./content/evaluation.md) 5.2절의 실모델 평가로 따로 확인했다.
 
 | 명령 | 대상 | 결과 |
 |---|---|---|
-| `npm run typecheck` | 8개 워크스페이스(shared·server·broadcast·admin·live2d·llm·memory·character) | 종료 코드 0 |
-| `npm run test:unit` | `packages/memory/test`(접근 규칙표 전 칸, 두 검색 경로의 필터, 마이그레이션, 추출, 병합 키, 소유자별 삭제), `packages/llm/test`(프롬프트 계층 순서, 방송 모드 문장 보존, 1:1 정책 분리, 기억 없음 문장, allowlist), `packages/character/test`(모드 정책 구성), `apps/server/test`(공통 대화 엔진) | 83건 중 83건 통과 |
-| `MOCK_PORT=4470 BORI_TEST_PORT=4471 npm run test` | `tools/test`. 지연 16건, 동작 16건, 기억 격리 14건 | 46건 중 46건 통과 (128.6초) |
+| `npm run typecheck` | 9개 워크스페이스(shared·server·broadcast·admin·live2d·llm·memory·character·companion) | 종료 코드 0 |
+| `npm run test:unit` | `packages/memory/test`(접근 규칙표 전 칸, 검색 필터, 마이그레이션, 추출, 의미 중복 병합, 소유자별 삭제), `packages/llm/test`(프롬프트 계층, 1:1 정책 분리, 사용량, 오류 본문 가림), `packages/character/test`(모드 정책 구성), `apps/server/test`(공통 대화 엔진, 관계 문장, 가드·설정 검증, 사용량, 비밀값, 방송 경합) | 333건 중 333건 통과 |
+| `MOCK_PORT=4700 BORI_TEST_PORT=4701 npm run test` | `tools/test`. 지연, 동작, 기억 격리, 요청 경계, 1:1 API, 사용량, 방송 안정화, 방송·1:1 동시 사용, 비밀값, 1:1 기록 삭제 | 205건 중 205건 통과 (312.4초) |
+| `npm run eval:test` · `npm run eval:static` | `tools/eval` 평가기 검사, 시나리오 38건 정적 평가 | 84건 통과 · 통과 35 / 실패 0 / 범위 밖 3 |
+| `npm run test:soak -- --minutes 30` | 가짜 API 30분 장시간 검사(8.2절) | 방송 답변 227/227, 1:1 87건, 오류 0, 메모리 증가 추세 없음 |
 
 ### 4.2 수동 검증
 
