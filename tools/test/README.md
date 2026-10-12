@@ -30,6 +30,9 @@ npm run test
 | `latency.mjs` | 체감 지연 시나리오 |
 | `behavior.mjs` | 동작 시나리오 |
 | `isolation.mjs` | 기억 격리 시나리오. 시청자 A의 기억이 B 채팅의 LLM 요청에 들어가지 않는지, 기동 시 기억 파일 마이그레이션 |
+| `stability.mjs` | 방송 안정화 시나리오. 생성 중 종료·종료 직후 재시작·빠른 시작/종료 반복, 임베딩 멈춤, LLM 500·타임아웃·깨진 JSON과 회로 복구, TTS 실패 복구, 큐 상한 |
+| `concurrency.mjs` | 방송 채팅 50건과 1:1 메시지 50건을 섞어 보내도 맥락이 섞이지 않는지, 한쪽 회로가 열려도 다른 쪽이 동작하는지 |
+| `soak.mjs` | 장시간 운영 검사. 기본 실행에 넣지 않는다(아래 참고) |
 | `fixtures/` | 시나리오가 쓰는 설정·기억·매크로 고정 자료. `memories.json`은 마이그레이션 경로를 타도록 일부러 예전(v1) 형식이다 |
 
 시나리오는 `meta`와 `run`을 내보내는 모듈이다. `meta.timing`으로 가짜 API의 응답 지연을 정하고, `run({ bori, mock, report, dataDir })`에서 검사한다. 실행기가 시나리오마다 서버를 새로 띄우고 임시 데이터 디렉터리를 새로 만든다.
@@ -63,3 +66,19 @@ export async function run({ bori, mock, report }) {
 - **방송 화면과 Live2D.** 브라우저와 구매 모델이 있어야 하므로 서버 동작만 본다. 화면 쪽은 [docs/verification-log.md](../../docs/verification-log.md)의 수동 검증 기록을 따른다.
 - **실제 LLM 응답 품질.** 가짜 API는 고정 문장을 돌려준다. 프롬프트에 무엇이 들어갔는지는 확인하지만 모델이 잘 답하는지는 보지 않는다.
 - **실제 API의 지연.** 고정값이라 재현이 되는 것이지 실제 OpenAI 응답 시간과는 다르다. 구조가 `max`인지 `합`인지를 가리는 용도다.
+
+## 실패 주입
+
+`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고르므로 방송 답변(`[답변할 채팅]`)과 1:1 답변(`[답변할 메시지]`), 누적 요약을 따로 실패시킬 수 있다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다.
+
+## 장시간 검사
+
+```bash
+npm run test:soak                    # 기본 2분
+npm run test:soak -- --minutes 30    # 30분
+npm run test:soak -- --minutes 30 --out soak.json
+```
+
+가짜 API에 붙인 서버로 방송을 켜 두고 방송 채팅(기본 약 8초 간격)과 1:1 메시지(20초 간격)를 보내며, 1분마다 서버 RSS·heap(`GET /api/diagnostics`), 큐 길이, 방송·1:1 응답 지연 p50/p95, 오류 수, 데이터 파일 크기를 출력한다. 끝에 처음과 끝, 분당 기울기, 증가 추세 판정을 요약한다. 오류가 있거나 답을 못 받은 채팅이 10%를 넘으면 종료 코드 1이다. 포트는 `MOCK_PORT`(기본 4522), `BORI_TEST_PORT`(기본 4523).
+
+가짜 API 기준이다. 실제 LLM·TTS의 지연과 오류, 방송 화면·Live2D의 장시간 동작은 이 검사로 알 수 없다.
