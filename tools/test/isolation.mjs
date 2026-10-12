@@ -72,6 +72,15 @@ export async function run({ bori, mock, report, dataDir }) {
     report.check("지워진 기억은 어떤 요청에도 들어가지 않는다", ![forA, forB, forAnonymous].some(user => user.includes(VIRTUAL_MEMORY) || user.includes(NO_OWNER_MEMORY)));
   }
 
+  // ── 방송 상태의 닉네임 노출 ────────────────────────────────
+  // viewerId는 닉네임에서 만든 값이라 방송 상태에 실리면 닉네임이 그대로 드러난다.
+  {
+    const state = await bori.state();
+    const raw = JSON.stringify(state.visibleChats);
+    report.check("방송 상태의 채팅 목록에 닉네임이 없다", state.visibleChats.length > 0 && !raw.includes(A) && !raw.includes(B));
+    report.check("방송 상태의 채팅에 viewerId가 실리지 않는다", state.visibleChats.every(chat => !("viewerId" in chat) && !("viewerNickname" in chat)));
+  }
+
   // ── 방송 종료 시 저장 ──────────────────────────────────────
   {
     const named = "저는 퇴근하고 피아노 연주곡 듣는 걸 좋아해요";

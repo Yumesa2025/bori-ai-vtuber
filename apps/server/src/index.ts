@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings } from "@bori/shared";
+import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
 import { boriEmotionNames, boriExpressionNames, boriMotionDescriptions, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { buildSystemPrompt, createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, summarizeSessionProgress, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemoryAccess, type MemorySettings } from "@bori/memory";
@@ -1021,8 +1021,9 @@ const server = createServer((request, response) => {
           category: isQuestion(content) ? "question" : "normal",
         };
 
-        // \uBC29\uC1A1 \uD654\uBA74\uC5D0 \uB118\uAE30\uB294 \uBAA9\uB85D\uC5D0\uC11C\uB294 \uB2C9\uB124\uC784\uC744 \uC9C0\uC6B4\uB2E4.
-        const visible: ChatMessage = { ...chat, viewerNickname: undefined };
+        // \uBC29\uC1A1 \uD654\uBA74\uC5D0 \uB118\uAE30\uB294 \uBAA9\uB85D\uC5D0\uB294 \uD654\uBA74\uC5D0 \uD544\uC694\uD55C \uAC12\uB9CC \uB2F4\uB294\uB2E4.
+        // viewerId\uB3C4 \uB2C9\uB124\uC784\uC5D0\uC11C \uB9CC\uB4E0 \uAC12\uC774\uB77C \uD568\uAED8 \uBE7C\uC57C \uB2C9\uB124\uC784\uC774 \uB4DC\uB7EC\uB098\uC9C0 \uC54A\uB294\uB2E4.
+        const visible: VisibleChat = { id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) };
         state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
 
         if (queue.length >= settings.maxQueueSize) queue.shift();
