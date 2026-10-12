@@ -126,6 +126,7 @@ npm run dev
 npm run dev:server      # API 서버 (127.0.0.1:4310)
 npm run dev:broadcast   # 방송 화면 (127.0.0.1:4173)
 npm run dev:admin       # 관리자 Electron 앱 (렌더러 127.0.0.1:5174)
+npm run dev:companion   # 1:1 대화 화면 (127.0.0.1:4175, 1:1 대화 API가 필요하다)
 ```
 
 타입 검사, 단위 검사, 통합 검사, 빌드는 다음과 같다.
@@ -155,6 +156,8 @@ npm --workspace apps/broadcast run preview   # 127.0.0.1:4174
 ```
 
 `dist/`에는 구매 모델과 SDK가 복사되므로 외부에 배포하지 않는다. `.gitignore`에 등록되어 있다.
+
+1:1 대화 화면은 `npm run build:companion` 후 `npm --workspace apps/companion run preview`(127.0.0.1:4176)로 같은 방식으로 확인한다. 서버 없이 화면만 보려면 `npm --workspace apps/companion run dev:mock`으로 계약대로 답하는 가짜 API를 붙여 띄운다(`apps/companion/dev/`, 빌드에 포함되지 않음).
 
 API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정한 뒤 서버를 띄운다. 서버는 `.env` 파일을 읽지 않으므로 `.env.example`은 변수 이름과 설명을 모은 목록으로만 쓴다. 그 안의 `ANTHROPIC_API_KEY`는 현재 어떤 코드도 읽지 않는다. 환경변수 키는 저장된 키가 없을 때만 사용된다.
 
