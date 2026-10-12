@@ -10,9 +10,11 @@
  *
  * 검사용 엔드포인트
  *   GET /__calls               지금까지 받은 요청 목록(프롬프트 본문 포함)
- *   GET /__reset               요청 목록 비우기
+ *   GET /__reset               요청 목록과 남은 실패 주입 비우기
  *   GET /__timing?llm=&tts=&embed=   응답 지연 변경(ms)
  *   GET /__fail?on=1           답변 생성 요청을 500으로 실패시키기
+ *   GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=
+ *                              지정 횟수만큼만 실패 주입(match가 있으면 본문에 그 문자열이 든 요청만). clear=1이면 모두 지움
  */
 import { createServer } from "node:http";
 
@@ -28,6 +30,16 @@ const timing = {
 const calls = [];
 /** 실패 주입 스위치. 회로 차단기 동작을 확인할 때 켠다. */
 let failLlm = false;
+/** 횟수가 정해진 실패 주입. 오류 뒤 복구를 확인할 때 쓴다. */
+const injections = [];
+
+/** 이 요청에 걸리는 주입을 하나 꺼내고 남은 횟수를 줄인다. */
+function takeInjection(target, text = "") {
+  const found = injections.find(entry => entry.target === target && entry.remaining > 0 && (!entry.match || text.includes(entry.match)));
+  if (!found) return null;
+  found.remaining -= 1;
+  return found;
+}
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const sendJson = (response, status, body) => {
@@ -66,7 +78,8 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${port}`);
 
   if (url.pathname === "/__calls") { sendJson(response, 200, calls); return; }
-  if (url.pathname === "/__reset") { calls.length = 0; sendJson(response, 200, { ok: true }); return; }
+  // 남은 실패 주입도 함께 지운다. 소비되지 않은 주입이 다음 시나리오로 넘어가지 않게 한다.
+  if (url.pathname === "/__reset") { calls.length = 0; injections.length = 0; sendJson(response, 200, { ok: true }); return; }
 
   if (url.pathname === "/__timing") {
     for (const key of ["llm", "tts", "embed"]) {
@@ -83,9 +96,37 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/__inject") {
+    if (url.searchParams.get("clear") === "1") injections.length = 0;
+    else {
+      injections.push({
+        target: url.searchParams.get("target") ?? "llm",
+        mode: url.searchParams.get("mode") ?? "500",
+        remaining: Number(url.searchParams.get("count") ?? 1),
+        ms: Number(url.searchParams.get("ms") ?? 0),
+        match: url.searchParams.get("match") ?? "",
+      });
+    }
+    sendJson(response, 200, injections);
+    return;
+  }
+
   if (url.pathname.endsWith("/chat/completions")) {
     const parsed = JSON.parse(body);
     const record = { at, system: parsed.messages[0].content, user: parsed.messages[1].content };
+    const injected = takeInjection("llm", `${record.system}\n${record.user}`);
+    if (injected?.mode === "500") {
+      calls.push({ kind: "llm-failed", ...record });
+      sendJson(response, 500, { error: { message: "테스트용 주입 실패" } });
+      return;
+    }
+    if (injected?.mode === "badjson") {
+      calls.push({ kind: "llm", ...record });
+      sendJson(response, 200, { choices: [{ message: { content: "{\"reply\": \"깨진" } }] });
+      return;
+    }
+    // delay는 정상 응답을 늦게 준다. 서버 타임아웃보다 길면 서버 쪽에서 실패가 된다.
+    if (injected?.mode === "delay") await sleep(injected.ms);
 
     if (failLlm) {
       calls.push({ kind: "llm-failed", ...record });
@@ -101,6 +142,13 @@ const server = createServer(async (request, response) => {
   }
 
   if (url.pathname.endsWith("/audio/speech")) {
+    const injected = takeInjection("tts", body);
+    if (injected?.mode === "500") {
+      calls.push({ kind: "tts-failed", at });
+      sendJson(response, 500, { error: { message: "테스트용 주입 실패" } });
+      return;
+    }
+    if (injected?.mode === "delay") await sleep(injected.ms);
     calls.push({ kind: "tts", at });
     await sleep(timing.tts);
     response.writeHead(200, { "Content-Type": "audio/mpeg" });
@@ -112,6 +160,13 @@ const server = createServer(async (request, response) => {
   if (url.pathname.endsWith("/embeddings")) {
     const parsed = JSON.parse(body);
     const inputs = Array.isArray(parsed.input) ? parsed.input : [parsed.input];
+    const injected = takeInjection("embed", inputs.join("\n"));
+    if (injected?.mode === "500") {
+      calls.push({ kind: "embed-failed", at, count: inputs.length });
+      sendJson(response, 500, { error: { message: "테스트용 주입 실패" } });
+      return;
+    }
+    if (injected?.mode === "delay") await sleep(injected.ms);
     calls.push({ kind: "embed", at, count: inputs.length });
     await sleep(timing.embed);
     // 모든 벡터를 같은 값으로 준다. 유사도가 1이 되어 기억이 항상 검색된다.
