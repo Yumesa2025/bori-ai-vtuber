@@ -23,3 +23,14 @@ test("1:1 대화 정책에 방송 호칭·닉네임 규칙이 섞이지 않는�
   assert.ok(!companion.includes("닉네임"));
   assert.ok(!companion.includes("시청자"));
 });
+
+test("방송은 규칙 문장·무반응·서버 폴백을 그대로 쓰고, 1:1은 규칙 없이 거절·폴백 문장을 갖는다", () => {
+  const { broadcast, companion } = conversationPolicies;
+  assert.equal(broadcast.ruleReplies, true);
+  assert.deepEqual(broadcast.refusalReplies, []);
+  assert.equal(broadcast.fallbackReplies, null);
+
+  assert.equal(companion.ruleReplies, false);
+  assert.ok(companion.refusalReplies.length > 0);
+  assert.ok((companion.fallbackReplies ?? []).length > 0);
+});

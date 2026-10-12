@@ -45,38 +45,57 @@ function track(child) {
   return child;
 }
 
+/** label을 붙여 띄운 스크립트. 시나리오가 서버를 다시 띄워야 할 때 찾는다. */
+const scripts = new Map();
+
 /**
  * 스크립트를 새 Node 프로세스로 띄운다.
  * TypeScript는 tsx 로더로 읽는다. npx를 거치지 않으므로 자식이 하나만 생기고 종료가 확실하다.
  */
 export function startScript(scriptPath, { env = {}, label = "", loadTypeScript = false } = {}) {
   const args = loadTypeScript ? ["--import", "tsx", scriptPath] : [scriptPath];
-  const child = spawn(process.execPath, args, {
-    cwd: projectRoot,
-    env: { ...process.env, ...env },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
   const lines = [];
   const collect = chunk => { lines.push(String(chunk)); };
-  child.stdout.on("data", collect);
-  child.stderr.on("data", collect);
 
-  return {
-    child: track(child),
+  let child;
+  function spawnChild() {
+    child = spawn(process.execPath, args, {
+      cwd: projectRoot,
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    track(child);
+  }
+  spawnChild();
+
+  const handle = {
+    get child() { return child; },
     label,
     output: () => lines.join(""),
     async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return;
-      child.kill();
+      const current = child;
+      current.kill();
       // 종료를 기다린다. 안 끝나면 강제로 끊는다.
       await Promise.race([
-        new Promise(resolve => child.once("exit", resolve)),
-        sleep(3000).then(() => child.kill("SIGKILL")),
+        new Promise(resolve => current.once("exit", resolve)),
+        sleep(3000).then(() => current.kill("SIGKILL")),
       ]);
     },
+    /** 같은 인자와 환경으로 다시 띄운다. 재시작 뒤에도 파일에 남은 상태를 확인할 때 쓴다. */
+    async restart() {
+      await handle.stop();
+      spawnChild();
+    },
   };
+  if (label) scripts.set(label, handle);
+  return handle;
 }
+
+/** label로 띄운 스크립트를 찾는다. 같은 label이 여럿이면 마지막에 띄운 것이다. */
+export const runningScript = label => scripts.get(label);
 
 /** 프로세스가 남지 않도록 마지막에 반드시 부른다. */
 export async function stopAll() {

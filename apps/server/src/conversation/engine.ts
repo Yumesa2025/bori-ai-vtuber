@@ -4,8 +4,8 @@ import { buildSystemPrompt, createAdapter, summarizeSessionProgress, type create
 import { isAnonymousViewer, type EmbeddingProvider, type MemoryAccess, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, LlmSettings, MacroPrompt } from "@bori/shared";
 import { activateMacros, clearMacros, tickMacros } from "./macros.js";
-import { evaluateRules, fallbackResponse } from "./rules.js";
-import { createSessionState, pickReply, pushTurn, type ConversationSession, type SessionTurn } from "./session.js";
+import { evaluateRules, fallbackResponse, refusalResponse } from "./rules.js";
+import { createSessionState, pickReply, pushTurn, restoreTurns, type ConversationSession, type SessionTurn } from "./session.js";
 
 export type LlmClient = Pick<ReturnType<typeof createLlmClient>, "isCircuitOpen" | "respond">;
 
@@ -15,8 +15,8 @@ export type LlmClient = Pick<ReturnType<typeof createLlmClient>, "isCircuitOpen"
  */
 export type ConversationEngineDeps = {
   /**
-   * 모드별 LLM 클라이언트. 지금은 방송과 1:1이 하나를 공유한다.
-   * 회로 차단기와 통계를 모드별로 나눌 때 이 함수만 바꾸면 된다.
+   * 모드별 LLM 클라이언트. 회로 차단기와 통계가 클라이언트 안에 있으므로 모드마다 다른 인스턴스를 준다.
+   * 같은 인스턴스를 주면 1:1 연속 실패가 방송 회로를 연다.
    */
   llmFor: (mode: ConversationMode) => LlmClient;
   llmSettings: () => LlmSettings;
@@ -47,11 +47,12 @@ export type RespondInput = {
 export type RespondFailure = { kind: "disabled" | "circuit" | "call" | "validation"; reason: string };
 
 /**
- * blocked: 위험 입력이라 답하지 않는다. 방송은 무반응한다.
- * reply: 내보낼 답변. LLM이 실패해 폴백 문장을 쓴 경우 failure에 이유가 남는다.
+ * blocked: 위험 입력이라 LLM에 넘기지 않았다. 방송은 무반응하고, 거절 문장이 있는 모드는 refusal로 답한다.
+ * reply: 내보낼 답변. 폴백 문장을 쓴 경우 failure에 이유가 남는다.
+ * 규칙 응답을 쓰는 모드(방송)는 LLM이 꺼져 있어도 규칙으로 정상 진행하므로, 그때의 폴백은 실패로 알리지 않는다.
  */
 export type RespondResult =
-  | { kind: "blocked" }
+  | { kind: "blocked"; refusal?: CharacterResponse }
   | { kind: "reply"; response: CharacterResponse; failure?: RespondFailure };
 
 const allowedMotions = boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] }));
@@ -108,22 +109,46 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     }
   }
 
+  /** 모드 정책의 폴백 문장. 정책에 없으면 방송 폴백 문장을 쓴다. */
+  function fallbackFor(session: ConversationSession): CharacterResponse {
+    const replies = session.policy.fallbackReplies;
+    const pickForSession = (values: readonly string[]) => pick(session, values);
+    return replies && replies.length > 0 ? fallbackResponse(pickForSession, replies) : fallbackResponse(pickForSession);
+  }
+
+  /** LLM을 부르기 전에 쓸 수 없다고 판단한 이유. */
+  function unavailableFailure(settings: LlmSettings, llm: LlmClient): RespondFailure {
+    if (!settings.enabled) return { kind: "disabled", reason: "LLM이 꺼져 있습니다." };
+    if (deps.apiKey().trim().length === 0) return { kind: "disabled", reason: "API 키가 없습니다." };
+    if (llm.isCircuitOpen()) return { kind: "circuit", reason: "연속 실패로 LLM 호출을 잠시 멈췄습니다." };
+    return { kind: "disabled", reason: "LLM을 쓸 수 없습니다." };
+  }
+
   /**
    * 규칙 우선, 규칙에 없으면 LLM, LLM이 실패하면 폴백 문장 순서로 답을 만든다.
+   * 규칙을 쓰지 않는 모드(1:1)는 위험 차단만 거치고 바로 LLM으로 간다.
    * 위험 입력은 blocked를 돌려준다. 실패를 어디에 알릴지는 호출하는 쪽이 정한다.
    */
   async function respond(session: ConversationSession, input: RespondInput): Promise<RespondResult> {
     const llm = deps.llmFor(session.mode);
+    const policy = session.policy;
     const pickForSession = (values: readonly string[]) => pick(session, values);
     // 키가 없거나 회로가 열려 있으면 LLM을 쓸 수 없으므로 규칙이 그대로 답한다.
     const startSettings = deps.llmSettings();
     const llmAvailable = startSettings.enabled && deps.apiKey().trim().length > 0 && !llm.isCircuitOpen();
 
-    const outcome = evaluateRules(input.content, llmAvailable, pickForSession);
-    if (outcome.kind === "blocked") return { kind: "blocked" };
+    const outcome = evaluateRules(input.content, llmAvailable, pickForSession, policy.ruleReplies);
+    if (outcome.kind === "blocked") {
+      return policy.refusalReplies.length > 0 ? { kind: "blocked", refusal: refusalResponse(pickForSession, policy.refusalReplies) } : { kind: "blocked" };
+    }
     if (outcome.kind === "matched") return { kind: "reply", response: outcome.response };
 
-    if (!llmAvailable) return { kind: "reply", response: fallbackResponse(pickForSession) };
+    if (!llmAvailable) {
+      // 규칙 문장이 없는 모드는 폴백 문장이 유일한 답이라 왜 LLM을 못 썼는지 함께 돌려준다.
+      return policy.ruleReplies
+        ? { kind: "reply", response: fallbackFor(session) }
+        : { kind: "reply", response: fallbackFor(session), failure: unavailableFailure(startSettings, llm) };
+    }
 
     // 키워드 매크로는 왕복이 없으므로 기억 검색보다 먼저 켠다.
     if (startSettings.macroEnabled) activateMacros(session, input.content, deps.macros());
@@ -144,7 +169,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     if (result.ok) return { kind: "reply", response: result.response };
 
     console.error(`[bori-server] LLM 실패(${result.kind}): ${result.reason}`);
-    return { kind: "reply", response: fallbackResponse(pickForSession), failure: { kind: result.kind, reason: result.reason } };
+    return { kind: "reply", response: fallbackFor(session), failure: { kind: result.kind, reason: result.reason } };
   }
 
   /** 발언을 기록한다. 창 밖으로 밀려나는 대화는 누적 요약이 대신 붙든다. */
@@ -211,6 +236,8 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     createSession,
     respond,
     record,
+    /** 저장된 대화로 새 세션의 최근 대화를 채운다. 누적 요약은 부르지 않는다. */
+    restore: restoreTurns,
     /** 답변이 실제로 나갔을 때 부른다. 그 시점은 모드가 정한다. */
     tickMacros,
     clearMacros,
