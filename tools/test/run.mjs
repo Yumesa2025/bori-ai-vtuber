@@ -23,13 +23,14 @@ import {
 import * as latency from "./latency.mjs";
 import * as behavior from "./behavior.mjs";
 import * as isolation from "./isolation.mjs";
+import * as security from "./security.mjs";
 
 const mockPort = Number(process.env.MOCK_PORT ?? 4390);
 const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
-const scenarios = [latency, behavior, isolation];
+const scenarios = [latency, behavior, isolation, security];
 const startedAt = Date.now();
 let allResults = [];
 
