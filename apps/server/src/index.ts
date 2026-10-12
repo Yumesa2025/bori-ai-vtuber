@@ -3,15 +3,17 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, CharacterResponse, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
+import type { BroadcastState, ChatMessage, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
+import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
-import { createAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
+import { createAdapter as createProviderAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
 import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, type ConversationSession } from "./conversation/index.js";
-import { createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
+import { COMPANION_LOCAL_OWNER, createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
 import { decryptSecret, encryptSecret, isEncrypted } from "./secret-store.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
-import { isValidVoice, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
+import { isValidVoice, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch } from "./http/settings.js";
+import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 let settings: QueueSettings = {
@@ -71,12 +73,29 @@ let llmSettings: LlmSettings = {
 // 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓴다.
 let llmApiKey = process.env.OPENAI_API_KEY ?? "";
 
+// ── API 사용량 ────────────────────────────────────────────────
+// 기능·모드·모델별 호출 수와 토큰·글자 수만 날짜별로 센다. 대화 내용·닉네임·소유자 ID는 넘기지 않는다(ADR-018).
+const usageStore = createUsageStore(resolve(dataRoot, "usage.json"));
+usageStore.load();
+const usagePricesPath = resolve(dataRoot, "usage-prices.json");
+
+/** 어댑터를 직접 쓰는 호출(요약·기억 정리)을 기능 이름으로 세는 생성기. */
+const trackedAdapterFactory = (feature: "summary" | "digest"): typeof createProviderAdapter => (provider, config) => {
+  const adapter = createProviderAdapter(provider, config);
+  return adapter ? trackAdapter(adapter, config.model, feature, usageStore.record) : null;
+};
+/**
+ * 요약용 어댑터 생성기. 방송 요약(persistSessionMemories)과 엔진의 누적 요약이 이 이름으로 어댑터를 만들어
+ * 모두 summary로 센다. 업체 어댑터를 그대로 만들려면 createProviderAdapter를 쓴다.
+ */
+const createAdapter = trackedAdapterFactory("summary");
+
 /**
  * LLM 클라이언트는 모드마다 따로 둔다. 회로 차단기와 통계가 클라이언트 안에 있어서,
  * 하나를 같이 쓰면 1:1 연속 실패가 방송 회로를 연다.
  * 관리자 화면과 기존 라우트가 보는 llm은 방송 것이고, reset만 두 모드에 함께 적용한다.
  */
-const llmClients = createModeLlmClients(createLlmClient);
+const llmClients = createModeLlmClients(() => createLlmClient({ onCall: call => usageStore.record({ feature: "reply", ...call }) }));
 const llm = { ...llmClients.llmFor("broadcast"), reset: llmClients.resetAll };
 
 function loadLlmConfig() {
@@ -158,11 +177,14 @@ function saveTtsConfig() {
  * 답변 음성을 만든다.
  * 실패해도 방송은 그대로 진행하고 음성만 빠진다.
  */
-async function prepareAudio(text: string): Promise<string | undefined> {
+async function prepareAudio(text: string, mode: ConversationMode = "broadcast"): Promise<string | undefined> {
   if (!ttsSettings.enabled || !ttsHasKey()) return undefined;
 
+  // 합성 중에 설정이 바뀔 수 있으므로 부를 때의 모델로 센다. 글자 수만 세고 문장은 넘기지 않는다.
+  const usage = { feature: "tts" as const, mode, model: ttsSettings.model };
   try {
     const result = await synthesizeSpeech(ttsCredentials(), ttsSettings, text);
+    usageStore.record({ ...usage, ok: true, characters: Array.from(text).length });
     const id = randomUUID();
     audioCache.set(id, result.audio);
     while (audioCache.size > AUDIO_CACHE_LIMIT) {
@@ -173,6 +195,7 @@ async function prepareAudio(text: string): Promise<string | undefined> {
     ttsLastError = null;
     return id;
   } catch (error) {
+    usageStore.record({ ...usage, ok: false });
     ttsFailureCount += 1;
     ttsLastError = error instanceof Error ? error.message : String(error);
     console.error("[bori-server] 음성 합성 실패:", ttsLastError);
@@ -211,7 +234,7 @@ function saveMemoryConfig() {
 function currentEmbedding(): EmbeddingProvider | null {
   if (!memorySettings.enabled || llmApiKey.trim().length === 0) return null;
   if (llmSettings.provider !== "openai") return null;
-  return createOpenAiEmbedding({ apiKey: llmApiKey, model: memorySettings.embeddingModel });
+  return trackEmbedding(createOpenAiEmbedding({ apiKey: llmApiKey, model: memorySettings.embeddingModel }), memorySettings.embeddingModel, usageStore.record);
 }
 
 loadMemoryConfig();
@@ -289,6 +312,8 @@ const engine = createConversationEngine({
   embedding: currentEmbedding,
   macros: () => macros,
   replyCooldownMinutes: () => settings.sameReplyCooldownMinutes,
+  // 누적 요약 호출을 사용량에 센다.
+  createAdapter,
 });
 /**
  * 지금 방송의 대화 세션. 방송을 시작할 때마다 새로 만든다.
@@ -304,12 +329,14 @@ const handleCompanionRoute = createCompanionHandler({
   memoryStore,
   memorySettings: () => memorySettings,
   embedding: currentEmbedding,
-  prepareAudio,
+  // 1:1 음성은 사용량에 companion으로 센다.
+  prepareAudio: text => prepareAudio(text, "companion"),
   // LLM 기억 정리는 1:1 회로가 열려 있으면 건너뛴다. 방송 회로와는 상관없다.
   digestMemories: createPrivateMemoryDigest({
     llmSettings: () => llmSettings,
     apiKey: () => llmApiKey,
     isCircuitOpen: () => llmClients.llmFor("companion").isCircuitOpen(),
+    createAdapter: trackedAdapterFactory("digest"),
   }),
 });
 
@@ -592,12 +619,10 @@ const server = createServer((request, response) => {
   if (request.method === "PATCH" && request.url === "/api/llm") {
     readBody(request, response, body => {
       try {
-        const next = JSON.parse(body) as Partial<LlmSettings> & { apiKey?: string };
-
-        if (next.provider !== undefined && !supportedProviders.includes(next.provider as LlmProvider)) {
-          sendJson(response, 400, { error: "지원하지 않는 제공 업체입니다." });
-          return;
-        }
+        // 키·업체·타입·범위를 먼저 모두 검사한다. 틀리면 키도 설정도 바꾸지 않는다.
+        const checked = validateLlmSettingsPatch(JSON.parse(body));
+        if (!checked.ok) { sendJson(response, 400, { error: checked.error }); return; }
+        const next = checked.patch;
 
         // 키는 설정과 분리해 다룬다. 빈 문자열이 오면 키를 지우는 뜻이다.
         if (typeof next.apiKey === "string") llmApiKey = next.apiKey.trim();
@@ -614,6 +639,20 @@ const server = createServer((request, response) => {
         sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), providers: supportedProviders, defaultModels, macro: macroStatus(), systemPromptChars: engine.systemPromptChars("broadcast") });
       } catch { sendJson(response, 400, { error: "Invalid JSON" }); }
     });
+    return;
+  }
+  // 호출량과 추정 비용. 숫자만 담고, 단가 파일은 요청마다 다시 읽는다.
+  if (request.method === "GET" && request.url === "/api/usage") {
+    sendJson(response, 200, buildUsageReport(usageStore.days(), loadPriceTable(usagePricesPath), Date.now()));
+    return;
+  }
+  // 1:1 사용 통계. 대화 제목·내용·기억 문장 없이 개수만 보낸다.
+  if (request.method === "GET" && request.url === "/api/companion/stats") {
+    const stats: CompanionStats = {
+      ...handleCompanionRoute.stats(),
+      privateMemories: memoryStore.all().filter(record => record.scope === "private" && record.ownerId === COMPANION_LOCAL_OWNER).length,
+    };
+    sendJson(response, 200, stats);
     return;
   }
   // 음성 설정과 재생. 오디오는 방송 화면이 바로 받아 재생한다.

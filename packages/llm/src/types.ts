@@ -47,11 +47,16 @@ export type LlmRequest = {
   overrideSchema?: object;
 };
 
+/** 업체 응답의 토큰 사용량. 사용량 집계와 비용 추정에 쓴다. */
+export type LlmTokenUsage = { inputTokens: number; outputTokens: number };
+
 /** 어댑터가 돌려주는 원본 결과. 아직 검증 전이다. */
 export type LlmRawResult = {
   /** 모델이 만든 JSON 문자열. 검증은 호출자가 한다. */
   raw: string;
   latencyMs: number;
+  /** 업체 응답에 usage가 있을 때만 붙는다. 없으면 추측하지 않고 비워 둔다. */
+  usage?: LlmTokenUsage;
 };
 
 export type LlmAdapter = {

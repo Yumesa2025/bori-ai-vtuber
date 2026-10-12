@@ -1,5 +1,6 @@
 import { buildSystemPrompt, buildUserPrompt, responseJsonSchema } from "./prompt.js";
 import type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest } from "./types.js";
+import { tokenUsageFrom } from "./usage.js";
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com/v1";
 const TOOL_NAME = "bori_response";
@@ -47,12 +48,17 @@ export function createAnthropicAdapter(config: LlmAdapterConfig): LlmAdapter {
           throw new Error(`Anthropic ${response.status}: ${detail}`);
         }
 
-        const payload = await response.json() as { content?: { type?: string; name?: string; input?: unknown }[] };
+        const payload = await response.json() as {
+          content?: { type?: string; name?: string; input?: unknown }[];
+          usage?: { input_tokens?: unknown; output_tokens?: unknown };
+        };
         const toolUse = payload.content?.find(block => block.type === "tool_use" && block.name === TOOL_NAME);
         if (!toolUse?.input) throw new Error("Anthropic 응답에 도구 호출 결과가 없습니다.");
 
+        // 캐시 읽기·쓰기 토큰은 단가가 달라 넣지 않는다. 이 어댑터는 프롬프트 캐시를 쓰지 않는다.
+        const usage = tokenUsageFrom(payload.usage?.input_tokens, payload.usage?.output_tokens);
         // 뒤에서 JSON 검증을 그대로 태우기 위해 문자열로 되돌린다.
-        return { raw: JSON.stringify(toolUse.input), latencyMs: Date.now() - startedAt };
+        return { raw: JSON.stringify(toolUse.input), latencyMs: Date.now() - startedAt, ...(usage ? { usage } : {}) };
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           throw new Error(`Anthropic 응답이 ${request.timeoutMs}ms 안에 오지 않았습니다.`);

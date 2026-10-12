@@ -1,10 +1,11 @@
+import type { ConversationMode } from "@bori/character";
 import type { CharacterResponse, LlmProvider, LlmSettings, LlmStatus } from "@bori/shared";
 import { createAnthropicAdapter } from "./anthropic.js";
 import { createOpenAiAdapter } from "./openai.js";
-import type { LlmAdapter, LlmAdapterConfig, LlmRequest } from "./types.js";
+import type { LlmAdapter, LlmAdapterConfig, LlmRequest, LlmTokenUsage } from "./types.js";
 import { validateLlmOutput } from "./validate.js";
 
-export type { LlmAdapter, LlmAdapterConfig, LlmRequest, LlmValidation } from "./types.js";
+export type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest, LlmTokenUsage, LlmValidation } from "./types.js";
 export { validateLlmOutput } from "./validate.js";
 export { buildPromptLayers, buildSystemPrompt, buildUserPrompt, promptLayerOrder, type PromptLayer, type PromptLayerId } from "./prompt.js";
 export type { ConversationMode } from "@bori/character";
@@ -52,7 +53,18 @@ export type LlmOutcome =
   | { ok: true; response: CharacterResponse; latencyMs: number }
   | { ok: false; reason: string; kind: "disabled" | "circuit" | "call" | "validation" };
 
-export function createLlmClient() {
+/**
+ * 업체 API를 실제로 부른 한 번의 결과. 사용량 집계에 쓰며 대화 내용은 담지 않는다.
+ * ok는 업체 호출 자체의 성공 여부다. 응답 형식 검증 실패는 이미 과금된 호출이라 ok로 본다.
+ */
+export type LlmCallReport = { mode: ConversationMode; model: string; ok: boolean; usage?: LlmTokenUsage };
+
+export type LlmClientOptions = {
+  /** 업체를 부른 뒤마다 부른다. 꺼져 있거나 회로가 열려 부르지 않은 경우는 알리지 않는다. */
+  onCall?: (report: LlmCallReport) => void;
+};
+
+export function createLlmClient(options: LlmClientOptions = {}) {
   let adapter: LlmAdapter | null = null;
   let adapterKey = "";
 
@@ -76,6 +88,15 @@ export function createLlmClient() {
     adapter = factory({ apiKey, model: settings.model });
     adapterKey = key;
     return adapter;
+  }
+
+  /** 집계 쪽 오류가 답변 경로로 번지지 않게 막는다. */
+  function reportCall(report: LlmCallReport) {
+    try {
+      options.onCall?.(report);
+    } catch (error) {
+      console.error("[bori-llm] 호출 기록 실패:", error);
+    }
   }
 
   function recordFailure(settings: LlmSettings, reason: string, validation: boolean) {
@@ -137,8 +158,10 @@ export function createLlmClient() {
         latencyMs = result.latencyMs;
         latencyTotal += latencyMs;
         latencySamples += 1;
+        reportCall({ mode: request.mode, model: settings.model, ok: true, ...(result.usage ? { usage: result.usage } : {}) });
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
+        reportCall({ mode: request.mode, model: settings.model, ok: false });
         recordFailure(settings, reason, false);
         return { ok: false, reason, kind: "call" };
       }
