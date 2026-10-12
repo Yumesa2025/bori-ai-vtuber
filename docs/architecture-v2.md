@@ -2,6 +2,8 @@
 
 작성일: 2026-10-12 · 기준 커밋: `c8b2aa2` (`feat/rolling-summary`) · 대상: Bori 2.0 (방송 모드 + 1:1 companion 모드)
 
+갱신: 2026-10-12 `docs/sync-v2` — Phase 1·2와 닉네임 노출 수정이 main에 병합된 뒤, 해결된 항목에 **해결됨** 표시를 달고(1·3·6절), 7절에 현재 검사 결과를, 8.1절에 문서 차이 처리 결과를 더하고, 10절 단계 번호를 사용자 지시서 기준으로 바꿨다. 본문 분석과 줄 번호는 기준 커밋 당시 기록으로 남긴다.
+
 이 문서는 두 가지를 한다.
 
 1. 지금 저장소에 **실제로 있는 것**을 코드 위치와 실행 결과로 기록한다. 기존 문서와 코드가 다르면 코드를 따른다. 차이는 8절에 모았다.
@@ -12,7 +14,7 @@
 - `파일:줄`은 기준 커밋의 줄 번호다. 줄 번호만 적은 경우 같은 문단의 파일을 가리킨다.
 - **[실행]** 은 이 문서를 쓰면서 직접 돌려 본 결과다. 실행 방법은 부록 A에 있다.
 - **[수동]** 은 `docs/verification-log.md`의 수동 검증 기록, **[통합]** 은 `tools/test`의 자동 통합 검사다.
-- 기존 문서(README, progress 등)의 오류는 이 문서에서 고치지 않고 8절에만 기록한다.
+- 기존 문서(README, progress 등)의 오류는 이 문서에서 고치지 않고 8절에만 기록한다. 이후 `docs/sync-v2`에서 고친 결과는 8.1절에 있다.
 
 ---
 
@@ -52,14 +54,14 @@
 
 ### 1.2 검증된 기능 — 수동 검증과 통합 검사 구분
 
-**통합 검사 [통합]** — `npm run test`, 가짜 OpenAI(`tools/test/mock-openai.mjs`)에 실제 서버를 붙여 HTTP로 조작한다. 32건 전부 통과 [실행].
+**통합 검사 [통합]** — `npm run test`, 가짜 OpenAI(`tools/test/mock-openai.mjs`)에 실제 서버를 붙여 HTTP로 조작한다. 32건 전부 통과 [실행]. (갱신: 현재는 기억 격리 시나리오가 더해져 46건이고, 단위 검사 66건이 따로 있다. 7.1절)
 
 | 시나리오 | 확인하는 것 | 위치 |
 |---|---|---|
 | 지연 | 매크로 로드·키워드 없는 항목 폐기, 시스템 프롬프트 크기 노출, 대기·생성 병렬(6.0초 기대, [실행] 6007ms), 답변 출처 LLM, 음성 첨부, 매크로·방송 상황·기억 프롬프트 주입, 호출 순서 임베딩→LLM→TTS, 중복 창 거부·만료 후 재허용, 대기가 짧을 때 생성이 지배, 누적 요약 주기·프롬프트·이후 답변 반영 | `tools/test/latency.mjs:28-102` |
 | 동작 | 매크로 다시 읽기·켜짐·유지·소멸, LLM 실패 시 폴백, 회로 열림·호출 차단·설정 변경 시 닫힘, 혼잣말 발화와 최근 대화 기록, 세션 재시작 전후 답변과 이전 타이머가 새 말풍선을 지우지 않음 | `tools/test/behavior.mjs:27-116` |
 
-통합 검사가 **다루지 않는 것**: 방송 종료 시 기억 저장(`persistSessionMemories`), 기억 소유자, 닉네임 처리, `/api/memory`·`/api/tts`·`/api/live2d/test` 엔드포인트, 위험 주제 차단, 실제 LLM·TTS 응답, 화면. `session/end`는 정리용으로만 호출한다(`tools/test/latency.mjs:105`, `behavior.mjs:119`).
+통합 검사가 **다루지 않는 것**: 방송 종료 시 기억 저장(`persistSessionMemories`), 기억 소유자, 닉네임 처리(**해결됨**: 이 세 가지는 이후 `tools/test/isolation.mjs`가 다룬다), `/api/memory`·`/api/tts`·`/api/live2d/test` 엔드포인트, 위험 주제 차단, 실제 LLM·TTS 응답, 화면. `session/end`는 정리용으로만 호출한다(`tools/test/latency.mjs:105`, `behavior.mjs:119`).
 
 **수동 검증 [수동]** — `docs/verification-log.md`(최종 갱신 2026-08-30). 빌드·타입, 화면 렌더링, Live2D, 표정·모션 파라미터, 시선·립싱크, 큐·규칙·혼잣말·세션 재시작, 안전성(allowlist 400, 키 암호화), LLM 출력 검증 11건·실 API·회로 차단기, 기억 저장·회수·요약, OpenAI TTS, 채팅 화면, OBS 송출.
 
@@ -73,8 +75,8 @@
 
 | 항목 | 상태 | 근거 |
 |---|---|---|
-| 기억 검색 소유자 필터 | 없음. 누구의 질문이든 전체 기억에서 검색 | `packages/memory/src/store.ts:97-127`, 호출부 `apps/server/src/index.ts:528` · [실행] 탐침 결과는 6.1절 |
-| 1:1 대화 모드 | 없음. 모든 상태가 방송 단일 세션 전제 | 5절 |
+| 기억 검색 소유자 필터 | **해결됨** (Phase 1, main 병합). 당시: 없음. 누구의 질문이든 전체 기억에서 검색 | `packages/memory/src/store.ts:97-127`, 호출부 `apps/server/src/index.ts:528` · [실행] 탐침 결과는 6.1절 |
+| 1:1 대화 모드 | 없음. 모든 상태가 방송 단일 세션 전제. (갱신: `companion` 정책 초안과 private 기억 검색 규칙만 생겼고 API·앱은 여전히 없다) | 5절 |
 | 치지직 연동 | 없음. `ChatSource`의 `"chzzk"`는 타입뿐이고 생성 값은 항상 `"manual"` | `packages/shared/src/index.ts:9`, `apps/server/src/index.ts:1017` |
 | gemini | 팩토리 `null` | `packages/llm/src/index.ts:37` |
 | Anthropic 어댑터 | 코드 있음, 실 API 미검증. 임베딩은 OpenAI 업체일 때만 써서 Anthropic 사용 시 기억 검색이 항상 중요도·최신순으로 떨어진다 | `packages/llm/src/anthropic.ts:11`, `apps/server/src/index.ts:217` |
@@ -170,10 +172,10 @@ POST /api/chat (1000)
 | LLM 어댑터·레지스트리 | `packages/llm/src/{openai,anthropic,index}.ts` | O | — |
 | 출력 검증기 | `packages/llm/src/validate.ts` | O. 감정·모션 allowlist를 요청으로 받으므로 모드 무관 | — |
 | LLM 클라이언트(회로 차단기·통계) | `packages/llm/src/index.ts:54-156` | 구조는 O | 인스턴스를 모드별로 둘지 결정 필요(5.2) |
-| 프롬프트 조립 | `packages/llm/src/prompt.ts` | 섹션 조립 방식 | 페르소나 문구가 하드코딩(`:9-14`), `[방송 상황]`·`시청자` 라벨이 방송 전용(`:46`, `:74`). 캐릭터·모드 정책을 입력으로 받아야 함 |
+| 프롬프트 조립 | `packages/llm/src/prompt.ts` | 섹션 조립 방식 | **해결됨** (Phase 2): 페르소나·모드 정책을 `packages/character`에서 받고 `LlmRequest.mode`로 고른다. 당시: 페르소나 문구가 하드코딩(`:9-14`), `[방송 상황]`·`시청자` 라벨이 방송 전용(`:46`, `:74`). 캐릭터·모드 정책을 입력으로 받아야 함 |
 | 요약 | `packages/llm/src/summarize.ts` | `summarizeSessionProgress`의 접기 방식 | 프롬프트가 "방송" 전제(`:23-24`, `:92`) |
 | TTS | `packages/llm/src/tts.ts`, 서버 `prepareAudio` | O | 캐시가 전역 30건(`apps/server/src/index.ts:132-133`). 1:1 음성 ID가 방송 캐시를 밀어낼 수 있음 |
-| 기억 저장소 | `packages/memory/src/store.ts` | 파일 저장·임베딩·만료 | 소유자·scope 필터가 없음(6.1). 스키마에 scope 필드 필요 |
+| 기억 저장소 | `packages/memory/src/store.ts` | 파일 저장·임베딩·만료 | **해결됨** (Phase 1): scope·`ownerId`와 접근 필수 검색. 당시: 소유자·scope 필터가 없음(6.1). 스키마에 scope 필드 필요 |
 | 기억 후보 추출 | `packages/memory/src/extract.ts` | 규칙 추출 | 제외 정규식이 키워드 기반이라 1:1처럼 사적인 대화에서 새는 범위가 넓다(6.6) |
 | 임베딩 | `packages/memory/src/embedding.ts` | O | — |
 | 키 암호화 | `apps/server/src/secret-store.ts` | O(한계는 6.7) | — |
@@ -302,7 +304,7 @@ interface ConversationEngine {
 - 규칙 문장: "여러분, 안녕하세요!"(`apps/server/src/index.ts:412`), "여러분 덕분에"(`:423`), "여러분은 요즘 어떤 노래를"(`:439`), "여러분의 이야기 잘 보고 있어요"(`:469`). 혼잣말도 "여러분"을 쓴다(`:565`).
 - 서버가 계산하는 `systemPromptSize()`는 방송 프롬프트 하나만 잰다(`:312-325`).
 
-1:1에서 "여러분"은 틀린 호칭이고, "닉네임 금지"는 1:1에서 사용자가 원하면 이름을 불러도 되는지라는 별도 결정이 필요하다. 이 결정은 `packages/character`의 모드 정책 데이터로 둔다(Phase 2, 결정은 미확정·검토 필요).
+1:1에서 "여러분"은 틀린 호칭이고, "닉네임 금지"는 1:1에서 사용자가 원하면 이름을 불러도 되는지라는 별도 결정이 필요하다. 이 결정은 `packages/character`의 모드 정책 데이터로 둔다(Phase 2, 결정은 미확정·검토 필요). (갱신: Phase 2는 main에 병합되었고, 1:1 정책 값은 초안이며 `검토 필요` 항목은 그대로 둔다)
 
 ### 5.4 `persistSessionMemories`의 기억 저장 경로
 
@@ -321,6 +323,8 @@ const candidates = extractMemoryCandidates(sessionTurns, "virtual-viewer")   // 
 
 ### 6.1 기억 검색에 소유자 필터가 없다
 
+> **해결됨** (Phase 1, main 병합). `search`가 접근 정보(방송의 말한 시청자 또는 1:1 사용자)를 필수로 받고, 9.3 규칙표에 맞는 기억만 남긴 뒤 유사도 순위와 폴백 정렬을 계산한다. 규칙표 밖 조합과 알 수 없는 scope는 제외한다. `packages/memory/test`와 `tools/test/isolation.mjs`가 확인한다. 아래는 당시 기록이다.
+
 `search(query, settings, embedding)`(`packages/memory/src/store.ts:97`)에는 요청자를 넘길 매개변수가 없고, 호출부도 `content`만 넘긴다(`apps/server/src/index.ts:528`). 임베딩이 없으면 질문과 무관하게 중요도·최신순 top-K를 돌려준다(`store.ts:110-116`). 즉 키가 없거나 Anthropic을 쓰면(`apps/server/src/index.ts:217`) **매 답변마다 다른 시청자의 기억 상위 5건이 그대로 프롬프트에 들어간다.**
 
 [실행] 저장소 밖 임시 디렉터리에서 `packages/memory`를 직접 불러 확인했다.
@@ -335,15 +339,17 @@ hits for anyone [ 'local:a: …재즈…', 'virtual-viewer: …병원 예약…'
 
 ### 6.2 익명 채팅이 `virtual-viewer` 한 소유자로 묶인다
 
+> **해결됨** (Phase 1, main 병합). 익명 발언은 기억 후보가 되지 않고, 기존 `virtual-viewer`·소유자 없는 시청자 기억은 기동 시 마이그레이션으로 지워진다(원본 백업 유지). 채팅의 `viewerId` 값 자체는 여전히 `virtual-viewer`다. 아래는 당시 기록이다.
+
 닉네임 없는 채팅은 모두 `viewerId: "virtual-viewer"`(`apps/server/src/index.ts:1013`). 관리자 앱의 테스트 채팅은 닉네임을 보내지 않으므로(`apps/admin/src/main.tsx:78`) 항상 이 소유자다. 서로 다른 익명 시청자의 기억이 한 사람의 기억처럼 쌓인다. 사용자 결정에 따라 이 기억들은 소유자 불명으로 보고 마이그레이션 시 삭제한다(백업 유지, 9.3).
 
 ### 6.3 `local:<닉네임>`은 인증이 아니다
 
 - ID는 클라이언트가 보낸 닉네임을 소문자화·공백 제거한 값이다(`apps/server/src/index.ts:356`, `:1010-1013`). 같은 닉네임을 입력하면 누구든 같은 ID가 된다. `Steven Kim`과 `stevenkim`도 같은 ID다.
 - 닉네임은 브라우저 `localStorage`에만 있다(`apps/broadcast/src/chat.tsx:11`, `:50`).
-- 방송 화면에는 닉네임을 숨기지만(`apps/server/src/index.ts:1021-1022`) **`viewerId`는 그대로 `visibleChats`에 남아 `/api/state`로 나간다.** [실행] 닉네임 `Steven Kim`으로 채팅한 뒤 `/api/state`의 `visibleChats[0].viewerId`가 `"local:stevenkim"`이었다. 방송 화면·채팅 화면·관리자가 모두 이 JSON을 폴링한다.
+- **해결됨** (`dffbf24`, main 병합): `/api/state`의 `visibleChats`는 `VisibleChat`(`id`·`content`·`receivedAt`·`category`)만 싣는다. 통합 검사 2건이 확인한다. 당시: 방송 화면에는 닉네임을 숨기지만(`apps/server/src/index.ts:1021-1022`) **`viewerId`는 그대로 `visibleChats`에 남아 `/api/state`로 나간다.** [실행] 닉네임 `Steven Kim`으로 채팅한 뒤 `/api/state`의 `visibleChats[0].viewerId`가 `"local:stevenkim"`이었다. 방송 화면·채팅 화면·관리자가 모두 이 JSON을 폴링한다.
 
-따라서 방송 쪽 소유자 ID로 개인 기억(private)을 열면 사칭으로 남의 1:1 기억을 읽을 수 있다. 접근 규칙표가 방송에서 private를 전부 X로 둔 것이 이 위험을 막는다. 1:1 사용자 ID는 닉네임에서 파생하지 않는다.
+`viewerId` 노출은 해결됐지만 앞의 두 항목(닉네임 파생 ID, 인증 없음)은 남아 있다. 따라서 방송 쪽 소유자 ID로 개인 기억(private)을 열면 사칭으로 남의 1:1 기억을 읽을 수 있다. 접근 규칙표가 방송에서 private를 전부 X로 둔 것이 이 위험을 막는다. 1:1 사용자 ID는 닉네임에서 파생하지 않는다.
 
 ### 6.4 CORS `*`와 인증 없는 관리 API
 
@@ -375,7 +381,7 @@ hits for anyone [ 'local:a: …재즈…', 'virtual-viewer: …병원 예약…'
 4. 기억 제외 규칙이 키워드 정규식이다(`packages/memory/src/extract.ts:4`). [실행] "병원 예약이 있어서 이사 준비가 힘들었어요"가 `의료` 키워드에 걸리지 않고 후보로 뽑혔다. 1:1 대화는 방송보다 사적인 내용이 많아 새는 범위가 넓다.
 5. `data/memories.json`은 평문이다(`packages/memory/src/store.ts:25-28`). 암호화는 API 키에만 적용된다.
 
-권고: 1:1 API는 `127.0.0.1` 전용으로 두고, 별도 경로 접두사(`/api/companion/*`)와 서버가 발급한 로컬 토큰을 요구한다. CORS는 알려진 출처(4173, 5174, companion 앱)만 허용한다. 외부 공개는 이번 범위에 넣지 않는다.
+권고(10절에서 Phase 4의 선행 조건으로 배치): 1:1 API는 `127.0.0.1` 전용으로 두고, 별도 경로 접두사(`/api/companion/*`)와 서버가 발급한 로컬 토큰을 요구한다. CORS는 알려진 출처(4173, 5174, companion 앱)만 허용한다. 외부 공개는 이번 범위에 넣지 않는다.
 
 ### 6.7 API 키 암호화의 한계
 
@@ -402,6 +408,18 @@ hits for anyone [ 'local:a: …재즈…', 'virtual-viewer: …병원 예약…'
 - 단위 테스트는 0건이다(`*.test.*`·`*.spec.*` 없음). 통합 검사 32건은 `tools/test`에 있다.
 - CI 설정이 없다(`.github/` 없음).
 - `npm run build`는 Cubism SDK·구매 모델이 저장소 밖에 있어 이 환경에서 **실행하지 않았다(미검증)**. `apps/broadcast/vite.config.ts:61-71`이 비공개 경로를 복사한다.
+
+### 7.1 갱신 (2026-10-12, `docs/sync-v2`, main `4da0220` 기준)
+
+[실행] Node v24.12.0, Windows 11.
+
+| 명령 | 결과 |
+|---|---|
+| `npm run typecheck` | 종료 코드 0. **8개 워크스페이스**(shared·server·broadcast·admin·live2d·llm·memory·character). 루트 스크립트에 live2d·llm·memory·character를 더했다 |
+| `npm run test:unit` | 66건 중 66건 통과. `packages/{memory,llm,character}/test/*.test.ts` |
+| `MOCK_PORT=4470 BORI_TEST_PORT=4471 npm run test` | 46건 중 46건 통과 (128.6초). 지연 16, 동작 16, 기억 격리 14 |
+
+- 위 목록의 "typecheck 범위 누락"과 "단위 테스트 0건"은 해소되었다. CI 설정이 없고 `npm run build`가 미검증인 것은 그대로다.
 
 ---
 
@@ -437,6 +455,43 @@ hits for anyone [ 'local:a: …재즈…', 'virtual-viewer: …병원 예약…'
 
 차이 **23건**(높음 8, 중간 6, 낮음 9). 기존 문서 중 코드와 맞는 것으로 확인한 주요 서술: 루트 typecheck가 4개만 검사(`README.md:138`, `docs/progress.md:216`), 기억 검색에 시청자 필터 없음(`README.md:180`, `docs/progress.md:196`), gemini 미구현, 치지직 미구현, CORS `*`·127.0.0.1 바인딩(`docs/architecture.md`), 키 암호화 방식, 기억·회로 차단기·TTS 기본값.
 
+### 8.1 처리 결과 (`docs/sync-v2`)
+
+이 작업이 고칠 수 있는 문서는 README, `docs/progress.md`, `docs/verification-log.md`, `docs/index.html`, 이 문서다. `docs/decisions.md`는 Phase 3 작업이, `docs/architecture.md`·`docs/operations.md`·`docs/implementation-plan.md`는 이번 작업 범위 밖이라 고치지 않았다. 코드도 고치지 않았다.
+
+- **해소**: 표에 적힌 문서 위치가 모두 코드와 맞게 되었다.
+- **부분 해소**: 소유 문서 쪽은 고쳤고 범위 밖 문서의 서술이 남았다.
+- **잔존**: 표에 적힌 문서가 전부 범위 밖이라 그대로다.
+- **의도된 차이**: 해당 없음. 23건 중 의도된 차이로 판단한 행은 없다.
+
+| # | 처리 | 내용 |
+|---|---|---|
+| 1 | 해소 | README 한계 절에서 "자동화 테스트가 없다"를 지우고 CI 없음과 검사 수치(단위 66, 통합 46)로 바꿨다. 실행 절의 32건도 46건으로 고쳤다 |
+| 2 | 해소 | progress 3.2절 "자동화 테스트 0건"을 검사 범위와 CI 행으로, 4절을 자동 검사(4.1)와 수동 검증(4.2)으로 나눴다 |
+| 3 | 해소 | verification-log 머리말을 자동 검사(0절)와 수동 검증(1~12절) 구분으로 바꿨다 |
+| 4 | 잔존 | `docs/decisions.md:469`(Phase 3 작업 소유), `docs/implementation-plan.md:40`, `:563`(범위 밖) |
+| 5 | 부분 해소 | progress 3.2절 행과 6절 과제를 지우고 1.6절에 창 동작을 적었다. `docs/decisions.md:397` 잔존 |
+| 6 | 해소 | progress·verification-log 최종 갱신을 2026-10-12로 바꾸고, 2026-09-01 기능을 progress 1.15절과 2절에 넣었다 |
+| 7 | 해소 | Phase 2에서 progress 1.11절이 7계층 서술로 바뀌었다(이 작업 이전). 3섹션 서술은 남아 있지 않다 |
+| 8 | 잔존 | `docs/architecture.md:244`(범위 밖) |
+| 9 | 부분 해소 | progress 1.2절 방송 화면 폴링을 250ms로 고쳤다. `docs/decisions.md:87`, `docs/operations.md:22`, `docs/architecture.md:177` 잔존 |
+| 10 | 부분 해소 | progress 3.1절 TTS 스트리밍 행과 1.13절을 병렬 생성 기준으로 고쳤다. `docs/operations.md:111`, `docs/decisions.md:285` 잔존 |
+| 11 | 잔존 | `docs/decisions.md:264-270`, `docs/architecture.md:350-363`(범위 밖) |
+| 12 | 해소(문서) | progress 1.13절·4.2절과 verification-log 7절에 "현재 코드는 목소리 이름을 검사하지 않는다"를 적었다(수동 기록 원문은 보존). 코드 결함 자체는 남아 Phase 4 선행 조건에 넣었다 |
+| 13 | 부분 해소 | README 주요 기능, progress 1.4절·3.1절을 `127.0.0.1` 바인딩 기준으로 고쳤다. `docs/operations.md:24-26`, `docs/architecture.md:697`, `docs/decisions.md:238`, `apps/broadcast/vite.config.ts:84` 주석 잔존 |
+| 14 | 부분 해소 | `/api/state` 노출은 코드(`dffbf24`, `VisibleChat`)로 해결되어 progress 1.4절 서술이 맞게 되었고 그 내용을 덧붙였다. `docs/architecture.md:418`, `:764`의 "닉네임 원문은 저장하지 않는다"는 정규화한 닉네임이 `ownerId`(`local:<닉네임>`)로 남는다는 점을 빠뜨린 채 잔존 |
+| 15 | 부분 해소 | README 설치 절을 셸 환경변수 기준으로 고치고 `ANTHROPIC_API_KEY`를 읽지 않는다고 적었다. progress 3.1절에도 행을 더했다. `docs/operations.md:64` 잔존 |
+| 16 | 잔존 | `docs/implementation-plan.md:552`, `:555`(범위 밖). 실제 동작(큐 설정 미저장)은 progress 3.2절에 적었다 |
+| 17 | 잔존 | `docs/decisions.md:311-313`, `docs/operations.md:44`(범위 밖). 실제 동작(LLM 키만 재저장·경고)은 progress 1.7절에 적었다 |
+| 18 | 부분 해소 | progress 3.2절 죽은 타입 필드에서 `emotion.secondary`를 빼고 실제 상태를 적었다. `docs/decisions.md:471` 잔존 |
+| 19 | 잔존 | `docs/decisions.md:143`, `:447`(Phase 3 작업 소유) |
+| 20 | 잔존 | `docs/decisions.md:117`(Phase 3 작업 소유) |
+| 21 | 부분 해소 | progress 1.1절에 `tools/test`와 `packages/character`를 넣었다. `docs/architecture.md:12` 잔존 |
+| 22 | 해소 | README 소스 줄 수를 다시 셌다: `apps`·`packages`의 `.ts/.tsx/.cjs` 테스트 제외 3,865줄, 포함 4,527줄(2026-10-12). `docs/index.html`도 같은 기준으로 고쳤다 |
+| 23 | 해소 | README 기술 스택 절에 broadcast `dependencies`의 `@vitejs/plugin-react`를 적었다 |
+
+집계: 해소 8(#1·2·3·6·7·12·22·23, #12는 문서만 해소), 부분 해소 8(#5·9·10·13·14·15·18·21), 잔존 7(#4·8·11·16·17·19·20), 의도된 차이 0. 남은 서술은 모두 범위 밖 문서에 있다.
+
 코드 쪽 결함으로 따로 남기는 것(문서와의 차이는 아님)
 
 - LLM 업체를 Anthropic으로 두면 OpenAI TTS에 Anthropic 키가 넘어간다. TTS 자격 증명이 업체와 무관하게 `llmApiKey`를 OpenAI 키로 쓴다(`apps/server/src/index.ts:128`, `:130`). 임베딩은 업체를 확인하지만(`:217`) TTS는 확인하지 않는다.
@@ -452,16 +507,16 @@ hits for anyone [ 'local:a: …재즈…', 'virtual-viewer: …병원 예약…'
 apps/
   server/        방송 오케스트레이션 + HTTP. 1:1 API(/api/companion/*)도 같은 프로세스
     src/conversation/   공통 대화 엔진 (Phase 3, 서버 내부 모듈)
-    src/broadcast/      큐 · 발화권 · 세션 세대 · 혼잣말 (index.ts에서 분리)
+    src/broadcast/      큐 · 발화권 · 세션 세대 · 혼잣말 (index.ts에서 분리, Phase 3 후속 정리)
   broadcast/     방송 화면 · chat.html (변경 최소)
   admin/         관리자 앱
-  companion/     신규. 1:1 채팅 UI (Phase 7)
+  companion/     신규. 1:1 채팅 UI (Phase 5)
 packages/
   shared/        타입
   llm/           어댑터 · 검증 · 요약 · TTS (프롬프트는 캐릭터 정책을 입력으로 받게 변경)
-  memory/        저장소 · scope/owner 필터 (Phase 1)
+  memory/        저장소 · scope/owner 필터 (Phase 1, 완료)
   live2d/        모델 매핑
-  character/     신규. 페르소나 · 모드 정책 데이터 (Phase 2)
+  character/     페르소나 · 모드 정책 데이터 (Phase 2, 완료)
 ```
 
 - **apps/companion**: 1:1 채팅 화면. 서버의 `/api/companion/*`만 호출한다. 방송 상태(`/api/state`)를 읽지 않는다.
@@ -502,7 +557,7 @@ private    A         X             X             O       X
 - 소유자 불명 기존 기억(`viewerId: "virtual-viewer"` 등)은 마이그레이션 시 **삭제**하고, 삭제 전 백업 파일을 남긴다.
 - 쓰기 규칙(제안): 방송 종료 시 시청자 기억은 `broadcast/<owner>`, 방송 요약은 `broadcast/-`. 1:1은 `private/<owner>`만 쓴다. `character`는 관리자만 쓴다. 익명(`ownerId: null`) 발언은 기억을 쓰지 않는다.
 
-스키마·필터의 구체 구현은 Phase 1(`feature/memory-isolation`, 진행 중)에서 정한다. 이 문서는 요구만 적는다.
+스키마·필터의 구체 구현은 Phase 1(`feature/memory-isolation`)에서 정했고 main에 병합되었다(**완료**). 이 문서는 요구만 적는다.
 
 ### 9.4 모드별 정책·상태 주입
 
@@ -520,43 +575,58 @@ private    A         X             X             O       X
 
 ## 10. 단계별 계획
 
+단계 번호는 사용자 지시서 기준이다(2026-10-12 `docs/sync-v2`에서 바꿈). 처음 이 문서가 제안한 "방송 코드 분리"와 "API 보안 강화"는 별도 번호를 두지 않고 각각 Phase 3의 후속 정리, Phase 4의 선행 조건으로 넣었다. 문서 정합성 정리(`docs/sync-v2`)도 번호 없이 수시로 한다.
+
 | Phase | 브랜치 | 내용 | 상태 |
 |---|---|---|---|
-| 1 | `feature/memory-isolation` | 기억 scope·소유자 모델, 검색 필터(fail closed), 소유자 불명 기억 삭제 마이그레이션(백업) | **진행 중, 별도 PR** |
-| 2 | `feature/character-persona` | `packages/character` 신설, 기존 페르소나·규칙·혼잣말 데이터 이전, 모드 정책 초안(`검토 필요`) | **진행 중, 별도 PR** |
-| 3 | `feature/conversation-engine` | `apps/server/src/conversation/` 추출. 방송 동작 불변 | 계획 |
-| 4 | `feature/broadcast-split` | `index.ts`에서 방송 오케스트레이션(큐·발화권·세대·혼잣말)과 HTTP 라우팅 분리, 설정 검증 | 계획 |
-| 5 | `feature/api-hardening` | CORS 출처 제한, 로컬 토큰, 본문 크기 제한, `/api/state`의 `viewerId` 제거, 목소리 이름 검증 | 계획 |
-| 6 | `feature/companion-api` | `/api/companion/*`, 1:1 세션 관리, private 기억 읽기·쓰기, 모드별 LLM 클라이언트 | 계획 |
-| 7 | `feature/companion-app` | `apps/companion` UI | 계획 |
-| 8 | `docs/sync-v2` | README·progress·verification-log를 코드에 맞춰 갱신(8절 표 해소), 루트 typecheck 편입, 실 API 수동 검증 기록 | 계획 |
+| 1 | `feature/memory-isolation` | 기억 scope·소유자 모델, 검색 필터(fail closed), 소유자 불명 기억 삭제 마이그레이션(백업) | **완료 (main 병합)** |
+| 2 | `feature/character-persona` | `packages/character` 신설, 기존 페르소나·규칙·혼잣말 데이터 이전, 프롬프트 7계층, 모드 정책 초안(`검토 필요`) | **완료 (main 병합)** |
+| 3 | 별도 PR | 공통 대화 엔진. `apps/server/src/conversation/` 추출. 방송 동작 불변 | **진행 중 (별도 PR)** |
+| 3 후속 | 미정 | 방송 코드 분리. `index.ts`에서 방송 오케스트레이션(큐·발화권·세대·혼잣말)과 HTTP 라우팅 분리 | 계획 |
+| 4 선행 | 미정 | API 보안 강화. CORS 출처 제한, 로컬 토큰, 요청 본문 크기 제한, 설정 검증(`PATCH /api/settings`·`/api/memory`·`/api/tts`), 목소리 이름 검증 | 계획 |
+| 4 | 미정 | 1:1 대화 API. `/api/companion/*`, 1:1 세션 관리, private 기억 읽기·쓰기, 모드별 LLM 클라이언트 | 계획 |
+| 5 | 미정 | Companion 앱. `apps/companion` UI | 계획 |
+| 6 | 미정 | 캐릭터 반응·관계. 세부 범위는 아직 정하지 않았다 | 계획 |
+| 7 | 별도 PR | 대화 품질 평가. 평가 시나리오는 `docs/content/dialogue-scenarios.md` | **선행 작업 진행 중 (별도 PR)** |
+| 8 | 미정 | 방송 연동과 안정화. 세부 범위는 아직 정하지 않았다. 30분 이상 송출 검증, 2026-09 이후 기능의 실 API 수동 검증이 여기에 해당한다 | 계획 |
+
+처음 제안에 있던 "`/api/state`의 `viewerId` 제거"는 **해결됨**(`dffbf24`, main 병합)이라 4 선행에서 뺐다.
 
 의존 관계
 
 ```
-Phase 1 ─┐
-         ├─► Phase 3 ─► Phase 4 ─┐
-Phase 2 ─┘                       ├─► Phase 6 ─► Phase 7
-             Phase 5 ────────────┘
-Phase 8: 각 Phase 병합 후 수시로, 최종 정리는 Phase 7 뒤
+Phase 1 (완료) ─┐
+                ├─► Phase 3 ─► 3 후속(방송 코드 분리)
+Phase 2 (완료) ─┘      │
+                       ▼
+4 선행(API 보안) ──► Phase 4 ─► Phase 5
+                       │
+                       └─────► Phase 6
+
+Phase 7: 선행 작업은 병렬로 진행. 1:1 대화 평가는 Phase 4 이후
+Phase 8: 각 Phase 병합 뒤 방송 쪽 회귀 확인과 안정화
 ```
 
-- Phase 3은 Phase 1의 scope 필터 API와 Phase 2의 정책 데이터 형태를 소비하므로 둘 다 병합된 뒤 시작한다.
-- Phase 5는 독립적으로 진행할 수 있으나 Phase 6보다 먼저 병합해야 한다. 1:1 API를 보안 경계 없이 연 상태가 한 번도 없도록 하기 위해서다.
-- Phase 4는 Phase 3 직후가 충돌이 가장 적다. 엔진이 빠진 뒤 남은 방송 코드만 옮기면 된다.
+- Phase 3은 Phase 1의 scope 필터 API와 Phase 2의 정책 데이터 형태를 소비한다. 둘 다 병합되었다.
+- **4 선행(API 보안 강화)은 Phase 4보다 먼저 병합해야 한다.** 1:1 API를 보안 경계 없이 연 상태가 한 번도 없도록 하기 위해서다. Phase 3과는 독립적으로 진행할 수 있다.
+- 3 후속(방송 코드 분리)은 Phase 3 직후가 충돌이 가장 적다. 엔진이 빠진 뒤 남은 방송 코드만 옮기면 된다.
+- Phase 6은 1:1 대화 경로(Phase 4)가 있어야 확인할 수 있다. Phase 6·8의 세부 의존은 범위가 정해진 뒤 적는다.
 
 ### 완료 기준 (검증 가능한 것만)
 
 | Phase | 완료 기준 |
 |---|---|
-| 1 | `node --import tsx --test`로 9.3 표의 16칸(4행×4열)이 각각 기대대로 O/X인 단위 테스트 통과. 소유자 불명 기록이 어떤 모드에서도 반환되지 않는 테스트. 마이그레이션 후 `virtual-viewer` 기록 0건 + 백업 파일 존재. `npm run test` 32건 이상 통과 |
-| 2 | 기존 시스템 프롬프트 문자열이 이전 전후 동일함을 비교하는 테스트(방송 모드). `systemPromptChars` 값 불변. 새 정책 값에 `검토 필요` 표시. `npm run test` 통과 |
-| 3 | `makeResponse`·`recordTurn`·`maybeUpdateRollingSummary`·매크로 함수가 `index.ts`에서 사라지고 엔진으로 이동. 엔진 단위 테스트: 세션 두 개의 `recentTurns`·요약·매크로가 서로 섞이지 않음. 방송 통합 검사 32건 통과(동작 불변) |
-| 4 | `index.ts`가 기동·라우팅 조립만 남음. `PATCH /api/settings`의 잘못된 타입·범위 입력이 400. 통합 검사 통과 |
-| 5 | 허용 목록 밖 `Origin`의 요청이 거부되는 통합 검사. 토큰 없는 관리·1:1 요청 401. 상한 초과 본문 413. `/api/state`에 `viewerId` 없음. 허용 밖 `voice` 400 |
-| 6 | 통합 검사 추가: 1:1 사용자 A의 private 기억이 B의 1:1·방송 프롬프트에 나오지 않음, 방송 broadcast 기억이 1:1 프롬프트에 나오지 않음, 1:1 대화가 방송 `/api/state`·`[최근 대화]`·누적 요약에 나오지 않음, 1:1 LLM 실패가 방송 회로를 열지 않음. 방송 32건 통과 |
-| 7 | `apps/companion` typecheck가 루트 `typecheck`에 포함되어 통과. 화면 동작은 수동 검증 기록(verification-log)에 남김 |
-| 8 | 8절 표의 각 행이 해소되었거나 "의도된 차이"로 표시됨. 루트 `typecheck`가 7개 이상 워크스페이스를 검사 |
+| 1 | **충족** (2026-10-12 `npm run test:unit`·`npm run test`로 재확인). `node --import tsx --test`로 9.3 표의 16칸(4행×4열)이 각각 기대대로 O/X인 단위 테스트 통과. 소유자 불명 기록이 어떤 모드에서도 반환되지 않는 테스트. 마이그레이션 후 `virtual-viewer` 기록 0건 + 백업 파일 존재. `npm run test` 32건 이상 통과 |
+| 2 | main 병합. 제안 당시 기준: 기존 시스템 프롬프트 문자열이 이전 전후 동일함을 비교하는 테스트(방송 모드). `systemPromptChars` 값 불변. 새 정책 값에 `검토 필요` 표시. `npm run test` 통과. 현재 단위 검사가 확인하는 것은 기존 방송 문장이 모두 들어가는지까지이고, user 섹션 순서는 계층 정의에 맞춰 `[참고 정보]`↔`[기억]`이 바뀌었다(PR #4). `systemPromptChars` 불변은 이 작업에서 다시 확인하지 않았다 |
+| 3 | `makeResponse`·`recordTurn`·`maybeUpdateRollingSummary`·매크로 함수가 `index.ts`에서 사라지고 엔진으로 이동. 엔진 단위 테스트: 세션 두 개의 `recentTurns`·요약·매크로가 서로 섞이지 않음. 방송 통합 검사 46건 통과(동작 불변) |
+| 3 후속 | `index.ts`가 기동·라우팅 조립만 남음. 통합 검사 통과 |
+| 4 선행 | 허용 목록 밖 `Origin`의 요청이 거부되는 통합 검사. 토큰 없는 관리·1:1 요청 401. 상한 초과 본문 413. `PATCH /api/settings`의 잘못된 타입·범위 입력 400. 허용 밖 `voice` 400 |
+| 4 | 통합 검사 추가: 1:1 사용자 A의 private 기억이 B의 1:1·방송 프롬프트에 나오지 않음, 방송 broadcast 기억이 1:1 프롬프트에 나오지 않음, 1:1 대화가 방송 `/api/state`·`[최근 대화]`·누적 요약에 나오지 않음, 1:1 LLM 실패가 방송 회로를 열지 않음. 방송 통합 검사 통과 |
+| 5 | `apps/companion` typecheck가 루트 `typecheck`에 포함되어 통과. 화면 동작은 수동 검증 기록(verification-log)에 남김 |
+| 6 | 범위가 정해진 뒤 적는다 |
+| 7 | 범위가 정해진 뒤 적는다 |
+| 8 | 범위가 정해진 뒤 적는다. 최소한 30분 이상 송출 수동 검증 기록 |
+| 문서 정합성 | 제안 당시 기준: 8절 표의 각 행이 해소되었거나 "의도된 차이"로 표시됨, 루트 `typecheck`가 7개 이상 워크스페이스를 검사. `docs/sync-v2` 결과: typecheck는 **충족**(8개). 8절은 **부분 충족** — 각 행의 처리 결과를 8.1절에 적었고, 범위 밖 문서(`decisions.md`·`architecture.md`·`operations.md`·`implementation-plan.md`)에 7행 전체와 8행 일부가 남았다 |
 
 ---
 

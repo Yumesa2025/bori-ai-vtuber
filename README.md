@@ -6,7 +6,7 @@ Live2D 캐릭터가 시청자 채팅에 LLM으로 답하고, 음성·표정·모
 
 보리는 한 대의 로컬 머신에서 전부 돌아가는 AI 버추얼 스트리머다. 서버, 방송 화면, 관리자 앱이 모두 `127.0.0.1`에서 동작하며 외부 호스팅이나 클라우드 인프라를 쓰지 않는다. 시청자 채팅이 들어오면 위험 주제 차단 → 규칙 응답 → LLM 응답 → 폴백 문장의 3단 파이프라인을 거쳐 답변을 만들고, TTS로 음성을 합성한 뒤 Live2D 모델의 표정·모션·립싱크를 함께 실행한다. 방송 화면은 브라우저 페이지이므로 OBS Browser Source로 그대로 송출된다.
 
-개인 프로젝트다. 기간은 2026.06부터 진행 중이며, 전체 소스는 약 3,259줄의 npm workspaces 모노레포다.
+개인 프로젝트다. 기간은 2026.06부터 진행 중이며, npm workspaces 모노레포다. `apps`·`packages`의 TypeScript 소스는 테스트를 빼고 약 3,870줄, 테스트를 넣으면 약 4,530줄이다(`git ls-files`로 센 `.ts/.tsx/.cjs`, 2026-10-12 기준).
 
 ## 실행 전 반드시 알아둘 것
 
@@ -33,10 +33,11 @@ Live2D 캐릭터가 시청자 채팅에 LLM으로 답하고, 음성·표정·모
 - **말하면서 표정과 모션이 바뀐다.** LLM이 답변과 함께 감정·모션을 고르고, 화이트리스트를 통과한 것만 화면에서 실행된다.
 - **목소리가 나온다.** 답변 문장을 TTS로 합성해 재생하고, 음성 파형에 맞춰 입이 움직인다.
 - **시선이 살아 있다.** 평소에는 1.1~3.2초마다 주위를 둘러보고, 새 채팅이 들어오면 60% 확률로 그쪽을 쳐다본다.
-- **시청자를 기억한다.** 대화에서 취향·경험을 뽑아 장기 기억으로 저장하고, 이후 관련 질문이 오면 그 기억을 참고해 답한다. 보관 기간이 지나면 자동으로 만료된다.
+- **시청자를 기억하되 서로 섞지 않는다.** 대화에서 취향·경험을 뽑아 장기 기억으로 저장하고, 이후 관련 질문이 오면 그 기억을 참고해 답한다. 기억마다 공개 범위(`character`/`broadcast`/`private`)와 소유자를 두고, 말한 시청자 본인의 기억과 소유자 없는 방송 기억만 문맥에 넣는다. 소유자를 모르는 기억은 저장하지도 꺼내지도 않는다. 보관 기간이 지나면 자동으로 만료된다.
 - **긴 방송에서도 앞 이야기를 놓치지 않는다.** 보리가 그대로 기억하는 것은 최근 채팅 5건뿐이다. 그 앞의 흐름은 일정 턴마다 한 문단으로 접어 문맥에 계속 넣는다. 방송이 길어져도 문맥 길이는 늘지 않는다.
 - **고유명사는 키워드로 바로 붙인다.** 게임 이름이나 캐릭터명처럼 철자가 정해진 대상은 `data/macros.json`에 적어 두면 채팅에 나오는 즉시 설명이 문맥에 들어간다. 임베딩 검색을 거치지 않아 정확하고 빠르다. 예시는 [docs/macros.example.json](docs/macros.example.json)에 있다.
-- **휴대폰으로 채팅을 넣을 수 있다.** 별도 채팅 화면(`chat.html`)을 다른 창이나 휴대폰에서 열어 시청자 입장으로 채팅한다.
+- **시청자 입장으로 채팅을 넣을 수 있다.** 별도 채팅 화면(`chat.html`)을 다른 브라우저 창에서 열어 닉네임을 정하고 채팅한다. 서버와 화면이 `127.0.0.1`에만 바인딩되어 있어 휴대폰 등 다른 기기에서는 열 수 없다.
+- **캐릭터 설정이 코드와 분리되어 있다.** 페르소나와 대화 모드별 정책 문장은 `packages/character`가 갖고, 프롬프트는 페르소나 → 모드 정책 → 세션 정보 → 기억 → 최근 대화 → 입력 → 출력 규칙의 7계층으로 쌓는다.
 - **관리자 앱에서 방송을 통제한다.** 세션 시작·종료, LLM/TTS/기억 설정, 표정·모션 즉시 테스트, LLM 호출 통계와 실패 내역을 한 화면에서 다룬다.
 - **OBS 설정이 자동화되어 있다.** 스크립트 한 번으로 씬·브라우저 소스 생성, 캔버스 1920x1080 설정, 트랜스폼 초기화까지 끝난다.
 
@@ -75,7 +76,7 @@ LLM(8초)과 TTS(15초)는 비동기라 응답이 도착하기 전에 방송이 
 | 송출 연동 | OBS WebSocket v5 클라이언트 직접 구현 (`.mjs`, 의존성 0) |
 | 패키지 관리 | npm workspaces 모노레포 |
 
-**외부 런타임 의존성이 사실상 없다.** Express도 `ws`도 Prisma도 벡터DB도 LLM SDK도 쓰지 않는다. 서버는 `node:http`의 `createServer` 하나에 if 체인 수동 라우팅이고, 모든 외부 API 호출은 Node 내장 `fetch`와 `AbortController`다. OBS WebSocket v5의 salt/challenge SHA256 인증 핸드셰이크도 직접 구현했다. `devDependencies`를 제외하면 런타임에 설치되는 서드파티 코드는 React와 Electron뿐이다.
+**외부 런타임 의존성이 사실상 없다.** Express도 `ws`도 Prisma도 벡터DB도 LLM SDK도 쓰지 않는다. 서버는 `node:http`의 `createServer` 하나에 if 체인 수동 라우팅이고, 모든 외부 API 호출은 Node 내장 `fetch`와 `AbortController`다. OBS WebSocket v5의 salt/challenge SHA256 인증 핸드셰이크도 직접 구현했다. 워크스페이스 `dependencies`에 든 서드파티 패키지는 React, Electron, 그리고 방송 화면의 `@vitejs/plugin-react`뿐이며, 이 중 `@vitejs/plugin-react`는 실제로는 빌드 도구로만 쓰인다.
 
 ## 저장소 구조
 
@@ -87,9 +88,11 @@ LLM(8초)과 TTS(15초)는 비동기라 응답이 도착하기 전에 방송이 
 │   └── admin/           Electron 관리자 앱
 ├── packages/
 │   ├── shared/          공용 타입 전용 (런타임 코드 없음)
-│   ├── llm/             LLM 어댑터·출력 검증·방송 요약·TTS
-│   ├── memory/          장기 기억 저장·검색
+│   ├── llm/             LLM 어댑터·출력 검증·프롬프트 계층·방송 요약·TTS
+│   ├── memory/          장기 기억 저장·검색·공개 범위와 소유자 접근 규칙
+│   ├── character/       페르소나·대화 모드별 정책 (데이터 중심)
 │   └── live2d/          모델 카탈로그·감정 매핑 (순수 데이터)
+│                        각 패키지의 test/ 에 단위 검사 (node:test)
 ├── tools/
 │   ├── obs/             OBS WebSocket v5 자동 설정 스크립트
 │   └── test/            통합 검사 (가짜 API에 실제 서버를 붙여 실행)
@@ -125,23 +128,24 @@ npm run dev:broadcast   # 방송 화면 (127.0.0.1:4173)
 npm run dev:admin       # 관리자 Electron 앱 (렌더러 127.0.0.1:5174)
 ```
 
-타입 검사, 통합 검사, 빌드는 다음과 같다.
+타입 검사, 단위 검사, 통합 검사, 빌드는 다음과 같다.
 
 ```bash
 npm run typecheck
+npm run test:unit
 npm run test
 npm run build
 ```
 
-`npm run test`는 실제 서버를 가짜 OpenAI API에 붙여 띄우고 방송을 짧게 돌려 32건을 확인한다. API 키도 요금도 필요 없고, `data/`도 건드리지 않는다. 답변 대기와 생성이 겹치는지, 세션을 다시 시작했을 때 이전 타이머가 새 답변을 건드리지 않는지처럼 시간 위에서 맞물리는 동작이 대상이다. 자세한 내용은 [tools/test/README.md](tools/test/README.md)에 있다.
+루트 `typecheck`는 8개 워크스페이스(`shared`, `server`, `broadcast`, `admin`, `live2d`, `llm`, `memory`, `character`)를 차례로 검사한다. 하나만 검사하려면 `npm run typecheck:<이름>`을 쓴다.
 
-루트 `typecheck`는 `shared`, `server`, `broadcast`, `admin` 4개만 실행한다. `live2d`, `llm`, `memory`는 개별 스크립트로 검사한다.
+`npm run test:unit`은 `packages/*/test/*.test.ts`와 `apps/*/test/*.test.ts`를 `node:test` + `tsx`로 돌린다. 2026-10-12 기준 83건이며, 기억 접근 규칙표 전 칸·검색 필터·마이그레이션·추출, 프롬프트 계층 구성, 캐릭터 정책 데이터, 공통 대화 엔진(세션 간 상태 분리, 모드별 기억 접근)을 확인한다.
 
-```bash
-npm run typecheck:live2d
-npm run typecheck:llm
-npm run typecheck:memory
-```
+`npm run eval:static`은 대화 시나리오 27건으로 모드별 프롬프트 구성과 기억 격리를 키 없이 평가한다. 실제 모델 답변을 평가하는 `npm run eval:model`은 `OPENAI_API_KEY`가 있을 때만 돈다. 기준과 결과는 [docs/content/evaluation.md](docs/content/evaluation.md)에 있다.
+
+`npm run test`는 실제 서버를 가짜 OpenAI API에 붙여 띄우고 방송을 짧게 돌려 46건을 확인한다(지연 16, 동작 16, 기억 격리 14). API 키도 요금도 필요 없고, `data/`도 건드리지 않는다. 답변 대기와 생성이 겹치는지, 세션을 다시 시작했을 때 이전 타이머가 새 답변을 건드리지 않는지, 시청자 A의 기억이 B의 LLM 요청에 들어가지 않는지처럼 서버를 통째로 띄워야 보이는 동작이 대상이다. 포트는 `MOCK_PORT`·`BORI_TEST_PORT`로 바꿀 수 있다. 자세한 내용은 [tools/test/README.md](tools/test/README.md)에 있다.
+
+두 검사 모두 실제 LLM·TTS 응답과 화면은 다루지 않는다. 이 부분은 [docs/verification-log.md](docs/verification-log.md)의 수동 검증 기록이 뒷받침한다. CI 설정은 없어 검사는 로컬에서 직접 실행한다.
 
 빌드 산출물로 방송 화면을 확인하려면 다음과 같이 실행한다.
 
@@ -152,7 +156,7 @@ npm --workspace apps/broadcast run preview   # 127.0.0.1:4174
 
 `dist/`에는 구매 모델과 SDK가 복사되므로 외부에 배포하지 않는다. `.gitignore`에 등록되어 있다.
 
-API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 `.env.example`을 `.env`로 복사해 값을 채운다. 환경변수는 저장된 키가 없을 때만 사용된다.
+API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정한 뒤 서버를 띄운다. 서버는 `.env` 파일을 읽지 않으므로 `.env.example`은 변수 이름과 설명을 모은 목록으로만 쓴다. 그 안의 `ANTHROPIC_API_KEY`는 현재 어떤 코드도 읽지 않는다. 환경변수 키는 저장된 키가 없을 때만 사용된다.
 
 실제 운영 절차 — 포트, LLM·TTS·기억 설정, OBS 송출, 튜닝 파라미터 — 는 [docs/operations.md](docs/operations.md)에 정리되어 있다.
 
@@ -161,12 +165,17 @@ API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면�
 | 문서 | 내용 |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | 시스템 구조, 데이터 흐름, 설계 근거 |
+| [docs/architecture-v2.md](docs/architecture-v2.md) | 현재 구조 분석(코드 위치·실행 결과), 1:1 모드 목표 구조와 Phase 계획 |
 | [docs/operations.md](docs/operations.md) | 실행·설정·송출·튜닝 파라미터 레퍼런스 |
 | [docs/requirements.md](docs/requirements.md) | 기능 요구사항 |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | 구현 계획 |
 | [docs/decisions.md](docs/decisions.md) | 설계 결정 기록 |
 | [docs/progress.md](docs/progress.md) | 진행 상황, 완료 범위, 남은 작업 |
-| [docs/verification-log.md](docs/verification-log.md) | 수동 검증 기록 |
+| [docs/verification-log.md](docs/verification-log.md) | 자동 검사 현황과 수동 검증 기록 |
+| [docs/content/character-bible.md](docs/content/character-bible.md) | 캐릭터 정체성·성격·말투 설정과 출처 |
+| [docs/content/persona-guidelines.md](docs/content/persona-guidelines.md) | 대화 금지·제한, 방송·1:1 대화 정책, 프롬프트 계층 |
+| [docs/content/dialogue-scenarios.md](docs/content/dialogue-scenarios.md) | 답변 평가용 대화 시나리오 |
+| [docs/content/evaluation.md](docs/content/evaluation.md) | 대화 품질 평가 기준(자동·수동)과 결과 |
 | [tools/test/README.md](tools/test/README.md) | 통합 검사 구조와 실행 방법 |
 
 ## 현재 상태와 한계
@@ -174,13 +183,32 @@ API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면�
 MVP 범위에서 동작하는 상태이며 다음 한계가 있다.
 
 - **치지직 실연동이 없다.** 방송 플랫폼 연동 코드는 존재하지 않으며 MVP 범위 밖이다. 채팅 입력 경로는 관리자 앱, 방송 화면 입력창, 별도 채팅 화면 3가지다.
-- **자동화 테스트가 없다.** 테스트 파일과 CI 설정이 없고 검증 기록은 전부 수동 검증이다.
+- **CI가 없다.** 단위 검사 83건과 통합 검사 46건은 로컬에서 직접 실행한다. 두 검사는 가짜 API를 쓰므로 실제 LLM·TTS 응답과 화면은 수동 검증에만 기댄다.
+- **2026-09 이후 기능은 실 API로 확인하지 않았다.** 방송 중 누적 요약, 키워드 매크로, 대기·생성 병렬화, 프롬프트 7계층 분리는 가짜 API 통합 검사와 단위 검사로만 확인했다.
 - **Electron 방송 창을 지원하지 않는다.** 방송 화면은 브라우저 전용이며 OBS Browser Source로 송출한다.
 - **Anthropic 어댑터는 미검증이다.** OpenAI는 실 API 환경에서 검증했다.
-- **기억 검색에 시청자 필터가 없다.** 저장은 시청자 식별자별로 되지만 검색은 전체를 대상으로 한다.
+- **시청자 식별은 인증이 아니다.** 기억 소유자는 닉네임에서 만든 `local:<닉네임>`이라 같은 닉네임을 쓰면 같은 시청자로 본다. 기억 검색의 시청자 필터 자체는 구현되어 있고, 방송 상태(`/api/state`)에는 닉네임과 이 ID를 싣지 않는다.
+- **관리 API에 인증이 없다.** CORS가 `*`이고 요청 본문 크기 제한·설정값 검증이 없다. 서버가 `127.0.0.1`에만 바인딩되는 것이 현재의 경계다.
 - **30분 이상 장시간 송출 안정성이 검증되지 않았다.**
 
 전체 한계 목록과 남은 작업 우선순위는 [docs/progress.md](docs/progress.md)에 있다.
+
+## Bori 2.0 확장 방향
+
+방송과 같은 캐릭터 엔진을 쓰는 1:1 AI 캐릭터 대화(companion) 모드를 추가하고 있다. 대화 기록과 개인 기억은 방송과 엄격히 분리한다. **1:1 대화 모드는 계획·진행 중이며 아직 동작하지 않는다.**
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| Phase 1 | 기억 공개 범위·소유자 격리 | 완료 (main 병합) |
+| Phase 2 | 캐릭터 페르소나 패키지, 프롬프트 7계층 | 완료 (main 병합) |
+| Phase 3 | 공통 대화 엔진 | 진행 중 |
+| Phase 4 | 1:1 대화 API (선행 조건: API 보안 강화) | 계획 |
+| Phase 5 | Companion 앱 | 계획 |
+| Phase 6 | 캐릭터 반응·관계 | 계획 |
+| Phase 7 | 대화 품질 평가 | 선행 작업 진행 중 |
+| Phase 8 | 방송 연동과 안정화 | 계획 |
+
+현재 1:1 모드 쪽에 있는 것은 `companion` 대화 정책 초안(`packages/character`)과 개인 기억(`private`)의 저장·검색 규칙뿐이다. 1:1 대화 API와 앱은 없다. 목표 구조와 단계별 완료 기준은 [docs/architecture-v2.md](docs/architecture-v2.md)에 있다.
 
 ## 라이선스
 
