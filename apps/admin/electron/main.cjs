@@ -17,7 +17,8 @@ function createWindow() {
   const url = process.env.BORI_ADMIN_URL || "http://127.0.0.1:5174";
   const load = () => window.loadURL(url).catch((error) => { console.error("[bori-admin] failed to load:", error); setTimeout(load, 1000); });
   window.webContents.on("did-finish-load", () => log(`[bori-admin] loaded ${url}`));
-  window.webContents.on("console-message", (_event, level, message, line, sourceId) => log(`[renderer:${level}] ${message} (${sourceId}:${line})`));
+  // Electron 35부터 위치 인자(level, message, …)는 deprecated라 이벤트 객체의 값을 쓴다.
+  window.webContents.on("console-message", (event) => log(`[renderer:${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`));
   window.webContents.on("render-process-gone", (_event, details) => log(`[bori-admin] renderer gone: ${details.reason}`));
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => { log(`[bori-admin] load failed ${errorCode}: ${errorDescription}`); setTimeout(load, 1000); });
   load();
