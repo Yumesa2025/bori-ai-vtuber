@@ -15,7 +15,7 @@
     "build:broadcast": "npm --workspace apps/broadcast run build",
     "build:admin": "npm --workspace apps/admin run build",
     "test": "node tools/test/run.mjs",
-    "test:unit": "node --import tsx --test \"packages/*/test/*.test.ts\"",
+    "test:unit": "node --import tsx --test \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
     "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin",
     "typecheck:shared": "npm --workspace packages/shared run typecheck",
     "typecheck:server": "npm --workspace apps/server run typecheck",
