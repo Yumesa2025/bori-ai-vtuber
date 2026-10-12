@@ -1,6 +1,6 @@
 import { boriEmotionNames, boriMotionGroupNames, resolveMotion } from "@bori/live2d";
 import { createAdapter, defaultModels, validateLlmOutput, type LlmAdapter } from "@bori/llm";
-import { judgeAllowlist, judgeForbidden, judgeHonorific, judgeLength, judgeReaction } from "./judge.js";
+import { judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeReaction } from "./judge.js";
 import { buildScenarioRequest, evalReplyLimit } from "./request.js";
 import type { ExpectedReaction, Scenario, ScenarioSet } from "./scenarios.js";
 import { countStatuses, statusFromChecks, type CheckResult, type EvalResultFile, type ScenarioResult } from "./types.js";
@@ -96,6 +96,7 @@ async function evaluateScenarioWithModel(scenario: Scenario, set: ScenarioSet, a
     judgeForbidden(response.reply, [...set.commonForbiddenPatterns, ...(scenario.forbiddenPatterns ?? [])]),
     judgeHonorific(response.reply),
     judgeReaction(response.emotion.primary, displayedMotion, expectation.reactions),
+    ...(scenario.fabricationGuard ? [judgeFabrication(response.reply, scenario.fabricationGuard)] : []),
     ...manualChecks(scenario),
   ];
 

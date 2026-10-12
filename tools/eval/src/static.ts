@@ -1,6 +1,8 @@
 import { boriPersonaLines, boriScopeLines, conversationModes, conversationPolicies } from "@bori/character";
 import { boriEmotionNames, isBoriMotionGroup } from "@bori/live2d";
 import { buildSystemPrompt, buildUserPrompt } from "@bori/llm";
+import { ungroundedHits } from "./judge.js";
+import { findRelationshipFragments } from "./relationship.js";
 import { buildScenarioRequest, evalAllowedMotions, evalReplyLimit, selectMemories } from "./request.js";
 import type { Scenario, ScenarioSet } from "./scenarios.js";
 import { countStatuses, statusFromChecks, type CheckResult, type ScenarioResult, type SectionResult } from "./types.js";
@@ -21,7 +23,7 @@ export function evaluateScenarioStatic(scenario: Scenario): ScenarioResult {
   const base = { id: scenario.id, title: scenario.title, mode: scenario.mode };
   const outOfScope = outOfScopeReasons[scenario.path];
   if (outOfScope) {
-    return { ...base, status: "out_of_scope", reason: outOfScope, checks: [reactionDataCheck(scenario)] };
+    return { ...base, status: "out_of_scope", reason: outOfScope, checks: dataChecks(scenario) };
   }
 
   let system: string;
@@ -38,7 +40,7 @@ export function evaluateScenarioStatic(scenario: Scenario): ScenarioResult {
   const checks: CheckResult[] = [
     { id: "prompt.build", label: "프롬프트 생성", status: "pass" },
     ...promptChecks(scenario, system, user),
-    reactionDataCheck(scenario),
+    ...dataChecks(scenario),
   ];
   const result: ScenarioResult = { ...base, status: statusFromChecks(checks), checks };
   if (scenario.path === "rule") {
@@ -119,6 +121,30 @@ export function promptChecks(scenario: Scenario, system: string, user: string): 
     ));
   }
 
+  // 상황 섹션. 관계 맥락 문장은 서버가 계산한 사실이라 user 메시지의 상황 섹션에 그대로 들어가야 한다.
+  // 정책 지침 문구는 바뀌는 중이라 단언하지 않고, 섹션 제목은 정책 데이터에서 읽는다.
+  const statusTitle = `[${policy.sectionTitles.status}]`;
+  const statusLines = scenario.statusLines ?? [];
+  if (statusLines.length > 0) {
+    const statusBlock = [statusTitle, ...statusLines.map(line => `- ${line}`)].join("\n");
+    const problems = [
+      ...(user.includes(statusBlock) ? [] : [`"${statusBlock}"가 user 프롬프트에 없습니다.`]),
+      ...statusLines.filter(line => system.includes(line)).map(line => `system 프롬프트에 들어감: ${line}`),
+    ];
+    checks.push(check("status.lines", `상황 섹션의 고정 문장 (${statusLines.length}줄)`, problems.length === 0, problems.join(" / ")));
+  } else {
+    // 고정값이 없으면 섹션이 비어야 한다. 방송 프롬프트에 관계 문장이 새지 않는지도 여기서 본다.
+    const leakedLines = findRelationshipFragments(`${system}\n${user}`);
+    // 섹션은 제목이 한 줄로 따로 있을 때만 있다고 본다. 지침 문장이 본문에서 "[대화 상황]의 지난 대화 요약"처럼
+    // 섹션 이름을 언급하는 것은 섹션이 아니다.
+    const hasStatusSection = user.split("\n").some(line => line.trim() === statusTitle);
+    const problems = [
+      ...(hasStatusSection ? [`${statusTitle} 섹션이 있습니다.`] : []),
+      ...leakedLines.map(fragment => `관계 문장: ${fragment}`),
+    ];
+    checks.push(check("status.empty", "상황 고정값 없음 → 상황 섹션·관계 문장 없음", problems.length === 0, problems.join(" / ")));
+  }
+
   // 감정·모션 allowlist
   const emotionLine = `- emotion.primary는 다음 중 하나여야 한다: ${boriEmotionNames.join(", ")}`;
   checks.push(check("allowlist.emotions", `감정 allowlist (${boriEmotionNames.length}개)`, system.includes(emotionLine), "감정 허용 목록 문장이 없습니다."));
@@ -130,6 +156,29 @@ export function promptChecks(scenario: Scenario, system: string, user: string): 
   checks.push(check("output.length", "길이·존댓말 출력 규칙", system.includes(lengthLine), `"${lengthLine}"가 없습니다.`));
 
   return checks;
+}
+
+/** 프롬프트 없이 시나리오 데이터만으로 보는 검사. 범위 밖 시나리오도 돌린다. */
+export function dataChecks(scenario: Scenario): CheckResult[] {
+  return [reactionDataCheck(scenario), ...(scenario.fabricationGuard ? [fabricationDataCheck(scenario)] : [])];
+}
+
+/**
+ * 지어내기 판정 자료가 고정값과 맞는지. 고정값(입력·관계 문장·보이는 기억) 자체가 지어내기 후보에 걸리는데
+ * 근거 말로 설명되지 않거나, 언급을 기대한 말이 고정값에 없으면 실모델 판정이 맞는 답을 실패시킨다.
+ */
+export function fabricationDataCheck(scenario: Scenario): CheckResult {
+  const guard = scenario.fabricationGuard!;
+  const fixtureText = [
+    scenario.input ?? "",
+    ...(scenario.statusLines ?? []),
+    ...selectMemories(scenario).visible.map(memory => memory.text),
+  ].join("\n");
+  const problems = [
+    ...ungroundedHits(fixtureText, guard).map(hit => `고정값이 지어내기 후보에 걸림: ${hit}`),
+    ...(guard.mentions ?? []).filter(term => !fixtureText.includes(term)).map(term => `언급 기대 말이 고정값에 없음: ${term}`),
+  ];
+  return check("data.fabrication", "지어내기 판정 자료가 고정값과 맞음", problems.length === 0, problems.join(" / "));
 }
 
 /** 시나리오 데이터의 기대 감정·모션이 허용 목록 안에 있는지. 데이터 오타를 잡는다. */

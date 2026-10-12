@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { conversationModes, type ConversationMode } from "@bori/character";
 import type { MemoryAccess, MemoryScope } from "@bori/memory";
+import { isRelationshipLine } from "./relationship.js";
 
 export const evalDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const repoRoot = join(evalDir, "..", "..");
@@ -25,6 +26,23 @@ export type ExpectedReaction = { emotions: string[]; motions?: (string | null)[]
 
 /** 금지 반응 중 문자열로 판정할 수 있는 것. */
 export type ForbiddenPattern = { label: string; pattern: string; flags?: string };
+
+/**
+ * 지어내기 판정 자료. 고정값(관계 문장·기억)에 없는 구체 세부가 답에 나오는지 본다.
+ *   suspects   고정값에 없는 구체 명사 등. 답에 나오면 지어내기 후보로 실패 처리한다
+ *   grounded   고정값에 실제로 있는 말. suspects에 걸려도 이 말이면 지어낸 것이 아니다
+ *   expect     지어내기 후보가 없을 때 무엇을 보면 통과로 볼지
+ *                admit    모른다·기억나지 않는다는 표현
+ *                mention  mentions 중 하나를 언급
+ *              없으면 후보가 없을 때 바로 통과다. 기대 표현을 못 찾으면 "수동 평가 필요"로 둔다
+ */
+export type FabricationGuard = {
+  note?: string;
+  grounded: string[];
+  suspects: ForbiddenPattern[];
+  expect?: "admit" | "mention";
+  mentions?: string[];
+};
 
 export type FixtureMemory = { id: string; text: string; scope: MemoryScope; ownerId?: string };
 
@@ -54,6 +72,12 @@ export type Scenario = {
   llmReactions?: ExpectedReaction[];
   forbiddenPatterns?: ForbiddenPattern[];
   memoryFixture?: MemoryFixture;
+  /**
+   * 서버가 계산해 상황 섹션에 넣는 문장의 고정값. 1:1 시나리오는 관계 맥락 계약 형식만 쓴다.
+   * 없으면 상황 섹션이 비어 있어야 한다.
+   */
+  statusLines?: string[];
+  fabricationGuard?: FabricationGuard;
 };
 
 export type ScenarioSet = {
@@ -89,6 +113,9 @@ export function parseScenarioSet(raw: unknown): ScenarioSet {
     if (!Array.isArray(scenario.expectedReactions)) problems.push(`${where}: expectedReactions 배열이 없습니다.`);
     for (const pattern of scenario.forbiddenPatterns ?? []) checkPattern(pattern, where, problems);
 
+    checkStatusLines(scenario, where, problems);
+    checkFabricationGuard(scenario, where, problems);
+
     const fixture = scenario.memoryFixture;
     if (fixture) {
       const ids = new Set(fixture.records.map(record => record.id));
@@ -102,6 +129,45 @@ export function parseScenarioSet(raw: unknown): ScenarioSet {
 
   if (problems.length > 0) throw new Error(`시나리오 데이터 형식 오류\n- ${problems.join("\n- ")}`);
   return data as ScenarioSet;
+}
+
+/**
+ * 상황 섹션 고정값. 방송 시나리오에 관계 문장을 넣으면 방송에 관계 문장이 새지 않는지 볼 수 없으므로 막는다.
+ * 1:1 시나리오는 관계 맥락 계약 형식만 받는다. 형식이 틀린 고정값으로 통과하면 계약이 바뀐 걸 놓친다.
+ */
+function checkStatusLines(scenario: Scenario, where: string, problems: string[]) {
+  const lines: unknown = scenario.statusLines;
+  if (lines === undefined) return;
+  if (!Array.isArray(lines) || lines.some(line => typeof line !== "string")) {
+    problems.push(`${where}: statusLines는 문자열 배열이어야 합니다.`);
+    return;
+  }
+  const strings = lines as string[];
+  if (strings.length === 0) problems.push(`${where}: statusLines가 비어 있습니다. 상황 고정값이 없으면 칸을 지웁니다.`);
+  if (scenario.mode === "broadcast") {
+    const relationship = strings.filter(isRelationshipLine);
+    if (relationship.length > 0) problems.push(`${where}: 방송 시나리오에 관계 문장이 있습니다: ${relationship.join(" / ")}`);
+    return;
+  }
+  for (const line of strings) {
+    if (!isRelationshipLine(line)) problems.push(`${where}: 관계 맥락 계약 형식이 아닙니다: ${line}`);
+  }
+}
+
+function checkFabricationGuard(scenario: Scenario, where: string, problems: string[]) {
+  const guard = scenario.fabricationGuard;
+  if (!guard) return;
+  if (!Array.isArray(guard.grounded) || !Array.isArray(guard.suspects)) {
+    problems.push(`${where}: fabricationGuard에는 grounded와 suspects 배열이 있어야 합니다.`);
+    return;
+  }
+  for (const pattern of guard.suspects) checkPattern(pattern, `${where} 지어내기 후보`, problems);
+  if (guard.expect !== undefined && guard.expect !== "admit" && guard.expect !== "mention") {
+    problems.push(`${where}: 알 수 없는 fabricationGuard.expect ${String(guard.expect)}`);
+  }
+  if (guard.expect === "mention" && (guard.mentions ?? []).length === 0) {
+    problems.push(`${where}: expect가 mention이면 mentions가 있어야 합니다.`);
+  }
 }
 
 function checkPattern(pattern: ForbiddenPattern, where: string, problems: string[]) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { isRelationshipLine } from "../src/relationship.js";
 import { checkScenarioDoc, compareDocWithData, loadScenarioSet, parseScenarioDoc, parseScenarioSet, type Scenario } from "../src/scenarios.js";
 
 const sampleDoc = [
@@ -79,8 +80,8 @@ describe("문서와 데이터 대조", () => {
   test("실제 문서와 시나리오 데이터가 일치한다", () => {
     const set = loadScenarioSet();
     assert.deepEqual(checkScenarioDoc(set), []);
-    assert.equal(set.scenarios.filter(entry => entry.mode === "broadcast").length, 17);
-    assert.equal(set.scenarios.filter(entry => entry.mode === "companion").length, 10);
+    assert.equal(set.scenarios.filter(entry => entry.mode === "broadcast").length, 18);
+    assert.equal(set.scenarios.filter(entry => entry.mode === "companion").length, 20);
   });
 });
 
@@ -111,5 +112,66 @@ describe("시나리오 데이터 형식 검사", () => {
     const fixture = { access: { mode: "private" as const, userId: "user-a" }, records: [], expectedVisible: ["ghost"] };
     assert.throws(() => parseScenarioSet({ ...valid, scenarios: [scenario({ memoryFixture: fixture })] }),
       (error: Error) => /ghost/.test(error.message) && /모드가 시나리오 모드와 다릅니다/.test(error.message));
+  });
+});
+
+describe("관계 맥락 문장 형식", () => {
+  test("계약의 네 가지 형식과 0일 대체 문장을 받는다", () => {
+    for (const line of [
+      "이 사람과는 오늘 처음 대화한다.",
+      "이 사람과는 2번째 대화다. 처음 대화한 지 3일 지났다.",
+      "이 사람과는 12번째 대화다. 처음 대화한 날이 오늘이다.",
+      "마지막 대화는 14일 전이었다.",
+      "마지막 대화는 오늘 앞서 있었다.",
+      "지난 대화 요약: 주말에 친구와 영화를 보러 간다고 했다.",
+    ]) {
+      assert.ok(isRelationshipLine(line), line);
+    }
+  });
+
+  test("계약과 다른 문구·숫자는 받지 않는다", () => {
+    for (const line of [
+      "이 사람과는 1번째 대화다. 처음 대화한 날이 오늘이다.",
+      "이 사람과는 3번째 대화다. 처음 대화한 지 0일 지났다.",
+      "마지막 대화는 0일 전이었다.",
+      "이 사람과는 3번째 대화다.",
+      "지난 대화 요약:",
+      "친밀도: 30",
+    ]) {
+      assert.ok(!isRelationshipLine(line), line);
+    }
+  });
+});
+
+describe("시나리오 데이터의 statusLines·지어내기 판정 자료", () => {
+  const valid = { version: 1, source: "", commonForbiddenPatterns: [] };
+  const companion = (overrides: Partial<Scenario>) =>
+    scenario({ id: "C-01", title: "첫 인사", mode: "companion", input: "안녕 보리", path: "llm", ...overrides });
+
+  test("계약 형식의 1:1 관계 문장은 그대로 읽는다", () => {
+    const lines = ["이 사람과는 2번째 대화다. 처음 대화한 날이 오늘이다.", "마지막 대화는 오늘 앞서 있었다."];
+    const set = parseScenarioSet({ ...valid, scenarios: [companion({ statusLines: lines })] });
+    assert.deepEqual(set.scenarios[0].statusLines, lines);
+  });
+
+  test("1:1 시나리오의 계약 밖 문장, 빈 배열, 문자열이 아닌 값을 막는다", () => {
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [companion({ statusLines: ["친밀도: 30"] })] }), /관계 맥락 계약 형식이 아닙니다: 친밀도: 30/);
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [companion({ statusLines: [] })] }), /statusLines가 비어 있습니다/);
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [companion({ statusLines: [3] as unknown as string[] })] }), /문자열 배열/);
+  });
+
+  test("방송 시나리오에 관계 문장이 있으면 막는다. 관계 문장이 아닌 방송 상황은 받는다", () => {
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [scenario({ statusLines: ["이 사람과는 오늘 처음 대화한다."] })] }), /방송 시나리오에 관계 문장/);
+    assert.equal(parseScenarioSet({ ...valid, scenarios: [scenario({ statusLines: ["방송 시작 후 12분이 지났다."] })] }).scenarios.length, 1);
+  });
+
+  test("지어내기 판정 자료의 깨진 정규식, 알 수 없는 expect, mentions 없는 mention을 막는다", () => {
+    const broken = companion({
+      fabricationGuard: { grounded: [], suspects: [{ label: "깨진 후보", pattern: "(" }], expect: "mention" },
+    });
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [broken] }), (error: Error) =>
+      /깨진 후보/.test(error.message) && /mentions가 있어야/.test(error.message));
+    const unknown = companion({ fabricationGuard: { grounded: [], suspects: [], expect: "guess" as "admit" } });
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [unknown] }), /알 수 없는 fabricationGuard.expect/);
   });
 });
