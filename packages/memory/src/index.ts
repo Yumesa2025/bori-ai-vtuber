@@ -7,7 +7,7 @@ export type {
   MemorySearchHit,
   MemorySettings,
 } from "./types.js";
-export { cosineSimilarity, createOpenAiEmbedding } from "./embedding.js";
+export { cosineSimilarity, createOpenAiEmbedding, EMBEDDING_TIMEOUT_MS } from "./embedding.js";
 export { ANONYMOUS_VIEWER_ID, canAccessMemory, isAnonymousViewer } from "./access.js";
 export { MEMORY_FILE_VERSION, migrateMemoryFile, type MemoryMigrationResult } from "./migrate.js";
 export { createMemoryStore, type MemoryAddOptions, type MemoryStore, type MemoryStoreOptions } from "./store.js";
