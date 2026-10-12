@@ -239,7 +239,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 자동 검사 범위와 CI | 자동 검사는 단위 66건(`npm run test:unit`)과 통합 46건(`npm run test`)이다. CI 설정이 없어 로컬에서 직접 돌린다. 출력 검증기(`packages/llm/src/validate.ts`)와 서버 규칙 응답·위험 주제 차단에는 단위 검사가 없고, 두 검사 모두 실제 LLM·TTS와 화면은 다루지 않는다. 이전의 "자동화 테스트 0건"은 해소되었다 |
+| 자동 검사 범위와 CI | 자동 검사는 단위 83건(`npm run test:unit`)과 통합 46건(`npm run test`)이다. CI 설정이 없어 로컬에서 직접 돌린다. 출력 검증기(`packages/llm/src/validate.ts`)와 서버 규칙 응답·위험 주제 차단에는 단위 검사가 없고, 두 검사 모두 실제 LLM·TTS와 화면은 다루지 않는다. 이전의 "자동화 테스트 0건"은 해소되었다 |
 | typecheck 범위 | 해소. 루트 `typecheck`가 shared·server·broadcast·admin·live2d·llm·memory·character 8개를 검사한다. 개별 `typecheck:<이름>` 스크립트도 남아 있다 |
 | 목소리 이름 미검증 | `PATCH /api/tts`가 업체만 검사하고 `voice`는 그대로 병합한다. 2026-08-30 수동 기록의 "허용 외 목소리 400"과 다르다([아키텍처 v2](./architecture-v2.md) 8절 #12) |
 | 설정값 검증 부재 | `PATCH /api/settings`·`/api/memory`·`/api/tts`가 타입·범위 검사 없이 병합한다. 큐 설정은 메모리에만 반영되어 서버를 재시작하면 기본값으로 돌아간다 |
@@ -273,7 +273,7 @@ TODO/FIXME/HACK 주석은 0건이다.
 | 명령 | 대상 | 결과 |
 |---|---|---|
 | `npm run typecheck` | 8개 워크스페이스(shared·server·broadcast·admin·live2d·llm·memory·character) | 종료 코드 0 |
-| `npm run test:unit` | `packages/memory/test`(접근 규칙표 전 칸, 두 검색 경로의 필터, 마이그레이션, 추출, 병합 키, 소유자별 삭제), `packages/llm/test`(프롬프트 계층 순서, 방송 모드 문장 보존, 1:1 정책 분리, 기억 없음 문장, allowlist), `packages/character/test`(모드 정책 구성) | 66건 중 66건 통과 |
+| `npm run test:unit` | `packages/memory/test`(접근 규칙표 전 칸, 두 검색 경로의 필터, 마이그레이션, 추출, 병합 키, 소유자별 삭제), `packages/llm/test`(프롬프트 계층 순서, 방송 모드 문장 보존, 1:1 정책 분리, 기억 없음 문장, allowlist), `packages/character/test`(모드 정책 구성), `apps/server/test`(공통 대화 엔진) | 83건 중 83건 통과 |
 | `MOCK_PORT=4470 BORI_TEST_PORT=4471 npm run test` | `tools/test`. 지연 16건, 동작 16건, 기억 격리 14건 | 46건 중 46건 통과 (128.6초) |
 
 ### 4.2 수동 검증
@@ -336,9 +336,9 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 ### Phase 3 — 공통 대화 엔진
 
-진행 중(별도 PR).
+엔진 추출 완료(main 병합). 후속 정리 2건은 남아 있다.
 
-1. `makeResponse`·`recordTurn`·누적 요약·매크로를 서버 전역 상태에서 대화 세션 단위 엔진(`apps/server/src/conversation/`)으로 옮긴다. 방송 동작은 바꾸지 않는다
+1. 완료: `makeResponse`·`recordTurn`·누적 요약·매크로를 서버 전역 상태에서 대화 세션 단위 엔진(`apps/server/src/conversation/`)으로 옮겼다. 통합 검사 46건을 검사 파일 수정 없이 통과해 방송 동작이 바뀌지 않았음을 확인했다. 엔진 단위 검사 17건(세션 간 상태 분리, 모드별 기억 접근, 늦게 도착한 요약의 격리 등). 결정 근거는 [설계 결정 기록](./decisions.md)에 있다
 2. 후속 정리: 방송 코드 분리. `index.ts`에서 큐·발화권·세션 세대·혼잣말과 HTTP 라우팅을 떼어 낸다
 3. 후속 정리: 죽은 코드·죽은 타입 필드·선언만 된 의존성·낡은 주석(3.2절)
 
@@ -360,7 +360,13 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 ### Phase 7 — 대화 품질 평가
 
-선행 작업 진행 중(별도 PR). 평가용 시나리오는 [대화 시나리오](./content/dialogue-scenarios.md)에 있다.
+평가 체계 선행 구축 완료(main 병합). 평가용 시나리오는 [대화 시나리오](./content/dialogue-scenarios.md)에 있고, 기준과 결과는 [대화 품질 평가](./content/evaluation.md)에 있다.
+
+- 시나리오 27건을 `tools/eval/scenarios.json`으로 옮겨 문서와 id를 대조한다
+- 정적 평가(키 불필요): 통과 24, 실패 0, 범위 밖 3(서버 차단 대상 2, 혼잣말 1). `npm run eval:static`
+- 실모델 평가: 키가 있을 때만 돈다. 아직 실행하지 않았다(미검증). `npm run eval:model`
+- 결과 비교: `npm run eval:compare`로 프롬프트 변경 전후를 시나리오별로 비교한다
+- 평가기 단위 검사 41건은 `npm run eval:test`, 타입 검사는 `npm run eval:typecheck`로 따로 돈다
 
 ### Phase 8 — 방송 연동과 안정화
 
