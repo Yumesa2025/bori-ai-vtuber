@@ -25,6 +25,12 @@
     ,"typecheck:llm": "npm --workspace packages/llm run typecheck"
     ,"typecheck:memory": "npm --workspace packages/memory run typecheck"
     ,"typecheck:character": "npm --workspace packages/character run typecheck"
+    ,"eval": "node --import tsx tools/eval/run.ts"
+    ,"eval:static": "node --import tsx tools/eval/run.ts --only static"
+    ,"eval:model": "node --import tsx tools/eval/run.ts --only model"
+    ,"eval:compare": "node --import tsx tools/eval/compare.ts"
+    ,"eval:test": "node --import tsx --test \"tools/eval/test/*.test.ts\""
+    ,"eval:typecheck": "tsc -p tools/eval/tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
