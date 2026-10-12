@@ -181,6 +181,25 @@ describe("기억 없음 명시", () => {
     assert.ok(conversationPolicies.companion.noMemoryLine.includes("지어내지 않는다"));
   });
 
+  test("1:1 대화: 기억이 0건이고 지난 대화 요약이 있어도 [기억] 지시가 요약과 모순되지 않는다", () => {
+    const user = buildUserPrompt(makeRequest("companion", {
+      memories: [],
+      broadcastStatus: ["이 사람과는 2번째 대화다. 처음 대화한 지 3일 지났다.", "마지막 대화는 3일 전이었다.", "지난 대화 요약: 고양이 이야기를 나눴다."],
+    }));
+    const memoryLine = user.split("\n").find(line => line.startsWith("- 이 대화와 관련해 저장된 기억이 없다.")) ?? "";
+    assert.ok(user.includes("- 지난 대화 요약: 고양이 이야기를 나눴다."));
+    // "기억나지 않는다"는 요약에도 없을 때만이어야 한다. 요약을 무시하고 무조건 모른다고 하라는 지시가 없어야 한다.
+    assert.ok(memoryLine.includes("지난 대화 요약에 있는 내용만 말하고, 지난 대화 요약에도 없으면 기억나지 않는다고"), memoryLine);
+    assert.ok(!memoryLine.includes("기억나지 않는다고 솔직히 답하고"), memoryLine);
+    assert.ok(memoryLine.includes("지어내지 않는다"));
+    // 정책 지침도 요약에 있는 것만 꺼내라고 하므로 같은 방향이다.
+    assert.ok(conversationPolicies.companion.rules.some(rule => rule.includes("[기억]이나 지난 대화 요약에 있는 것만")));
+  });
+
+  test("방송 기억 없음 문장은 그대로다", () => {
+    assert.equal(`- ${conversationPolicies.broadcast.noMemoryLine}`, broadcastNoMemoryLine);
+  });
+
   test("기억이 있으면 기억 없음 문장을 넣지 않는다", () => {
     for (const mode of ["broadcast", "companion"] as const) {
       const user = buildUserPrompt(makeRequest(mode));
