@@ -522,7 +522,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 **검증**
 
-- 자동 검사(2026-10-15, `fix/safety-injection`): typecheck 9개 워크스페이스 통과, `test:unit` 394/394(기준 333), `test` 229/229(기준 205, 새 시나리오 `tools/test/safety.mjs` 24건), `eval:test` 86/86(기준 84), `eval:typecheck` 통과, `eval:static` 통과 40·실패 0·범위 밖 4(총 44, 새 시나리오 B-90~92·C-90~92).
+- 자동 검사(2026-10-15, `fix/safety-injection`): typecheck 9개 워크스페이스 통과, `test:unit` 429/429(main 333, #19 병합 뒤 기준 368), `test` 229/229(기준 205, 새 시나리오 `tools/test/safety.mjs` 24건), `eval:test` 86/86(기준 84), `eval:typecheck` 통과, `eval:static` 통과 40·실패 0·범위 밖 4(총 44, 새 시나리오 B-90~92·C-90~92).
 - 실모델(gpt-4o-mini, 서버 추정 약 0.009달러, 호출 52회): 점검 보고서 a3·a6의 재현 문장을 다시 보냈다. 1회차 뒤 주입 차단과 요약 전언 필터를 더하고 방송 부분만 2회차로 다시 돌렸다.
 
 | 항목 | 점검 때(a3·a6) | 이번 |
