@@ -61,7 +61,8 @@ export function startScript(scriptPath, { env = {}, label = "", loadTypeScript =
   function spawnChild() {
     child = spawn(process.execPath, args, {
       cwd: projectRoot,
-      env: { ...process.env, ...env },
+      // 서버는 루트 .env를 읽는다. 검사가 실제 키·연동 설정을 읽지 않도록 기본으로 끄고, 필요한 시나리오만 env로 켠다.
+      env: { ...process.env, BORI_ENV_FILE: "", ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout.on("data", collect);

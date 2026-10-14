@@ -5,7 +5,8 @@
  * 실행기가 띄운 서버에는 ElevenLabs 환경변수가 없으므로, 이 시나리오는 그 서버를 내리고 필요한 환경변수로 직접 띄운다.
  * 포트와 데이터 디렉터리는 실행기가 준 것을 그대로 쓴다.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runningScript, startScript, waitForHttp } from "./harness.mjs";
 
@@ -18,6 +19,7 @@ const ENV_OPENAI_KEY = "env-openai-key-should-not-be-saved";
 const ENV_ELEVENLABS_KEY = "env-elevenlabs-key-should-not-be-saved";
 const SCREEN_OPENAI_KEY = "screen-openai-key-entered-in-admin";
 const PLAIN_ELEVENLABS_KEY = "plain-elevenlabs-key-from-old-version";
+const DOTENV_OPENAI_KEY = "dotenv-openai-key-should-not-be-saved";
 
 async function readJson(path) {
   try { return JSON.parse(await readFile(path, "utf8")); } catch { return null; }
@@ -122,5 +124,67 @@ export async function run({ bori, mock, report, dataDir }) {
     throw error;
   } finally {
     await server.stop();
+  }
+
+  await checkEnvFile({ bori, mock, report });
+}
+
+/** 폴더 안 모든 파일의 내용을 이어 붙인다. 키가 어느 파일에도 없는지 볼 때 쓴다. */
+async function readAllFiles(dir) {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  const texts = await Promise.all(entries.filter(entry => entry.isFile()).map(entry => readFile(join(entry.parentPath, entry.name), "utf8")));
+  return texts.join("\n");
+}
+
+/**
+ * 루트 .env 읽기(load-env.ts). 실제 루트 .env 대신 BORI_ENV_FILE로 임시 파일을 가리킨다.
+ * 이 서버에는 OPENAI_API_KEY 환경변수를 주지 않아서, 키가 있다면 .env에서 온 것이다.
+ */
+async function checkEnvFile({ bori, mock, report }) {
+  const dir = await mkdtemp(join(tmpdir(), "bori-envfile-"));
+  const envPath = join(dir, ".env");
+  const dataDir = join(dir, "data");
+  const server = startScript("apps/server/src/index.ts", {
+    loadTypeScript: true,
+    label: "bori-server-envfile",
+    env: {
+      BORI_SERVER_PORT: new URL(bori.baseUrl).port,
+      BORI_DATA_DIR: dataDir,
+      BORI_OPENAI_BASE_URL: `${mock.baseUrl}/v1`,
+      BORI_ENV_FILE: envPath,
+      // undefined면 자식 프로세스 환경에서 빠진다. 실행한 셸에 키가 있어도 섞이지 않는다.
+      OPENAI_API_KEY: undefined,
+      ELEVENLABS_API_KEY: undefined,
+    },
+  });
+  const ready = () => waitForHttp(`${bori.baseUrl}/api/health`, { describe: "보리 서버(.env)" });
+
+  try {
+    await ready();
+    const missing = await bori.llm();
+    report.check(".env 파일이 없으면 조용히 넘어가고 키 없이 뜬다", missing.status.hasApiKey === false);
+
+    // .env에 엉뚱한 포트도 넣는다. 서버가 원래 포트로 뜨면 이미 설정된 환경변수가 이긴 것이다.
+    await server.stop();
+    await writeFile(envPath, `OPENAI_API_KEY=${DOTENV_OPENAI_KEY}\nBORI_SERVER_PORT=1\n`, "utf8");
+    await server.restart();
+    await ready();
+    const loaded = await bori.llm();
+    report.check(".env의 키를 읽고, 이미 설정된 환경변수(포트)는 .env가 덮지 않는다", loaded.status.hasApiKey === true);
+
+    const changed = await patch(bori.baseUrl, "/api/llm", { maxReplyLength: 90 });
+    const stored = await readAllFiles(dataDir);
+    report.check(
+      ".env에서 읽은 키도 설정을 바꿀 때 data/에 쓰지 않는다",
+      changed.status === 200 && stored.includes('"maxReplyLength": 90') && !stored.includes(DOTENV_OPENAI_KEY),
+      `status=${changed.status}`,
+    );
+  } catch (error) {
+    const output = server.output();
+    if (output.trim()) console.log(`\n[서버 출력]\n${output}`);
+    throw error;
+  } finally {
+    await server.stop();
+    await rm(dir, { recursive: true, force: true });
   }
 }

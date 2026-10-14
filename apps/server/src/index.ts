@@ -1,3 +1,5 @@
+// 루트 .env를 가장 먼저 읽는다. 아래 모듈 일부가 import 시점에 환경 변수를 읽는다.
+import "./load-env.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
