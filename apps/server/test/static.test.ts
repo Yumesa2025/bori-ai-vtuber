@@ -8,12 +8,13 @@ import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { contentTypeFor, resolveStaticPath, serveStatic, type StaticRoute } from "../src/http/static.js";
 
-const root = "C:/bori/apps/broadcast/dist";
+// 운영체제마다 절대 경로 모양이 달라(Windows 드라이브 문자) 실제 임시 폴더 아래 경로로 비교한다.
+const root = resolve(tmpdir(), "bori-static-root/apps/broadcast/dist");
 test("접두사 아래 파일을 루트 안 경로로 푼다", () => {
-  assert.equal(resolveStaticPath("/obs/character.html", "/obs/", root)?.replaceAll("\\", "/"), `${root}/obs/character.html`);
+  assert.equal(resolveStaticPath("/obs/character.html", "/obs/", root), join(root, "obs", "character.html"));
 });
 test("상위 경로 탈출은 거부한다", () => {
   for (const url of ["/obs/../secret.json", "/obs/%2e%2e/secret.json", "/obs/..\\secret.json", "/obs/C:/Windows/win.ini"]) {
@@ -21,7 +22,7 @@ test("상위 경로 탈출은 거부한다", () => {
   }
 });
 test("쿼리스트링은 경로에서 뺀다", () => {
-  assert.equal(resolveStaticPath("/obs/chat.html?demo=1", "/obs/", root)?.replaceAll("\\", "/"), `${root}/obs/chat.html`);
+  assert.equal(resolveStaticPath("/obs/chat.html?demo=1", "/obs/", root), join(root, "obs", "chat.html"));
 });
 test("접두사가 다르거나 인코딩이 깨지면 null", () => {
   assert.equal(resolveStaticPath("/obsx/a.html", "/obs/", root), null);
