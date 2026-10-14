@@ -12,6 +12,7 @@
     "@bori/live2d": "0.1.0",
     "@bori/llm": "0.1.0",
     "@bori/memory": "0.1.0",
-    "@bori/shared": "0.1.0"
+    "@bori/shared": "0.1.0",
+    "socket.io-client": "2.0.3"
   }
 }
