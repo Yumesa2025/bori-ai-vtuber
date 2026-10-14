@@ -1,6 +1,6 @@
 # 보안·개인정보 점검
 
-상태: 점검 완료(Phase 8-C), 후속 수정(Phase 8-D, 8절) · 작성일: 2026-10-12 · 기준: main `29ca722` + `feature/audit-ci`. 8절은 `feature/security-hardening`(`integration/wave5` `4ff467c` 기반)
+상태: 점검 완료(Phase 8-C), 후속 수정(Phase 8-D, 8절), 치지직 채팅 의존성(W3, 9절) · 작성일: 2026-10-12 · 기준: main `29ca722` + `feature/audit-ci`. 8절은 `feature/security-hardening`(`integration/wave5` `4ff467c` 기반)
 
 1~7절은 점검 당시 기록이다. 줄 번호와 "범위 밖" 표시는 그때 기준이고, 이후 고친 항목은 요약 표와 8절에 적었다.
 
@@ -25,7 +25,7 @@
 | 7 | 외부 API 오류 본문 200자가 로그와 관리자 API로 나감 | 한계 [코드] | **고침 (`feature/security-hardening`, 8절)** (키 모양 문자열 가림) |
 | 8 | 비밀값 암호화 키가 사용자 이름·호스트 이름에서 나옴 | 알려진 한계 [코드] | 문서화 |
 | 9 | 인증이 없음. Origin 없는 로컬 요청은 모든 API를 부를 수 있음 | 알려진 한계 (ADR-015) | 문서화 |
-| 10 | `npm audit` 11건 (critical 2, high 5, moderate 4). 서버 런타임 의존성에는 없음 | 확인 | **고침 (`feature/security-hardening`, 8절)** (0건) |
+| 10 | `npm audit` 11건 (critical 2, high 5, moderate 4). 서버 런타임 의존성에는 없음 | 확인 | **고침 (`feature/security-hardening`, 8절)** (0건). 이후 치지직 채팅(W3)이 `socket.io-client@2.0.3`을 들여 **다시 10건, 서버 런타임 경로 6건**(9절) |
 | 11 | 초기 커밋 작성자 이메일이 개인 주소 | 알려진 문제 | **사용자 결정 대기** |
 
 서버 코드가 채팅 원문·닉네임·1:1 대화·개인 기억·API 키를 직접 로그에 찍는 곳은 찾지 못했다(2절).
@@ -197,3 +197,27 @@
 - 1:1 기록 전체 삭제는 백업 파일(`*.v1-backup-*`, `*.unreadable-*`)을 지우지 않는다. 백업은 30일 보관 정리로만 지워진다.
 - Electron 44에서 `sandbox: false`는 그대로다. 관리자 앱은 Electron 창으로 12초 띄워 확인했고, 화면 조작 전체를 Electron에서 다시 해 보지는 않았다.
 
+## 9. 치지직 채팅 의존성 (`feature/chzzk-chat`, 방송 W3)
+
+2026-10-15, npm 11.6.2, `package-lock.json` 기준. 치지직 세션 소켓은 공식 문서상 **Socket.IO-client 1.0.0~2.0.3만 지원**한다(Session 문서 "세션 연결 가이드"). 공지가 고쳐진 판은 `socket.io-client` 4.x뿐이라 올릴 수 없다. 그래서 `apps/server` 런타임 의존성에 `socket.io-client` **2.0.3**을 정확히 고정해 들였고, 가짜 치지직 서버용 `socket.io` **2.5.1**을 루트 devDependency로 고정해 들였다. `npm audit`이 다시 0건이 아니다.
+
+- 전체 10건(critical 3, high 2, moderate 2, low 3). `npm audit --omit=dev`(서버 런타임 경로)는 **6건(critical 3, high 2, moderate 1)**이고 모두 `socket.io-client@2.0.3` 아래다.
+- 나머지 4건(`socket.io`, `engine.io`, `cookie`, `debug` 4.1.1)은 가짜 서버(`tools/test/fixtures/fake-chzzk.mjs`)만 쓰는 검사 전용 경로다. 검사 중 `127.0.0.1`에만 뜬다.
+
+| 패키지(설치 판) | 심각도 | 공지 | 우리 사용에서 |
+|---|---|---|---|
+| `xmlhttprequest-ssl` 1.5.5 (`engine.io-client` 3.1.6 아래) | critical | GHSA-h4j5-c7cj-74xg(코드 주입), GHSA-72mh-269x-7mh5(인증서 미검증) | polling 전송에서만 쓰인다. 세션 모듈은 `transports: ["websocket"]`, `upgrade: false`로 polling을 열지 않는다 |
+| `socket.io-parser` 3.1.3 | critical | GHSA-qm95-pgcg-qqfq(패킷 디코딩 검증 부족), GHSA-xfhh-g9f5-x4m4(자원 고갈), GHSA-cqmj-92xf-r6r9, GHSA-677m-j7p3-52f9, GHSA-2m8v-j782-fhvr | 디코딩하는 패킷은 연결한 세션 서버가 보낸다. 악용하려면 치지직 세션 서버(TLS)가 악의적이거나 연결 대상이 바뀌어야 한다 |
+| `engine.io-client` 3.1.6 | critical | 위 `xmlhttprequest-ssl`·`ws`·`parseuri`를 거친 공지 | 같음 |
+| `ws` 3.3.3 | high | GHSA-3h5v-q93c-6h6q(헤더 다수 DoS, 서버 쪽), GHSA-96hv-2xvq-fx4p(작은 조각 프레임 메모리 고갈) | 클라이언트로만 쓴다. 메모리 고갈은 상대 서버가 보내야 한다 |
+| `socket.io-client` 2.0.3 | high | 위 하위 패키지 공지 | — |
+| `parseuri` 0.0.5 | moderate | GHSA-6fx8-h7jm-663j(ReDoS) | 파싱하는 URL은 치지직 세션 생성 API가 준 주소뿐이고, 아래 호스트 검사를 먼저 통과해야 한다 |
+
+**완화 조치** (`apps/server/src/chzzk/session.ts`, 검사 `apps/server/test/chzzk-session.test.ts`)
+
+1. 세션 URL 호스트 제한: 기본 Open API 주소를 쓸 때는 `https:`·`wss:`이고 호스트가 `*.nchat.naver.com`인 URL만 연결한다(공식 문서 예시 `ssio08.nchat.naver.com` 기준). 아니면 연결하지 않고 `lastError`에 남긴 뒤 재시도하지 않는다. 실제 응답의 호스트는 W4 실연결에서 확인한다(**미검증**).
+2. 전송: `transports: ["websocket"]`, `upgrade: false`, 라이브러리 자동 재연결 끔(`reconnection: false`). 재연결은 모듈이 세션 URL부터 새로 받아 직접 한다.
+3. 이벤트 페이로드 상한: `SYSTEM`·`CHAT` 값이 UTF-8 16KB를 넘으면 읽지 않고 버린다. 깨진 JSON·필드가 빠진 이벤트도 버린다.
+4. 버전 고정: `socket.io-client`는 `2.0.3`, `socket.io`는 `2.5.1`(범위 표기 없음). `npm audit fix --force`는 4.x로 올려 치지직 연결을 깨므로 쓰지 않는다. `overrides`로 하위 패키지만 올리는 것은 실제 치지직 검증 없이 하지 않았다.
+
+**남긴 위험**: 치지직이 2.x 클라이언트만 지원해서 남긴 위험이다. 공지 6건은 모두 상대 서버가 보내는 값이나 쓰지 않는 polling 경로에 걸려 있고, 위 조치로 연결 대상을 치지직 세션 서버로 좁혔다. 치지직 세션 서버 자체가 침해되면 막지 못한다. 치지직이 3.x 이상을 지원하면 올린다.
