@@ -22,10 +22,11 @@ describe("관계 맥락 문장", () => {
     assert.deepEqual(relationshipStatusLines({ conversations: [record("now", null)], currentId: "now", now: NOW }), ["이 사람과는 오늘 처음 대화한다."]);
   });
 
-  test("첫 대화를 오늘 이어가는 중이면 여전히 처음 대화한다는 문장만 넣는다", () => {
+  test("첫 대화를 오늘 이어가는 중이면 처음이라는 문장 대신 인사를 이미 나눴다는 문장을 넣는다", () => {
+    // 둘째 메시지부터 "오늘 처음 대화한다"가 들어가면 매 턴 인사를 되풀이한다(점검 C-5).
     assert.deepEqual(
       relationshipStatusLines({ conversations: [record("now", at(12, 9), at(12, 14, 50))], currentId: "now", now: NOW }),
-      ["이 사람과는 오늘 처음 대화한다."],
+      ["이 사람과는 첫 대화를 이어 가는 중이다. 인사는 이미 나눴다."],
     );
   });
 

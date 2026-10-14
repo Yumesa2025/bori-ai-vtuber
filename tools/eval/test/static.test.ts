@@ -16,11 +16,12 @@ const byId = (id: string): Scenario => {
 };
 
 describe("정적 평가", () => {
-  test("시나리오 38건 전부에 결과가 나온다", () => {
+  // 시나리오는 여러 작업이 나란히 더하므로 개수를 고정하지 않고 데이터 개수와 맞춘다.
+  test("시나리오 전부에 결과가 나온다", () => {
     const section = runStaticEvaluation(set);
-    assert.equal(section.scenarios.length, 38);
+    assert.equal(section.scenarios.length, set.scenarios.length);
     const { pass, fail, out_of_scope: outOfScope } = section.counts;
-    assert.equal(pass + fail + outOfScope, 38);
+    assert.equal(pass + fail + outOfScope, set.scenarios.length);
   });
 
   test("서버 차단 시나리오는 범위 밖으로 표시한다", () => {
@@ -88,7 +89,7 @@ describe("실모델 평가", () => {
   test("키가 없으면 호출 없이 전부 건너뛴다", async () => {
     const section = await runModelEvaluation(set, { apiKey: undefined });
     assert.match(section.skippedReason ?? "", /OPENAI_API_KEY/);
-    assert.equal(section.counts.skipped, 38);
+    assert.equal(section.counts.skipped, set.scenarios.length);
   });
 
   test("경로별로 평가 대상을 가른다", () => {
@@ -128,7 +129,7 @@ describe("실모델 평가", () => {
       assert.equal(fabrication?.status, "fail");
       assert.match(fabrication?.detail ?? "", /제주/);
       // 기대 감정 밖(happy)이라 감정 판정도 실패한다.
-      assert.equal(result.checks.find(check => check.id === "reaction")?.status, "fail");
+      assert.equal(result.checks.find(check => check.id === "reaction.emotion")?.status, "fail");
       const sent = JSON.parse(bodies[0]) as { messages: { role: string; content: string }[] };
       const user = sent.messages.find(message => message.role === "user")?.content ?? "";
       assert.ok(user.includes("[대화 상황]\n- 이 사람과는 4번째 대화다. 처음 대화한 지 12일 지났다."));
@@ -142,8 +143,11 @@ describe("관계 맥락 정적 평가", () => {
   const relationshipIds = set.scenarios.filter(entry => entry.statusLines).map(entry => entry.id);
   const checkOf = (result: ReturnType<typeof evaluateScenarioStatic>, id: string) => result.checks.find(check => check.id === id);
 
-  test("관계 시나리오 10건은 statusLines가 1:1 상황 섹션에 그대로 들어간다", () => {
-    assert.deepEqual(relationshipIds, ["C-11", "C-12", "C-13", "C-14", "C-15", "C-16", "C-17", "C-18", "C-19", "C-20"]);
+  test("관계 시나리오는 statusLines가 1:1 상황 섹션에 그대로 들어간다", () => {
+    // 시나리오는 여러 작업이 나란히 더하므로 목록을 고정하지 않고 빠지면 안 되는 것만 본다.
+    for (const id of ["C-11", "C-12", "C-13", "C-14", "C-15", "C-16", "C-17", "C-18", "C-19", "C-20", "C-25", "C-28"]) {
+      assert.ok(relationshipIds.includes(id), id);
+    }
     for (const id of relationshipIds) {
       const scenario = byId(id);
       const result = evaluateScenarioStatic(scenario);
@@ -171,7 +175,7 @@ describe("관계 맥락 정적 평가", () => {
 
   test("방송 시나리오는 고정값이 없으면 상황 섹션이 비고 관계 문장이 없다", () => {
     const broadcast = set.scenarios.filter(entry => entry.mode === "broadcast" && entry.path !== "blocked" && entry.path !== "monologue");
-    assert.equal(broadcast.length, 15);
+    assert.ok(broadcast.length > 0);
     for (const scenario of broadcast) {
       const result = evaluateScenarioStatic(structuredClone(scenario));
       assert.equal(checkOf(result, "status.empty")?.status, "pass", scenario.id);

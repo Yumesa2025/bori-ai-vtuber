@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { admissionPattern, judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeMemoryClaim, judgeOutsideStory, judgeReaction, memoryClaimPattern, ungroundedHits } from "../src/judge.js";
-import { groundingChecks } from "../src/model.js";
-import { loadScenarioSet } from "../src/scenarios.js";
+import { admissionPattern, judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeMemoryClaim, judgeOutsideStory, judgeReaction, judgeSentenceCount, memoryClaimPattern, ungroundedHits } from "../src/judge.js";
+import { groundingChecks, maxSentences } from "../src/model.js";
+import { loadScenarioSet, type ExpectedReaction } from "../src/scenarios.js";
 
 describe("존댓말 휴리스틱", () => {
   test("해요체·합쇼체·의문문은 통과한다", () => {
@@ -65,26 +65,59 @@ describe("기대 감정·모션 일치", () => {
     { emotions: ["happy"], motions: ["xingxingyan"] },
     { emotions: ["curious"], motions: [null] },
   ];
+  const statuses = (emotion: string, motion: string | null, expected: readonly ExpectedReaction[] = reactions) =>
+    judgeReaction(emotion, motion, expected).map(check => `${check.id}:${check.status}`);
 
-  test("묶음 중 하나에서 감정과 모션이 함께 맞아야 통과한다", () => {
-    assert.equal(judgeReaction("happy", "xingxingyan", reactions).status, "pass");
-    assert.equal(judgeReaction("curious", null, reactions).status, "pass");
-    // 감정은 맞지만 다른 묶음의 모션
-    assert.equal(judgeReaction("curious", "xingxingyan", reactions).status, "fail");
-    assert.equal(judgeReaction("happy", null, reactions).status, "fail");
+  test("감정과 모션을 따로 판정한다", () => {
+    assert.deepEqual(statuses("happy", "xingxingyan"), ["reaction.emotion:pass", "reaction.motion:pass"]);
+    assert.deepEqual(statuses("curious", null), ["reaction.emotion:pass", "reaction.motion:pass"]);
+    // 감정은 맞지만 그 감정 묶음의 모션이 아니다. 감정 판정은 통과로 남는다(점검 A6-24)
+    assert.deepEqual(statuses("curious", "xingxingyan"), ["reaction.emotion:pass", "reaction.motion:fail"]);
+    assert.deepEqual(statuses("happy", null), ["reaction.emotion:pass", "reaction.motion:fail"]);
+    // 감정이 기대 밖이면 모든 묶음의 모션으로 모션을 본다
+    assert.deepEqual(statuses("calm", null), ["reaction.emotion:fail", "reaction.motion:pass"]);
   });
 
   test("motions가 없는 묶음은 모션을 따지지 않는다", () => {
-    assert.equal(judgeReaction("calm", "shoushi", [{ emotions: ["calm", "happy"] }]).status, "pass");
+    assert.deepEqual(statuses("calm", "kuqi", [{ emotions: ["calm", "happy"] }]), ["reaction.emotion:pass", "reaction.motion:pass"]);
   });
 
-  test("기대값이 비어 있으면 수동 평가로 넘긴다", () => {
-    assert.equal(judgeReaction("calm", null, []).status, "manual");
+  test("게임패드는 기대값에 shoushi가 있는 게임 시나리오에서만 허용한다", () => {
+    // 점검 A6-17: 게임과 무관한 답 30회 중 26회에 게임패드
+    const result = judgeReaction("calm", "shoushi", [{ emotions: ["calm", "happy"] }]);
+    assert.equal(result[1].status, "fail");
+    assert.match(result[1].detail ?? "", /게임 이야기가 아닌 시나리오/);
+    assert.deepEqual(statuses("gaming", "shoushi", [{ emotions: ["gaming"], motions: ["shoushi"] }, { emotions: ["calm"] }]), ["reaction.emotion:pass", "reaction.motion:pass"]);
+    assert.deepEqual(statuses("calm", "shoushi", [{ emotions: ["gaming"], motions: ["shoushi"] }, { emotions: ["calm"] }]), ["reaction.emotion:pass", "reaction.motion:pass"]);
+  });
+
+  test("기대값이 비어 있으면 둘 다 수동 평가로 넘긴다", () => {
+    assert.deepEqual(statuses("calm", null, []), ["reaction.emotion:manual", "reaction.motion:manual"]);
   });
 
   test("실패하면 실제값과 기대값을 함께 남긴다", () => {
-    const result = judgeReaction("sad", null, reactions);
-    assert.equal(result.detail, "실제 sad / 없음, 기대 happy / xingxingyan 또는 curious / 없음");
+    const [emotion, motion] = judgeReaction("sad", "kuqi", reactions);
+    assert.equal(emotion.detail, "실제 sad, 기대 happy·curious");
+    assert.equal(motion.detail, "실제 sad / kuqi, 기대 happy / xingxingyan 또는 curious / 없음");
+  });
+});
+
+describe("문장 수 상한", () => {
+  test("상한 안이면 통과, 넘으면 실패한다", () => {
+    assert.equal(judgeSentenceCount("안녕하세요. 반가워요!", 2).status, "pass");
+    assert.equal(judgeSentenceCount("안녕하세요. 반가워요! 오늘은 어떠셨어요?", 2).status, "fail");
+    assert.equal(judgeSentenceCount("안녕하세요. 반가워요! 오늘은 어떠셨어요?", 3).detail, "3문장");
+  });
+
+  test("두 글자 이하 감탄사는 문장으로 세지 않는다", () => {
+    assert.equal(judgeSentenceCount("앗! 그건 몰랐어요. 알려 주셔서 고마워요.", 2).status, "pass");
+  });
+});
+
+describe("모드별 문장 수 상한", () => {
+  test("정책의 replySentences에서 상한을 읽는다", () => {
+    assert.equal(maxSentences("broadcast"), 2);
+    assert.equal(maxSentences("companion"), 3);
   });
 });
 
