@@ -123,3 +123,14 @@ dialog::backdrop { background: #0009; }
   .companion-body { grid-template-columns: 1fr; grid-template-rows: minmax(200px, 38vh) 1fr; }
   .chat-pane { border-left: 0; border-top: 1px solid var(--panel-border); }
 }
+
+/* 입력이 최대 길이를 넘으면 카운터 자리에 안내를 띄운다. */
+.composer-count.over { max-width: 150px; color: #ffb9c6; text-align: right; line-height: 1.4; }
+/* 좁은 화면에서 버튼 글자가 "다시 연 / 결"처럼 끊기지 않게 한다. */
+.connection-banner { word-break: keep-all; }
+.connection-banner button { flex: 0 0 auto; white-space: nowrap; }
+/* 좁은 화면 서랍 뒤 반투명 배경. 누르면 서랍이 닫힌다. 넓은 화면에서는 서랍이 늘 보이므로 숨긴다. */
+.sidebar-backdrop { display: none; }
+@media (max-width: 1100px) {
+  .sidebar-backdrop { display: block; position: fixed; z-index: 9; inset: var(--header-height) 0 0 0; border: 0; background: #0007; }
+}

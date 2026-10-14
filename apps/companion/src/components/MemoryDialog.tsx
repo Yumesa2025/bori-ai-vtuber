@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, describeError, type Memory } from "../api";
+import { api, ApiError, describeError, type Memory } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 type Props = {
@@ -29,13 +29,17 @@ export function MemoryDialog({ open, onClose, onDataCleared }: Props) {
   const [confirmAll, setConfirmAll] = useState(false);
   const [confirmData, setConfirmData] = useState(false);
   const [notice, setNotice] = useState("");
+  /** 목록을 받지 못했는지. 이때는 "기억된 내용이 없어요"를 띄우지 않는다. 지운 줄로 오해할 수 있다. */
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  const load = useCallback(() => {
+  /** keepNotice면 직전 안내(예: 지우기 실패)를 남긴 채 목록만 다시 받는다. */
+  const load = useCallback((options: { keepNotice?: boolean } = {}) => {
     setLoading(true);
-    setNotice("");
+    setLoadFailed(false);
+    if (!options.keepNotice) setNotice("");
     api.listMemories()
       .then(setMemories)
-      .catch(error => setNotice(describeError(error)))
+      .catch(error => { setLoadFailed(true); setNotice(describeError(error)); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -52,7 +56,10 @@ export function MemoryDialog({ open, onClose, onDataCleared }: Props) {
     api.deleteMemory(id)
       .then(() => setMemories(current => current.filter(memory => memory.id !== id)))
       // 이미 지워진 기억이면 목록을 다시 받아 화면을 서버와 맞춘다.
-      .catch(error => { setNotice(describeError(error)); load(); })
+      .catch(error => {
+        setNotice(error instanceof ApiError && error.kind === "notFound" ? "이미 지워진 기억이에요. 목록을 새로 받았어요." : describeError(error));
+        load({ keepNotice: true });
+      })
       .finally(() => setBusyId(null));
   };
 
@@ -89,7 +96,7 @@ export function MemoryDialog({ open, onClose, onDataCleared }: Props) {
       <p className="muted">기억을 지워도 대화 기록은 남아요. 대화까지 지우려면 아래의 "1:1 기록 모두 지우기"를 써 주세요.</p>
       {notice && <p className="inline-notice" role="status">{notice}</p>}
       {loading && <p className="muted">불러오는 중</p>}
-      {!loading && memories.length === 0 && <p className="muted">기억된 내용이 없어요.</p>}
+      {!loading && !loadFailed && memories.length === 0 && <p className="muted">기억된 내용이 없어요.</p>}
       <ul className="memory-list">
         {memories.map(memory => (
           <li key={memory.id}>
@@ -115,7 +122,7 @@ export function MemoryDialog({ open, onClose, onDataCleared }: Props) {
               <button type="button" className="danger-button" onClick={removeAll} disabled={busyId !== null}>{busyId === "*" ? "지우는 중" : "모두 지우기"}</button>
             </>
           ) : (
-            <button type="button" className="danger-button" onClick={() => setConfirmAll(true)} disabled={busyId !== null}>기억 전체 삭제</button>
+            <button type="button" className="danger-button" onClick={() => setConfirmAll(true)} disabled={busyId !== null}>기억 모두 지우기</button>
           )}
         </div>
       )}

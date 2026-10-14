@@ -11,7 +11,7 @@ type Props = {
 };
 
 /**
- * 되돌릴 수 없는 삭제 전에 한 번 더 묻는다.
+ * 되돌릴 수 없는 지우기 전에 한 번 더 묻는다.
  * 네이티브 dialog를 써서 포커스 가두기와 Esc 닫기를 브라우저에 맡긴다.
  */
 export function ConfirmDialog({ open, title, description, confirmLabel, busy = false, onConfirm, onCancel }: Props) {
@@ -32,7 +32,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, busy = f
       <p>{description}</p>
       <div className="dialog-actions">
         <button type="button" className="ghost-button" onClick={onCancel} disabled={busy}>취소</button>
-        <button type="button" className="danger-button" onClick={onConfirm} disabled={busy}>{busy ? "삭제하는 중" : confirmLabel}</button>
+        <button type="button" className="danger-button" onClick={onConfirm} disabled={busy}>{busy ? "지우는 중" : confirmLabel}</button>
       </div>
     </dialog>
   );

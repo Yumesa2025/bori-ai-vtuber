@@ -54,7 +54,7 @@ export function errorKindForStatus(status: number): ApiErrorKind {
 export const errorMessages: Record<ApiErrorKind, string> = {
   disconnected: "서버에 연결할 수 없어요. 서버가 켜져 있는지 확인한 뒤 다시 시도해 주세요.",
   badRequest: "보낼 수 없는 내용이에요. 비어 있거나 500자를 넘지 않았는지 확인해 주세요.",
-  notFound: "대화를 찾을 수 없어요. 이미 삭제되었을 수 있어요.",
+  notFound: "대화를 찾을 수 없어요. 이미 지워졌을 수 있어요.",
   conflict: "보리가 아직 앞 메시지에 답하는 중이에요. 답변이 끝난 뒤 다시 보내 주세요.",
   server: "서버에서 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
 };
