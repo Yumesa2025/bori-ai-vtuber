@@ -43,6 +43,7 @@ npm run test -- security secrets   # 시나리오 파일 이름으로 일부만
 | `durability.mjs` | 깨진 기억·설정 파일, 풀지 못한 암호문 키, 파일 쓰기 실패에도 데이터를 잃지 않고 서버가 사는지 |
 | `safety.mjs` | 위기 신호 안내, 방송 프롬프트 주입 방어, 시청자 개인정보 |
 | `obs-pages.mjs` | 서버가 빌드한 OBS 페이지를 `/obs/` 아래로 내주는지, 서버 자신의 Origin으로 모듈 스크립트를 받는지, 경로 탈출을 막는지(실행 인자 이름은 `obsPages`) |
+| `operations.mjs` | 방송 운영 시나리오. 방송 중 재시작·두 번 종료·생성 중 종료의 기억 저장, 큐 만료(60초)·시청자별 상한·중복·버려진 채팅 집계·거절 코드, lastError 수명, 빈·깨진 음성 거절과 음성 길이에 맞춘 말풍선, 방송 음성 상한, 음성 캐시 크기, 목소리 목록 캐시, 쿼리·끝 슬래시·HEAD 경로 |
 | `soak.mjs` | 장시간 운영 검사. 기본 실행에 넣지 않는다(아래 참고) |
 | `fixtures/` | 시나리오가 쓰는 설정·기억·매크로 고정 자료. `memories.json`은 마이그레이션 경로를 타도록 일부러 예전(v1) 형식이다 |
 
@@ -80,7 +81,7 @@ export async function run({ bori, mock, report }) {
 
 ## 실패 주입
 
-`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고르므로 방송 답변(`[답변할 채팅]`)과 1:1 답변(`[답변할 메시지]`), 누적 요약을 따로 실패시킬 수 있다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다.
+`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고르므로 방송 답변(`[답변할 채팅]`)과 1:1 답변(`[답변할 메시지]`), 누적 요약을 따로 실패시킬 수 있다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다. 음성(`tts`)에는 `empty`(200·0바이트), `garbage`(200·mp3 아님), `long`(`ms` 길이의 mp3)도 있다. `GET /v1/voices`는 ElevenLabs 목소리 목록을 흉내 내고 받은 횟수를 `/__calls`에 `voices`로 남긴다(실행기가 `BORI_ELEVENLABS_BASE_URL`을 가짜 API로 준다).
 
 ## 장시간 검사
 

@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 import type { BroadcastState, ChatMessage, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
 import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
-import { createAdapter as createProviderAdapter, createLlmClient, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, listVoices, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
+import { createAdapter as createProviderAdapter, createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
-import { bodyAction, createConversationEngine, createModeLlmClients, isQuestion, pickNextChatIndex, withoutCrisisTurns, type ConversationSession } from "./conversation/index.js";
+import { bodyAction, createConversationEngine, createModeLlmClients, isCrisisContent, isQuestion, isUnsafeContent, pickNextChatIndex, withoutCrisisTurns, type ConversationSession } from "./conversation/index.js";
 import { cleanInputText, lengthOf } from "./input-text.js";
 import { COMPANION_LOCAL_OWNER, createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
 import { createApiKeySlot } from "./secret-store.js";
@@ -46,6 +46,10 @@ const queue: ChatMessage[] = [];
  */
 const recentContents = new Map<string, number>();
 let responseTimer: NodeJS.Timeout | undefined;
+/** 답변 대기를 끝내는 함수. 대기를 취소할 때도 불러, 그 대기를 기다리던 처리가 끝나지 않은 채 남지 않게 한다(a4 A4-16). */
+let finishResponseWait: (() => void) | undefined;
+/** 지금 답을 만드는 채팅과 그 세션. 생성 중에 방송이 끝나면 시청자 발언만이라도 그 세션 기록에 남긴다(a4 A4-19). */
+let answering: { chat: ChatMessage; session: ConversationSession } | undefined;
 let monologueTimer: NodeJS.Timeout | undefined;
 /** 발화권. 답변을 말하는 동안에는 다음 답변도 혼잣말도 시작하지 않는다. */
 let speaking = false;
@@ -58,6 +62,10 @@ let sessionGeneration = 0;
 let testActionSeq = 0;
 
 const RESPONSE_DISPLAY_MS = 5000;
+/** 음성이 있을 때 말풍선을 두는 최대 시간. 120자 답의 발화는 20초 안팎이라 끝까지 들리고, 큐가 한 답에 오래 묶이지 않는다. */
+const AUDIO_DISPLAY_MAX_MS = 30_000;
+/** 음성이 끝난 뒤 말풍선을 조금 더 둔다. 화면이 받아 재생을 시작하기까지의 지연(폴링 250ms·다운로드)을 덮는다. */
+const AUDIO_DISPLAY_TAIL_MS = 1000;
 
 // ── LLM 설정과 API 키 ─────────────────────────────────────────
 // 키는 data/ 아래에만 둔다. data/는 .gitignore 대상이다.
@@ -172,9 +180,24 @@ const ttsConfigFile = createConfigFile(ttsConfigPath, "음성 설정");
 const ttsCredentials = () => ({ openAiApiKey: llmApiKey, elevenLabsApiKey });
 /** 지금 설정으로 음성을 만들 수 있는지. */
 const ttsHasKey = () => (ttsSettings.provider === "elevenlabs" ? elevenLabsApiKey : llmApiKey).trim().length > 0;
-/** 생성한 음성. 방송 화면이 받아가면 되므로 메모리에만 두고 오래된 것부터 버린다. */
-const audioCache = new Map<string, Buffer>();
+/** 생성한 음성과 그 재생 길이. 방송 화면이 받아가면 되므로 메모리에만 두고 오래된 것부터 버린다. */
+const audioCache = new Map<string, { audio: Buffer; durationMs: number }>();
 const AUDIO_CACHE_LIMIT = 30;
+/**
+ * 음성 캐시 총 크기 상한. 전에는 개수만 세서 10MB 음성 30건이 344MB를 붙잡았다(a4 A4-15).
+ * 평소 답 음성은 수백 KB라 30건이 10MB 안쪽이다. 50MB면 개수 상한이 먼저 걸리고, 큰 응답만 크기로 밀려난다.
+ */
+const AUDIO_CACHE_MAX_BYTES = 50 * 1024 * 1024;
+let audioCacheBytes = 0;
+/**
+ * 방송 답 음성의 합성 상한. 음성은 LLM 뒤에 이어 만들어져 말풍선이 그만큼 늦는다(a4 A4-18).
+ * 설정 상한(최대 60초)을 그대로 쓰면 업체가 멈출 때 말풍선이 1분 넘게 늦으므로 방송 경로만 6초로 줄인다.
+ * 120자 답은 OpenAI·ElevenLabs 모두 보통 1~3초에 온다(추정, 실 업체로 재지 않음). 넘으면 음성 없이 글로 나간다.
+ * 1:1은 사용자가 음성을 골라 기다리는 경로라 설정값을 그대로 쓴다.
+ */
+const BROADCAST_TTS_TIMEOUT_MS = 6000;
+/** 목소리 목록 캐시. 관리자 화면이 1.5초마다 부르는 GET /api/tts가 매번 ElevenLabs를 부르지 않게 한다(a4 A4-08). */
+const voiceList = createVoiceListCache();
 let ttsFailureCount = 0;
 let ttsLastError: string | null = null;
 
@@ -222,14 +245,19 @@ async function prepareAudio(text: string, mode: ConversationMode = "broadcast"):
 
   // 합성 중에 설정이 바뀔 수 있으므로 부를 때의 모델로 센다. 글자 수만 세고 문장은 넘기지 않는다.
   const usage = { feature: "tts" as const, mode, model: ttsSettings.model };
+  const settingsForCall = mode === "broadcast" ? { ...ttsSettings, timeoutMs: Math.min(ttsSettings.timeoutMs, BROADCAST_TTS_TIMEOUT_MS) } : ttsSettings;
   try {
-    const result = await synthesizeSpeech(ttsCredentials(), ttsSettings, text);
+    // 빈 본문·mp3가 아닌 응답은 synthesizeSpeech가 실패로 돌려준다. 화면이 재생 실패를 자동재생 차단으로 오인하지 않게 한다(a4 A4-13).
+    const result = await synthesizeSpeech(ttsCredentials(), settingsForCall, text);
     usageStore.record({ ...usage, ok: true, characters: Array.from(text).length });
     const id = randomUUID();
-    audioCache.set(id, result.audio);
-    while (audioCache.size > AUDIO_CACHE_LIMIT) {
+    audioCache.set(id, { audio: result.audio, durationMs: result.durationMs });
+    audioCacheBytes += result.audio.length;
+    // 개수와 총 크기 상한 안으로 들어올 때까지 오래된 것부터 버린다. 방금 만든 음성은 남긴다.
+    while (audioCache.size > AUDIO_CACHE_LIMIT || (audioCacheBytes > AUDIO_CACHE_MAX_BYTES && audioCache.size > 1)) {
       const oldest = audioCache.keys().next().value;
       if (oldest === undefined) break;
+      audioCacheBytes -= audioCache.get(oldest)?.audio.length ?? 0;
       audioCache.delete(oldest);
     }
     ttsLastError = null;
@@ -394,6 +422,14 @@ function broadcastStatusLines(): string[] {
 
 let state: BroadcastState = { status: "idle", layout: "chat", currentEmotion: "calm", queueSize: 0, visibleChatCount: 0, lastError: null, visibleChats: [], unprocessedCount: 0 };
 
+/**
+ * 이번 방송에서 답하지 않고 버린 채팅 수(이유별). 방송을 시작할 때 0으로 돌린다(a4 A4-04).
+ * queueLimit: 큐 상한, viewerLimit: 한 시청자 대기 상한, expired: 오래 기다려 만료, duplicate: 같은 시청자의 같은 문장, blocked: 위험 입력.
+ */
+type DroppedChats = { queueLimit: number; viewerLimit: number; expired: number; duplicate: number; blocked: number };
+const noDroppedChats = (): DroppedChats => ({ queueLimit: 0, viewerLimit: 0, expired: 0, duplicate: 0, blocked: 0 });
+let droppedChats = noDroppedChats();
+
 const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, "").trim();
 
 /**
@@ -415,6 +451,28 @@ const nicknameOf = (value: string) => cleanInputText(value).replace(/[\t\n]/g, "
  * 대문자나 공백이 든 닉네임의 예전 기억은 새 ID와 이어지지 않는다. 옛 ID는 정보가 지워진 값이라 되돌릴 수 없다.
  */
 const viewerIdOf = (nickname: string) => `local:${nickname}`;
+/**
+ * 큐에서 기다릴 수 있는 시간. 지나면 답하지 않고 버린다(a4 A4-03).
+ * 답 하나에 대기·생성·말풍선으로 10초 남짓이 걸려 분당 5~8건을 답한다. 1분 넘은 채팅은 방송 흐름이 이미 지나가
+ * 답이 엉뚱하게 들리고, 만료가 없던 장애 soak에서는 105초 지난 채팅에 답했다.
+ * 질문 우선 순서(QUEUE_WAIT_LIMIT_MS 30초)보다 길게 둬서, 오래 기다린 채팅이 맨 앞으로 올라온 뒤 답할 기회가 있다.
+ */
+const CHAT_TTL_MS = 60_000;
+/**
+ * 한 시청자가 큐에 둘 수 있는 채팅 수. 넘치면 그 시청자의 가장 오래된 채팅을 버린다(a4 A4-05).
+ * 문장만 바꿔 도배하면 큐를 차지해 다른 시청자 채팅이 밀리다 버려졌다. 3건이면 30초 남짓의 답 몫이고,
+ * 가장 최근 말은 남긴다. 익명 채팅(관리자 테스트 입력)도 한 시청자로 본다.
+ */
+const VIEWER_QUEUE_LIMIT = 3;
+
+/** 만료된 채팅을 큐에서 뺀다. 만료는 큐에 들어온 순서라 앞에서부터 본다. */
+function dropExpiredChats(now = Date.now()) {
+  while (queue.length > 0 && now - Date.parse(queue[0].receivedAt) >= CHAT_TTL_MS) {
+    queue.shift();
+    droppedChats.expired += 1;
+  }
+}
+
 /** 같은 문장이 duplicateWindowMinutes 안에 이미 들어왔는지 본다. 창 밖의 같은 문장은 새 채팅으로 받는다. */
 function isDuplicateChat(key: string): boolean {
   const windowMs = Math.max(0, settings.duplicateWindowMinutes) * 60_000;
@@ -458,10 +516,10 @@ function syncQueueState() { state = { ...state, queueSize: queue.length }; }
  * 방송이 끝나면 대화에서 기억 후보를 뽑아 저장한다.
  * 규칙으로 먼저 걸러 낸 뒤 저장 직전에 한 번 더 검사한다.
  */
-async function persistSessionMemories() {
-  // 끝난 방송의 세션을 잡아 둔다. 저장하는 사이 방송을 다시 시작해도 새 세션의 대화가 섞이지 않는다.
+async function persistSessionMemories(session: ConversationSession) {
+  // 끝난 방송의 세션을 받는다. 저장하는 사이 방송을 다시 시작해도 새 세션의 대화가 섞이지 않는다.
   // 위기 채팅은 기록하지 않지만, 혹시 남은 위기 대화가 있어도 요약·기억 후보로 넘기지 않는다(S-3).
-  const sessionTurns = withoutCrisisTurns(broadcastSession.sessionTurns);
+  const sessionTurns = withoutCrisisTurns(session.sessionTurns);
   if (!memorySettings.enabled || sessionTurns.length === 0) return;
   // 이번 방송 시청자의 닉네임. 요약에 닉네임이 들어가면 특정 시청자에 관한 문장이라 공용 기억으로 남기지 않는다.
   const nicknames = [...new Set(sessionTurns.flatMap(turn => (turn.viewerId?.startsWith("local:") ? [turn.viewerId.slice("local:".length)] : [])))];
@@ -523,8 +581,9 @@ function speak(response: CharacterResponse, audioId?: string) {
   cancelMonologue();
   state = { ...state, currentResponse: response, currentEmotion: response.emotion.primary, currentAudioId: audioId };
 
-  // 음성이 있으면 재생 시간을 감안해 말풍선을 조금 더 오래 둔다.
-  const displayMs = audioId ? Math.max(RESPONSE_DISPLAY_MS, Math.min(15_000, response.reply.length * 110)) : RESPONSE_DISPLAY_MS;
+  // 음성이 있으면 실제 음성 길이만큼 말풍선을 둔다. 전에는 글자 수로 어림해(글자당 110ms, 최대 15초) 긴 답의 음성이 잘렸다(a4 A4-12).
+  const audioMs = audioId ? audioCache.get(audioId)?.durationMs : undefined;
+  const displayMs = audioMs !== undefined ? Math.max(RESPONSE_DISPLAY_MS, Math.min(AUDIO_DISPLAY_MAX_MS, audioMs + AUDIO_DISPLAY_TAIL_MS)) : RESPONSE_DISPLAY_MS;
   // 표시가 끝나기 전에 방송을 다시 시작하면 이 타이머는 이전 세션 것이다.
   // 세대를 보지 않으면 새 세션이 막 올린 말풍선을 지워 버린다.
   const generation = sessionGeneration;
@@ -588,7 +647,10 @@ function scheduleMonologue() {
  * 이번 차례의 후보가 아니라 다음 차례로 넘어간다.
  */
 function scheduleNext() {
-  if (responseTimer || speaking || state.status !== "live" || queue.length === 0) return;
+  if (responseTimer || speaking || state.status !== "live") return;
+  dropExpiredChats();
+  syncQueueState();
+  if (queue.length === 0) return;
 
   // 질문을 먼저 고르되, 오래 기다린 채팅은 질문에 밀리지 않게 한다.
   const chat = queue.splice(pickNextChatIndex(queue), 1)[0];
@@ -599,12 +661,14 @@ function scheduleNext() {
   cancelMonologue();
   const generation = sessionGeneration;
   const session = broadcastSession;
+  answering = { chat, session };
 
   const min = settings.responseDelayMinSeconds;
   const max = Math.max(min, settings.responseDelayMaxSeconds);
   const delay = (min + Math.random() * (max - min)) * 1000;
   const waited = new Promise<void>(resolve => {
-    responseTimer = setTimeout(() => { responseTimer = undefined; resolve(); }, delay);
+    finishResponseWait = resolve;
+    responseTimer = setTimeout(() => { responseTimer = undefined; finishResponseWait = undefined; resolve(); }, delay);
   });
 
   // 답변과 음성을 대기와 나란히 만든다. 실패는 각 함수가 안에서 처리한다.
@@ -618,20 +682,24 @@ function scheduleNext() {
     if (generation !== sessionGeneration) return null;
     // 차단된 채팅에는 보리가 무반응한다.
     if (outcome.kind === "blocked") return null;
-    // 실패는 관리자에게만 알리고 방송은 폴백 문장으로 이어간다.
+    // 실패는 관리자에게만 알리고 방송은 폴백 문장으로 이어간다. LLM이 다시 답하면 지난 실패는 지운다(a4 A4-10).
     if (outcome.failure) state = { ...state, lastError: `LLM 실패: ${outcome.failure.reason}` };
+    else if (outcome.response.source === "llm") state = { ...state, lastError: null };
     return { response: outcome.response, crisis: outcome.crisis === true, audioId: await prepareAudio(outcome.response.reply) };
   });
 
   void Promise.all([prepared, waited])
     .then(([result]) => {
       // 만드는 사이에 방송이 끝났거나 다시 시작했으면 이전 세션의 답변이므로 버린다.
+      // 시청자 발언은 방송을 끝낼 때 이미 그 세션에 남겼다(recordUnanswered).
       if (generation !== sessionGeneration) return;
+      answering = undefined;
       if (state.status !== "live") { speaking = false; return; }
 
       if (!result) {
         // 차단된 채팅은 조용히 넘기고 다음 후보로 넘어간다.
         speaking = false;
+        droppedChats.blocked += 1;
         state = { ...state, unprocessedCount: state.unprocessedCount + 1 };
         scheduleNext();
         scheduleMonologue();
@@ -655,11 +723,147 @@ function scheduleNext() {
       console.error("[bori-server] 답변 처리 실패:", error);
       // 끝난 방송의 실패는 관리자 화면에 새로 띄우지 않는다.
       if (generation !== sessionGeneration) return;
+      answering = undefined;
       state = { ...state, lastError: `답변 처리 실패: ${error instanceof Error ? error.message : String(error)}` };
       speaking = false;
       scheduleNext();
       scheduleMonologue();
     });
+}
+
+/** 답변 대기를 취소한다. 대기도 끝내 두어 그 대기를 기다리던 처리가 세대 확인에서 정리되게 한다(a4 A4-16). */
+function cancelResponseWait() {
+  if (responseTimer) clearTimeout(responseTimer);
+  responseTimer = undefined;
+  finishResponseWait?.();
+  finishResponseWait = undefined;
+}
+
+/**
+ * 답을 만드는 중에 방송이 끝난 채팅의 시청자 발언을 그 세션 기록에 남긴다(a4 A4-19). 기억 후보는 시청자 발언에서 뽑는다.
+ * 답은 화면에 나가지 않았으므로 남기지 않는다. 위험·위기 입력은 답했어도 기록하지 않는 입력이라 여기서도 뺀다.
+ * engine.record는 쓰지 않는다. 끝나는 세션에 누적 요약 호출을 새로 걸지 않게 기록만 더한다.
+ */
+function recordUnanswered() {
+  const pending = answering;
+  answering = undefined;
+  if (!pending || isUnsafeContent(pending.chat.content) || isCrisisContent(pending.chat.content)) return;
+  pending.session.sessionTurns.push({ role: "viewer", text: pending.chat.content, viewerId: pending.chat.viewerId });
+}
+
+/**
+ * 방송을 끝내고 그 세션의 대화로 기억을 저장한다. 방송 중이 아니면 아무것도 하지 않고 false다.
+ * 종료를 두 번 부르면 같은 대화를 다시 저장해 repeatCount·importance가 부풀고 요약 LLM을 다시 불렀다(a4 A4-06).
+ */
+function endBroadcast(): boolean {
+  if (state.status !== "live") return false;
+  sessionGeneration += 1;
+  queue.length = 0;
+  speaking = false;
+  const endedSession = broadcastSession;
+  // 대화 기록은 기억 저장에 써야 하므로 세션은 그대로 두고 매크로만 내린다.
+  engine.clearMacros(endedSession);
+  cancelResponseWait();
+  recordUnanswered();
+  cancelMonologue();
+  // 채팅 목록도 비운다. 끝난 방송 화면에 지난 채팅이 계속 보였다(a4 A4-23).
+  state = { ...state, status: "ended", queueSize: 0, currentResponse: undefined, currentAudioId: undefined, currentEmotion: "calm", visibleChats: [], visibleChatCount: 0 };
+  // 기억 저장은 오래 걸릴 수 있으므로 응답을 막지 않는다.
+  void persistSessionMemories(endedSession);
+  return true;
+}
+
+/**
+ * 방송을 시작한다. 방송 중에 다시 부르면 진행 중인 방송을 먼저 정상 종료해 그 대화를 기억으로 저장한다.
+ * 전에는 세션을 바로 갈아 끼워 진행 중이던 대화가 기억 저장 없이 버려졌다(a4 A4-02). 관리자 창 둘·더블클릭·직접 호출에서 생긴다.
+ */
+function startBroadcast() {
+  endBroadcast();
+  // 세대를 올려 진행 중이던 이전 세션의 비동기 응답을 무효화한다.
+  sessionGeneration += 1;
+  queue.length = 0;
+  recentContents.clear();
+  // 대화 문맥·누적 요약·매크로·문장 쿨다운은 방송 단위다. 세션을 새로 만들어 이전 방송의 흐름을 끌고 오지 않는다.
+  broadcastSession = engine.createSession("broadcast");
+  // 진행 상황도 방송마다 새로 센다.
+  sessionStartedAt = Date.now();
+  answeredCount = 0;
+  droppedChats = noDroppedChats();
+  speaking = false;
+  cancelResponseWait();
+  cancelMonologue();
+  // 지난 방송의 오류는 새 방송에서 지운다. 남아 있으면 지금 일어난 오류처럼 보인다(a4 A4-10).
+  state = { ...state, status: "live", currentEmotion: "calm", currentResponse: undefined, currentAudioId: undefined, visibleChats: [], visibleChatCount: 0, queueSize: 0, unprocessedCount: 0, lastError: null };
+  scheduleMonologue();
+}
+
+/** 채팅을 받지 않은 이유. 화면·관리자가 이유별로 안내할 수 있게 나눈다(a4 A4-20). */
+type ChatRejection = { code: "invalid" | "too_long" | "nickname_too_long" | "empty" | "not_live" | "duplicate"; error: string };
+
+/**
+ * 방송 채팅 하나를 검사해 큐에 넣는다. 받지 않으면 이유를 돌려준다.
+ * 검사·중복·시청자별 상한·만료·큐 상한을 이 함수 한곳에서 처리한다. 받은 뒤 큐에서 밀려난 채팅은 droppedChats에 센다.
+ */
+function ingestChat(input: { content?: unknown; nickname?: unknown }): ChatRejection | null {
+  if (typeof input.content !== "string" || (input.nickname !== undefined && typeof input.nickname !== "string")) {
+    return { code: "invalid", error: "content와 nickname은 문자열이어야 합니다." };
+  }
+  // 제어문자·방향 바꿈 문자는 화면·프롬프트에 나가기 전에 지운다(B-5).
+  const content = cleanInputText(input.content).trim();
+  if (lengthOf(content) > CHAT_MAX_LENGTH) return { code: "too_long", error: `채팅은 ${CHAT_MAX_LENGTH}자 이하여야 합니다.` };
+  const nickname = nicknameOf(input.nickname ?? "");
+  if (lengthOf(nickname) > NICKNAME_MAX_LENGTH) return { code: "nickname_too_long", error: `닉네임은 ${NICKNAME_MAX_LENGTH}자 이하여야 합니다.` };
+  if (!content) return { code: "empty", error: "빈 채팅은 받지 않습니다." };
+  if (state.status !== "live") return { code: "not_live", error: "방송 중이 아니라 채팅을 받지 않습니다." };
+
+  const viewerId = nickname ? viewerIdOf(nickname) : "virtual-viewer";
+  // 중복은 같은 시청자의 같은 문장만이다. 다른 시청자가 같은 인사를 하면 각자의 채팅이다(a4 A4-20).
+  const key = `${viewerId}\n${normalize(content)}`;
+  if (isDuplicateChat(key)) {
+    droppedChats.duplicate += 1;
+    return { code: "duplicate", error: "같은 채팅이 방금 들어왔습니다." };
+  }
+  recentContents.set(key, Date.now());
+
+  // 닉네임은 내부 사용자 ID로만 쓴다. 방송 화면에는 내보내지 않는다.
+  const chat: ChatMessage = {
+    id: randomUUID(),
+    viewerId,
+    ...(nickname ? { viewerNickname: nickname } : {}),
+    content,
+    receivedAt: new Date().toISOString(),
+    source: "manual",
+    category: isQuestion(content) ? "question" : "normal",
+  };
+
+  // 방송 화면에 넘기는 목록에는 화면에 필요한 값만 담는다.
+  // viewerId도 닉네임에서 만든 값이라 함께 빼야 닉네임이 드러나지 않는다.
+  const visible: VisibleChat = { id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) };
+  state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
+
+  dropExpiredChats();
+  // 한 시청자가 큐를 차지하지 못하게, 그 시청자의 대기가 상한이면 가장 오래된 것을 버리고 새 채팅을 받는다.
+  const mine = queue.filter(item => item.viewerId === viewerId);
+  if (mine.length >= VIEWER_QUEUE_LIMIT) {
+    queue.splice(queue.indexOf(mine[0]), 1);
+    droppedChats.viewerLimit += 1;
+  }
+  // 상한을 줄였으면 큐가 이미 넘쳐 있을 수 있으므로 상한 안으로 들어올 때까지 오래된 것부터 버린다.
+  while (queue.length >= settings.maxQueueSize) {
+    queue.shift();
+    droppedChats.queueLimit += 1;
+  }
+  queue.push(chat);
+  syncQueueState();
+  cancelMonologue();
+  scheduleNext();
+  return null;
+}
+
+/** 라우트를 고를 경로. 쿼리와 끝 슬래시는 뗀다. 전에는 request.url 전체를 비교해 "/api/state?x=1"이 404였다(점검 Q-4). */
+function routePathOf(url: string | undefined): string {
+  const pathname = new URL(url ?? "/", "http://127.0.0.1").pathname;
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
 }
 
 const isLoopbackAddress = (address: string | undefined) => address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
@@ -700,11 +904,14 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
   if (!guardRequest(request, response, guardOptions)) return;
   // 정적 화면은 API 라우트보다 먼저 본다. 응답의 Content-Type은 파일에 맞춰 덮어쓴다.
   if ((request.method === "GET" || request.method === "HEAD") && serveStatic(request, response, staticRoutes)) return;
-  if (request.method === "GET" && request.url === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
-  if (request.method === "GET" && request.url === "/api/state") { sendJson(response, 200, state); return; }
-  if (request.method === "GET" && request.url === "/api/settings") { sendJson(response, 200, settings); return; }
+  const path = routePathOf(request.url);
+  // HEAD는 GET 라우트로 처리한다. 본문은 Node가 HEAD 응답에서 빼고 보낸다(a1 L5).
+  const method = request.method === "HEAD" ? "GET" : request.method;
+  if (method === "GET" && path === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
+  if (method === "GET" && path === "/api/state") { sendJson(response, 200, { ...state, droppedChats }); return; }
+  if (method === "GET" && path === "/api/settings") { sendJson(response, 200, settings); return; }
   // 장시간 운영 검사용 진단 값. 서버는 127.0.0.1에만 열리지만 같은 컴퓨터에서 온 요청인지 한 번 더 본다.
-  if (request.method === "GET" && request.url === "/api/diagnostics") {
+  if (method === "GET" && path === "/api/diagnostics") {
     if (!isLoopbackAddress(request.socket.remoteAddress)) { sendJson(response, 403, { error: "같은 컴퓨터에서만 볼 수 있습니다." }); return; }
     const usage = process.memoryUsage();
     sendJson(response, 200, {
@@ -718,24 +925,27 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
       sessionTurns: broadcastSession.sessionTurns.length,
       recentChatKeys: recentContents.size,
       audioCacheSize: audioCache.size,
+      audioCacheBytes,
+      droppedChats,
+      lastError: state.lastError,
     });
     return;
   }
   // LLM 상태. API 키 자체는 내보내지 않고 설정 여부만 알린다.
-  if (request.method === "GET" && request.url === "/api/llm") {
+  if (method === "GET" && path === "/api/llm") {
     // status는 방송 클라이언트 것이다. 1:1 회로와 통계는 companionStatus로 따로 보여 준다.
     sendJson(response, 200, { settings: llmSettings, status: llm.status(llmSettings, llmApiKey), companionStatus: llmClients.llmFor("companion").status(llmSettings, llmApiKey), storedKeyUnreadable: llmKey.isUnreadable(), providers: supportedProviders, defaultModels, macro: macroStatus(), systemPromptChars: engine.systemPromptChars("broadcast") });
     return;
   }
   // 매크로는 파일로 편집하므로, 서버를 다시 띄우지 않고 다시 읽을 수 있게 한다.
-  if (request.method === "POST" && request.url === "/api/macros/reload") {
+  if (method === "POST" && path === "/api/macros/reload") {
     loadMacros();
     // 파일이 바뀌었으면 지금 켜져 있는 항목도 옛 정의를 들고 있으므로 모두 내린다.
     engine.clearMacros(broadcastSession);
     sendJson(response, macroLoadError ? 400 : 200, macroStatus());
     return;
   }
-  if (request.method === "PATCH" && request.url === "/api/llm") {
+  if (method === "PATCH" && path === "/api/llm") {
     readBody(request, response, body => {
       try {
         // 키·업체·타입·범위를 먼저 모두 검사한다. 틀리면 키도 설정도 바꾸지 않는다.
@@ -772,12 +982,12 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     return;
   }
   // 호출량과 추정 비용. 숫자만 담고, 단가 파일은 요청마다 다시 읽는다.
-  if (request.method === "GET" && request.url === "/api/usage") {
+  if (method === "GET" && path === "/api/usage") {
     sendJson(response, 200, buildUsageReport(usageStore.days(), loadPriceTable(usagePricesPath), Date.now()));
     return;
   }
   // 1:1 사용 통계. 대화 제목·내용·기억 문장 없이 개수만 보낸다.
-  if (request.method === "GET" && request.url === "/api/companion/stats") {
+  if (method === "GET" && path === "/api/companion/stats") {
     const stats: CompanionStats = {
       ...handleCompanionRoute.stats(),
       privateMemories: memoryStore.all().filter(record => record.scope === "private" && record.ownerId === COMPANION_LOCAL_OWNER).length,
@@ -786,10 +996,9 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     return;
   }
   // 음성 설정과 재생. 오디오는 방송 화면이 바로 받아 재생한다.
-  if (request.method === "GET" && request.url === "/api/tts") {
-    // 목소리 목록은 업체에 물어봐야 하므로 비동기다. 실패해도 설정은 돌려준다.
-    void listVoices(ttsCredentials(), ttsSettings.provider)
-      .catch(() => [])
+  if (method === "GET" && path === "/api/tts") {
+    // 목소리 목록은 업체에 물어봐야 하므로 비동기다. 캐시(10분)와 상한(5초)이 있고, 실패해도 설정은 돌려준다.
+    void voiceList.get(ttsCredentials(), ttsSettings.provider)
       .then(voices => sendJson(response, 200, {
         settings: ttsSettings,
         voices,
@@ -803,7 +1012,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
       }));
     return;
   }
-  if (request.method === "PATCH" && request.url === "/api/tts") {
+  if (method === "PATCH" && path === "/api/tts") {
     readBody(request, response, body => {
       try {
         // 업체·목소리·범위를 먼저 모두 검사한다. 틀리면 키도 설정도 바꾸지 않는다.
@@ -836,8 +1045,9 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
         ttsFailureCount = 0;
         ttsLastError = null;
 
-        void listVoices(ttsCredentials(), ttsSettings.provider)
-          .catch(() => [])
+        // 저장할 때는 목록을 새로 받는다. 업체에서 목소리를 바꾼 뒤 저장으로 다시 읽게 한다.
+        voiceList.clear();
+        void voiceList.get(ttsCredentials(), ttsSettings.provider)
           .then(voices => sendJson(response, 200, {
             settings: ttsSettings,
             voices,
@@ -853,8 +1063,8 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     });
     return;
   }
-  if (request.method === "GET" && request.url?.startsWith("/api/tts/")) {
-    const audio = audioCache.get(decodeURIComponent(request.url.slice("/api/tts/".length)));
+  if (method === "GET" && path.startsWith("/api/tts/")) {
+    const audio = audioCache.get(decodeURIComponent(path.slice("/api/tts/".length)))?.audio;
     if (!audio) { sendJson(response, 404, { error: "음성을 찾을 수 없습니다." }); return; }
     response.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": audio.length, "Cache-Control": "no-store" });
     response.end(audio);
@@ -862,7 +1072,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
   }
   // 장기 기억. 원문은 관리자만 본다. 공개 범위(scope)와 소유자(ownerId)도 함께 보낸다.
   // 임베딩 배열은 보내지 않는다. 화면이 쓰지 않는데 실임베딩 50건이면 약 1.4MB를 1.5초마다 보냈다(점검 M-13).
-  if (request.method === "GET" && request.url === "/api/memory") {
+  if (method === "GET" && path === "/api/memory") {
     const records = memoryStore.all()
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       .slice(0, 50)
@@ -870,7 +1080,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     sendJson(response, 200, { settings: memorySettings, count: memoryStore.count(), records });
     return;
   }
-  if (request.method === "PATCH" && request.url === "/api/memory") {
+  if (method === "PATCH" && path === "/api/memory") {
     readBody(request, response, body => {
       try {
         const checked = validateMemorySettingsPatch(JSON.parse(body));
@@ -890,8 +1100,8 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     return;
   }
   // 기억 삭제는 관리자 수동 조작이다. 계획서의 원문 로그 수동 삭제 원칙을 따른다.
-  if (request.method === "DELETE" && request.url?.startsWith("/api/memory/")) {
-    const id = decodeURIComponent(request.url.slice("/api/memory/".length));
+  if (method === "DELETE" && path.startsWith("/api/memory/")) {
+    const id = decodeURIComponent(path.slice("/api/memory/".length));
     // 파일에 쓰지 못하면 저장소가 지운 것을 되돌린다. 지웠다고 답하지 않는다(점검 D-3).
     const removal = id === "all" ? memoryStore.clear().then(() => true) : memoryStore.remove(id);
     void removal
@@ -903,8 +1113,8 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     return;
   }
   // 관리자가 확인할 수 있는 표정·모션 목록. 이름은 모델 패키지가 단독으로 소유한다.
-  if (request.method === "GET" && request.url === "/api/live2d/catalog") { sendJson(response, 200, { expressions: boriExpressionNames, motions: boriMotionGroupNames }); return; }
-  if (request.method === "POST" && request.url === "/api/live2d/test") {
+  if (method === "GET" && path === "/api/live2d/catalog") { sendJson(response, 200, { expressions: boriExpressionNames, motions: boriMotionGroupNames }); return; }
+  if (method === "POST" && path === "/api/live2d/test") {
     readBody(request, response, body => {
       try {
         const input = JSON.parse(body) as { kind?: string; name?: string };
@@ -917,7 +1127,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
       } catch (error) { sendBodyError(response, error); }
     }); return;
   }
-  if (request.method === "PATCH" && request.url === "/api/settings") {
+  if (method === "PATCH" && path === "/api/settings") {
     readBody(request, response, body => {
       try {
         // 잘못된 값이 하나라도 있으면 아무것도 병합하지 않는다.
@@ -927,78 +1137,23 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
       } catch (error) { sendBodyError(response, error); }
     }); return;
   }
-  if (request.method === "POST" && request.url === "/api/session/start") {
-    // 세대를 올려 진행 중이던 이전 세션의 비동기 응답을 무효화한다.
-    sessionGeneration += 1;
-    queue.length = 0;
-    recentContents.clear();
-    // 대화 문맥·누적 요약·매크로·문장 쿨다운은 방송 단위다. 세션을 새로 만들어 이전 방송의 흐름을 끌고 오지 않는다.
-    broadcastSession = engine.createSession("broadcast");
-    // 진행 상황도 방송마다 새로 센다.
-    sessionStartedAt = Date.now();
-    answeredCount = 0;
-    speaking = false;
-    if (responseTimer) clearTimeout(responseTimer);
-    responseTimer = undefined;
-    cancelMonologue();
-    state = { ...state, status: "live", currentEmotion: "calm", currentResponse: undefined, visibleChats: [], visibleChatCount: 0, queueSize: 0, unprocessedCount: 0 };
-    scheduleMonologue();
+  if (method === "POST" && path === "/api/session/start") {
+    startBroadcast();
     sendJson(response, 200, state);
     return;
   }
-  if (request.method === "POST" && request.url === "/api/session/end") {
-    sessionGeneration += 1;
-    queue.length = 0;
-    speaking = false;
-    // 대화 기록은 기억 저장에 써야 하므로 세션은 그대로 두고 매크로만 내린다.
-    engine.clearMacros(broadcastSession);
-    if (responseTimer) clearTimeout(responseTimer);
-    responseTimer = undefined;
-    cancelMonologue();
-    state = { ...state, status: "ended", queueSize: 0, currentResponse: undefined, currentEmotion: "calm" };
-    // 기억 저장은 오래 걸릴 수 있으므로 응답을 막지 않는다.
-    void persistSessionMemories();
+  // 방송 중이 아니면 아무것도 하지 않고 지금 상태를 돌려준다. 두 번째 종료는 기억을 다시 저장하지 않는다.
+  if (method === "POST" && path === "/api/session/end") {
+    endBroadcast();
     sendJson(response, 200, state);
     return;
   }
-  if (request.method === "POST" && request.url === "/api/chat") {
+  if (method === "POST" && path === "/api/chat") {
     readBody(request, response, body => {
       try {
-        const input = JSON.parse(body) as { content?: unknown; nickname?: unknown };
-        if (typeof input.content !== "string" || (input.nickname !== undefined && typeof input.nickname !== "string")) {
-          sendJson(response, 400, { error: "content와 nickname은 문자열이어야 합니다." }); return;
-        }
-        // 제어문자·방향 바꿈 문자는 화면·프롬프트에 나가기 전에 지운다(B-5).
-        const content = cleanInputText(input.content).trim();
-        if (lengthOf(content) > CHAT_MAX_LENGTH) { sendJson(response, 400, { error: `채팅은 ${CHAT_MAX_LENGTH}자 이하여야 합니다.` }); return; }
-        const nickname = nicknameOf(input.nickname ?? "");
-        if (lengthOf(nickname) > NICKNAME_MAX_LENGTH) { sendJson(response, 400, { error: `닉네임은 ${NICKNAME_MAX_LENGTH}자 이하여야 합니다.` }); return; }
-        const key = normalize(content);
-        if (!content || state.status !== "live" || isDuplicateChat(key)) { sendJson(response, 400, { error: "채팅을 처리할 수 없습니다." }); return; }
-        recentContents.set(key, Date.now());
-
-        // 닉네임은 내부 사용자 ID로만 쓴다. 방송 화면에는 내보내지 않는다.
-        const chat: ChatMessage = {
-          id: randomUUID(),
-          viewerId: nickname ? viewerIdOf(nickname) : "virtual-viewer",
-          ...(nickname ? { viewerNickname: nickname } : {}),
-          content,
-          receivedAt: new Date().toISOString(),
-          source: "manual",
-          category: isQuestion(content) ? "question" : "normal",
-        };
-
-        // 방송 화면에 넘기는 목록에는 화면에 필요한 값만 담는다.
-        // viewerId도 닉네임에서 만든 값이라 함께 빼야 닉네임이 드러나지 않는다.
-        const visible: VisibleChat = { id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) };
-        state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
-
-        // 상한을 줄였으면 큐가 이미 넘쳐 있을 수 있으므로 상한 안으로 들어올 때까지 오래된 것부터 버린다.
-        while (queue.length >= settings.maxQueueSize) queue.shift();
-        queue.push(chat);
-        syncQueueState();
-        cancelMonologue();
-        scheduleNext();
+        const parsed: unknown = JSON.parse(body);
+        const rejected = ingestChat(isPlainObject(parsed) ? parsed : {});
+        if (rejected) { sendJson(response, 400, rejected); return; }
         sendJson(response, 200, state);
       } catch (error) { sendBodyError(response, error); }
     }); return;

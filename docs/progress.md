@@ -647,6 +647,46 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 - 기억을 하나만 지워도 그 전의 정리하지 않은 메시지는 정리하지 않는다. 지운 내용이 되살아나지 않게 하는 쪽을 택했다(ADR-023 결과).
 - 무응답 정리 시간(10분)·첫 메시지 대기(3초)·모두 넣기 상한(15건)은 실측으로 정한 값이 아니다.
 
+### 9.4 출력 검증과 방송 운영
+
+2026-10-13 점검의 L-1~L-3(출력 검증·요약), O-1~O-5(방송 운영), U-3·U-5의 서버 쪽, Q-4(경로 비교)를 고쳤다. 결정과 근거는 [ADR-024](./decisions.md)에 있다. 방송 화면(`apps/broadcast`)과 관리자 화면(`apps/admin`)은 치지직 방송 시스템 작업(W1·W5)으로 넘어가 이 작업에서 바꾸지 않았다. 서버가 값을 내보내는 데까지만 했다.
+
+| 점검 ID | 내용 | 위치 |
+|---|---|---|
+| L-1 (a6 A6-02, a3 F7·F8·F13) | 감정·모션 같은 곁가지 값이 틀리면 답은 살리고 그 값만 기본값(`calm`, 모션 없음)으로 바꾼다. 대소문자만 다른 감정은 받는다. 보조 감정·강도·지속 시간은 빼거나 범위로 맞춘다. 모션은 허용된 것 하나만 `body`·우선순위 2로 남긴다. 보정은 회로 실패로 세지 않고 로그로만 남긴다. 응답 스키마에 감정·모션·레이어·우선순위 enum, 최대 출력 토큰(답 512, 요약 1024) | `packages/llm/src/validate.ts`·`prompt.ts`·`openai.ts`·`anthropic.ts`·`index.ts` |
+| L-3 (a3 F12·F14·F15) | 이모지·마크다운·꺾쇠 태그를 지운 뒤 통과. 답 길이를 코드포인트로 센다. 429는 Retry-After만큼 기다려 호출 상한 안에서 한 번 다시 보내고, 그래도 429면 실패 수·lastError에만 남기고 연속 실패로 세지 않는다 | `validate.ts`, `packages/llm/src/retry.ts`, `index.ts` |
+| L-2 (a3 F5·F6, a4 A4-17) | 누적 요약이 실패하면 다음 시도까지 `rollingSummaryTurns × 2^실패수` 발언을 기다리고 5번 연달아 실패하면 그 세션에서 멈춘다. 요약 입력은 최근 발언부터 상한까지만(누적 40발언·4천 자, 종료 요약 400발언·1만 2천 자) | `apps/server/src/conversation/engine.ts`, `packages/llm/src/summarize.ts` |
+| O-1 (a4 A4-02·06·16·19) | 방송 중 `/api/session/start`는 진행 중 방송을 정상 종료(기억 저장)한 뒤 새로 연다. 방송 중이 아닐 때 `end`는 아무것도 하지 않는다. 생성 중 종료한 채팅의 시청자 발언을 그 세션 기록에 남긴다. 대기 취소 때 대기 프라미스도 끝낸다 | `apps/server/src/index.ts` `startBroadcast`·`endBroadcast`·`recordUnanswered`·`cancelResponseWait` |
+| O-2 (a4 A4-03·04·05·20) | 큐 채팅은 60초가 지나면 답하지 않고 버린다. 한 시청자는 큐에 3건까지(넘치면 그 시청자의 가장 오래된 것을 버림). 버려진 채팅 수를 이유별(`queueLimit`·`viewerLimit`·`expired`·`duplicate`·`blocked`)로 `/api/state`·`/api/diagnostics`의 `droppedChats`에 센다. 중복은 같은 시청자의 같은 문장만이다. 거절 응답에 `code`(`empty`·`not_live`·`duplicate`·`too_long`·`nickname_too_long`·`invalid`) | `index.ts` `ingestChat`·`dropExpiredChats` |
+| O-3 (a4 A4-14) | 게임·음악 낱말 규칙은 LLM을 쓸 수 있으면 LLM에 양보한다("리듬 게임에 완전 빠졌어"에 "어떤 게임 하세요?"로 되묻지 않는다) | `apps/server/src/conversation/rules.ts` |
+| O-4 (a4 A4-12·13·15·18) | 0바이트·mp3 프레임이 없는 음성은 TTS 실패로 본다. mp3 프레임을 세어 재생 길이를 구하고 말풍선을 음성 길이 + 1초(5~30초) 둔다. 음성 한 건 5MB, 캐시 총 50MB 상한. 방송 답 음성 합성은 6초 상한(설정이 더 길어도) | `packages/llm/src/tts.ts`, `index.ts` `prepareAudio`·`speak` |
+| O-5·U-3·U-5 서버 쪽 (a4 A4-08·10·23) | `state.lastError`는 다음 LLM 답과 방송 시작 때 지운다. 종료 때 `visibleChats`를 비운다. 목소리 목록은 10분 캐시(실패는 30초), 요청 5초 상한, 동시 요청은 하나로 묶는다. `/api/diagnostics`에 `droppedChats`·`lastError`·`audioCacheBytes` | `tts.ts` `createVoiceListCache`, `index.ts` |
+| Q-4 (a1 L1·L5, a7 F16) | 라우트를 경로만으로 고른다(쿼리·끝 슬래시 허용). HEAD는 GET 라우트로 답한다 | `index.ts` `routePathOf` |
+
+검사:
+
+- 단위(51건 추가): `packages/llm/test/validate.test.ts`(보정·실패·스키마 enum·출력 토큰), `retry.test.ts`(Retry-After, 재시도, 429·보정이 회로를 열지 않음, 요청 본문의 `max_completion_tokens`), `tts.test.ts`(mp3 길이, 0바이트·깨진 음성, 크기 상한, 목소리 목록 상한·캐시), `summarize.test.ts`에 입력 상한 4건, `apps/server/test/broadcast-ops.test.ts`(누적 요약 백오프 5건, 게임·음악 규칙 3건).
+- 통합: 새 시나리오 `tools/test/operations.mjs`(29건). 경로·HEAD, 방송 중 재시작 기억 저장, 두 번 종료(repeatCount·요약 호출), 생성 중 종료 기억, 게임 규칙, lastError 지움, 빈·깨진 음성, 음성 길이 말풍선, 방송 음성 6초 상한, 캐시 50MB, 목소리 목록 캐시, 거절 코드, 시청자별 중복·상한, 만료(60초), 집계. 가짜 API에 음성 `empty`·`garbage`·`long` 주입과 `/v1/voices`를 더했다.
+- 결과(2026-10-15, `fix/broadcast-ops`, `fix/audit-followup` 67b3c3e 위): typecheck 10개 워크스페이스 통과, `test:unit` 644/644(기준 593), `test` 284/284(기준 255, 새 `operations.mjs` 29건), `eval:test` 90/90, `eval:typecheck` 통과, `eval:static` 통과 50·실패 0·범위 밖 4.
+- 장시간(가짜 API, 포트 4745/4746):
+
+| 검사 | 기준 코드(c98ff53) | 이번 |
+|---|---|---|
+| `test:soak --minutes 10` | 답변 75/75, 오류 0, 방송 지연 p50 1646 / p95 2999 / 최대 3896ms | 1회차 78/78, 오류 0, p50 1803 / p95 5986 / 최대 6678ms. 2회차 72/72, 오류 0, p50 1716 / p95 3691 / 최대 4807ms. RSS 기울기 0.8MB/분 |
+| 장애 주입 soak 10분(a4 `soak-fault.mjs`, LLM 500·지연, TTS 실패·지연, 5분마다 재시작, 가짜 ElevenLabs 4744) | 점검 때 16분: 방송 지연 첫 10분 최대 96,310ms, 16분 최대 104,670ms, 큐 최대 19 | 최대 66,431ms(p50 44,242 / p95 61,146), 큐 최대 12, 만료로 버림 12건, 처리 안 된 예외 0, 오류 응답 0, 핸들 268~279 |
+
+  일반 soak는 이번 변경이 닿지 않는 경로다(만료·시청자 상한이 걸리지 않고 말풍선은 전과 같은 5초). 1회차 3~5분 구간의 높은 지연은 2회차에 재현되지 않아 채팅 도착 간격의 흔들림으로 본다(같은 시각에 다른 작업을 돌렸다). 장애 soak는 입력(분당 약 12건)이 처리량(분당 약 9건)보다 많은 조건이라 지연이 여전히 크지만, 60초 만료로 대기가 묶였다. 처리량 자체는 그대로다.
+
+남은 것:
+
+- 방송 화면이 음성 `ended`를 기다리거나 재생 실패 이유를 나눠 보이는 것(A4-12·13의 화면 쪽)과 관리자 화면에 `droppedChats`·`lastError`를 보이는 것은 OBS 페이지(W1)·보리 스튜디오(W5) 작업이다.
+- 음성 길이는 mp3 프레임 머리로 센다. 실제 OpenAI·ElevenLabs 음성으로는 확인하지 않았다(미검증, 가짜 음성만 사용). 프레임을 못 찾으면 그 음성은 실패로 보고 글로만 나간다.
+- Structured Outputs enum과 `max_completion_tokens`는 실제 OpenAI로 보내 보지 않았다(미검증, 실모델 사용 금지 작업). Anthropic 어댑터도 미검증 그대로다.
+- 방송 음성은 여전히 LLM 뒤에 이어 만든다. 글을 먼저 띄우고 음성을 나중에 붙이는 방식은 방송 화면 재생 쪽을 함께 바꿔야 해서 하지 않고 상한(6초)만 두었다.
+- 평가 도구(`tools/eval`)도 같은 검증을 쓰므로, 허용 밖 감정·모션은 이제 실패 대신 기본값으로 판정된다. 원래 값을 따로 세는 일은 평가 작업 범위다.
+- 방송 종료 요약은 최근 1만 2천 자만 본다. 아주 긴 방송의 앞부분 주제는 종료 요약에 남지 않는다.
+- 큐 대기 중 방송을 끝내면 큐에 남은 채팅은 집계 없이 버린다(기억 후보로도 남지 않는다).
+
 ### 9.5 화면 수정
 
 2026-10-13 점검(summary 7장 U-1~U-8, 8장 X-2, a5 보고서) 중 화면 쪽을 고쳤다. 서버 응답 형식은 바꾸지 않았다.

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { digestPrivateMemories, isBroadcastMemoryText, PRIVATE_MEMORY_DIGEST_LIMIT, summarizeBroadcast, summarizeSessionProgress } from "../src/summarize.js";
+import { BROADCAST_SUMMARY_LIMITS, digestPrivateMemories, isBroadcastMemoryText, limitSummaryTurns, PRIVATE_MEMORY_DIGEST_LIMIT, PROGRESS_SUMMARY_LIMITS, summarizeBroadcast, summarizeSessionProgress } from "../src/summarize.js";
 import type { LlmAdapter, LlmRequest } from "../src/types.js";
 
 function fakeAdapter(raw: string) {
@@ -160,5 +160,39 @@ describe("방송 종료 요약(B-2·B-3)", () => {
     for (const text of ["리듬 게임 이야기로 채팅이 활발했다.", "방송 분위기가 차분하고 따뜻했다.", "보리가 다음 방송에서 노래 추천을 받기로 약속했다."]) {
       assert.equal(isBroadcastMemoryText(text, ["민수", "하늘"]), true, text);
     }
+  });
+});
+
+describe("요약 입력 상한(L-2, a3 F5·F6, a4 A4-17)", () => {
+  const many = (count: number, text = "오늘 저녁 메뉴 이야기를 했어요") => Array.from({ length: count }, (_, index) => ({ role: index % 2 === 0 ? "viewer" as const : "bori" as const, text: `${index}번 ${text}` }));
+
+  test("최근 발언부터 상한까지만 남기고 오래된 것을 버린다", () => {
+    const kept = limitSummaryTurns(many(10), { maxTurns: 3, maxChars: 10_000 });
+    assert.deepEqual(kept.map(turn => turn.text.split("번")[0]), ["7", "8", "9"]);
+    const byChars = limitSummaryTurns(many(10, "가".repeat(100)), { maxTurns: 100, maxChars: 250 });
+    assert.equal(byChars.length, 2);
+    assert.ok(byChars[1].text.startsWith("9번"));
+  });
+
+  test("한 발언이 상한보다 길어도 마지막 하나는 넘긴다", () => {
+    assert.equal(limitSummaryTurns([{ role: "viewer", text: "가".repeat(500) }], { maxTurns: 10, maxChars: 100 }).length, 1);
+  });
+
+  test("누적 요약은 실패로 쌓인 300발언 중 최근 것만 보낸다", async () => {
+    const { adapter, requests } = fakeAdapter(JSON.stringify({ summary: "요약" }));
+    await summarizeSessionProgress(adapter, "", many(300), { timeoutMs: 1000 });
+    const lines = (requests[0].overrideUserPrompt ?? "").split("\n").filter(line => line.startsWith("시청자:") || line.startsWith("보리:"));
+    assert.equal(lines.length, PROGRESS_SUMMARY_LIMITS.maxTurns);
+    assert.ok(lines.at(-1)?.includes("299번"));
+    assert.ok(!requests[0].overrideUserPrompt?.includes("\"0번"));
+  });
+
+  test("방송 종료 요약 입력은 글자 수 상한 안이다", async () => {
+    const { adapter, requests } = fakeAdapter(JSON.stringify({ summary: "요약", highlights: [] }));
+    await summarizeBroadcast(adapter, many(3000), { timeoutMs: 1000 });
+    const prompt = requests[0].overrideUserPrompt ?? "";
+    // 따옴표·화자 이름이 붙어 원문보다 조금 길다. 원문 3000발언(약 6만 자)이 그대로 가지 않았는지 본다.
+    assert.ok(prompt.length < BROADCAST_SUMMARY_LIMITS.maxChars * 1.5, `${prompt.length}자`);
+    assert.ok(prompt.includes("2999번"));
   });
 });

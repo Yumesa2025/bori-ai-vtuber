@@ -83,7 +83,10 @@ export type LlmAdapterConfig = {
   baseUrl?: string;
 };
 
-/** 검증 결과. 실패 이유를 남겨 관리자 화면에 보여준다. */
+/**
+ * 검증 결과. 실패 이유를 남겨 관리자 화면에 보여준다.
+ * corrections는 답은 살리고 기본값으로 바꾼 곁가지 값(감정·모션·기호)의 설명이다. 실패로 세지 않는다.
+ */
 export type LlmValidation =
-  | { ok: true; response: CharacterResponse }
+  | { ok: true; response: CharacterResponse; corrections: string[] }
   | { ok: false; reason: string };
