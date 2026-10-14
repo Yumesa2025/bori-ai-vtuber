@@ -1,0 +1,12 @@
+{
+  "code": 200,
+  "message": "Success",
+  "data": [
+    { "code": 1, "name": "Jackie", "maxHp": 940 },
+    { "code": 2, "name": "Aya", "maxHp": 860 },
+    { "code": 3, "name": "Fiora", "maxHp": 900 },
+    { "code": 10, "name": "LiDailin", "maxHp": 930 },
+    { "code": 46, "name": "Yan", "maxHp": 950 },
+    { "code": 99, "name": "NewOne", "maxHp": 900 }
+  ]
+}

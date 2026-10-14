@@ -1,0 +1,19 @@
+Character/Name/0┃무작위
+Character/Name/1┃재키
+Character/Name/2┃아야
+Character/Name/3┃피오라
+Character/Name/10┃리 다이린
+Character/Name/46┃얀
+WeaponType/None┃없음
+WeaponType/Glove┃글러브
+WeaponType/Pistol┃권총
+WeaponType/AssaultRifle┃돌격 소총
+WeaponType/SniperRifle┃저격총
+WeaponType/Axe┃도끼
+WeaponType/OneHandSword┃단검
+WeaponType/TwoHandSword┃양손검
+WeaponType/DualSword┃쌍검
+WeaponType/Rapier┃레이피어
+WeaponType/Spear┃창
+MasteryType/Glove/Desc┃글러브는 사거리가 짧지만┃구분자가 값에 있어도 첫 구분자만 쓴다
+이 줄은 구분자가 없어 무시한다
