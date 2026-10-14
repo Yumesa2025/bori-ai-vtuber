@@ -2,9 +2,10 @@
  * 서버 단위 검사가 같이 쓰는 가짜 의존성. 네트워크를 쓰지 않는다.
  * 파일 이름이 *.test.ts가 아니라 검사로 직접 돌지 않는다.
  */
-import type { LlmOutcome, LlmRequest } from "@bori/llm";
+import type { DigestedMemory, LlmOutcome, LlmRequest } from "@bori/llm";
 import type { MemoryAccess, MemorySearchHit, MemorySettings } from "@bori/memory";
 import type { LlmSettings } from "@bori/shared";
+import type { DigestMemories, DigestRequest } from "../src/companion/index.js";
 import type { ConversationEngineDeps } from "../src/conversation/index.js";
 
 export type FakeEngineHarness = {
@@ -74,4 +75,21 @@ export function createFakeEngineHarness(): FakeEngineHarness {
     replyCooldownMinutes: () => 0,
   };
   return harness;
+}
+
+/**
+ * 가짜 LLM 기억 정리기. run이 돌려준 문장(또는 결과)을 정리 결과로 쓴다. 받은 요청은 calls에 쌓인다.
+ * available이 false면 서비스는 LLM을 못 쓰는 것으로 보고 규칙 추출도 한다. 정리 자체는 그래도 불린다.
+ */
+export function fakeDigest(run: (request: DigestRequest) => Promise<readonly (string | DigestedMemory)[] | null>, available = true): DigestMemories & { calls: DigestRequest[] } {
+  const calls: DigestRequest[] = [];
+  return {
+    calls,
+    isAvailable: () => available,
+    async digest(request) {
+      calls.push(request);
+      const result = await run(request);
+      return result?.map(entry => (typeof entry === "string" ? { text: entry, replaces: [] } : entry)) ?? null;
+    },
+  };
 }

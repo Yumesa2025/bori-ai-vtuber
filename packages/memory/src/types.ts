@@ -27,7 +27,7 @@ export type MemoryRecord = {
   /** 같은 뜻의 기억이 마지막으로 다시 들어온 시각. 한 번만 나왔으면 비어 있다. */
   lastSeenAt?: string;
   expiresAt: string;
-  /** 임베딩. 아직 계산하지 못했으면 비어 있고, 그때는 검색에서 최신순으로만 다룬다. */
+  /** 임베딩. 아직 계산하지 못했으면 비어 있고, 그때는 검색에서 문자열 유사도로 다루다가 다음 검색 때 채운다. */
   embedding?: number[];
 };
 
@@ -39,6 +39,11 @@ export type MemoryCandidate = {
   ownerId?: string;
   importance: number;
   confidence: number;
+  /**
+   * 이 후보를 저장하면서 지울 같은 소유자의 기존 기억 ID. 정정·변경으로 옛 사실이 틀리게 됐을 때 쓴다(점검 M-4).
+   * 공개 범위·소유자·종류가 다른 기억은 지우지 않는다.
+   */
+  replaces?: readonly string[];
 };
 
 /**
@@ -59,13 +64,13 @@ export type EmbeddingProvider = {
 
 export type MemorySearchHit = {
   record: MemoryRecord;
-  /** 코사인 유사도. 임베딩이 없으면 0이다. */
+  /** 점수. 임베딩이 있으면 코사인 유사도, 없으면 문자열 유사도에 중요도를 약하게 더한 값이다. 임베딩을 못 쓰면 0이다. */
   score: number;
 };
 
 export type MemorySettings = {
   enabled: boolean;
-  /** LLM 프롬프트에 넣을 최대 기억 수. */
+  /** LLM 프롬프트에 넣을 최대 기억 수. 1:1 개인 기억이 적을 때(PRIVATE_RECALL_ALL_LIMIT 이하)는 모두 넣는다. */
   maxMemories: number;
   /** 이 유사도 아래는 관련 없다고 본다. */
   minSimilarity: number;

@@ -5,7 +5,7 @@ import { canAccessMemory } from "./access.js";
 import { cosineSimilarity } from "./embedding.js";
 import { backupFile, isMissingFileError, removeLeftoverFiles, writeFileAtomically, writeFileAtomicallyAsync } from "./file.js";
 import { MEMORY_FILE_VERSION, migrateMemoryFile } from "./migrate.js";
-import { isSameMemoryEmbedding, isSameMemoryText } from "./similar.js";
+import { isSameMemoryText, textSimilarity } from "./similar.js";
 import type { EmbeddingProvider, MemoryAccess, MemoryCandidate, MemoryRecord, MemorySearchHit, MemorySettings } from "./types.js";
 
 export type MemoryAddOptions = {
@@ -24,6 +24,22 @@ export type MemoryStoreOptions = {
   /** 임시 파일을 제자리로 옮기는 함수. 테스트에서 쓰기 실패를 주입할 때 바꾼다. */
   rename?: (from: string, to: string) => void;
 };
+
+/**
+ * 1:1 개인 기억이 이 수 이하면 검색 순위와 상관없이 모두 프롬프트에 넣는다(점검 M-5).
+ * 실모델 재현의 프롬프트를 보니 "저 누군지 기억나요?"에 이름 기억이 유사도 0.3 아래로 빠졌고,
+ * 5칸이 질문 원문·중복 기억으로 차서 저장된 사실이 들어가지 못했다. 한 사람의 기억은 적으므로 다 넣는 편이 낫다.
+ * 넘으면 방송과 같이 유사도로 고른다. 1:1 기억 15건은 입력 토큰 약 450개다.
+ */
+export const PRIVATE_RECALL_ALL_LIMIT = 15;
+
+/** 임베딩 없이 저장된 기억을 한 번에 채우는 수. 검색할 때 백그라운드로 돈다(점검 M-8). */
+const BACKFILL_BATCH = 20;
+/** 임베딩 채우기가 실패하면 이만큼 쉬었다가 다시 시도한다. 검색마다 실패한 호출을 되풀이하지 않는다. */
+const BACKFILL_RETRY_MS = 60_000;
+
+/** 기억을 지운 범위. all이면 모든 소유자다. 소유자 없는 기억은 빈 문자열로 나타낸다. */
+export type MemoryRemovalScope = readonly string[] | "all";
 
 /** 한 조각에 담는 기억 수. 임베딩까지 담으면 한 건이 수십 KB라, 이 정도면 조각 하나를 만드는 데 수십 ms다. */
 const RECORDS_PER_CHUNK = 200;
@@ -62,6 +78,42 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
   let writing: Promise<void> = Promise.resolve();
   /** 아직 시작하지 않은 다음 저장. 실패하면 onFailure를 차례로 부른 뒤 예외를 넘긴다. */
   let queued: { promise: Promise<void>; onFailure: (() => void)[] } | null = null;
+
+  /**
+   * 삭제 세대. 전체 삭제는 clearEpoch를, 소유자 단위·한 건 삭제는 그 소유자의 세대를 올린다(점검 M-9).
+   * 기억 저장(add)은 임베딩을 기다리는 사이 세대가 바뀌면 결과를 버린다. 관리자 삭제도 같은 저장소를 거치므로
+   * 1:1 삭제와 똑같이 진행 중인 정리·방송 종료 저장을 막는다. 예전에는 세대가 1:1 서비스에만 있었다.
+   */
+  let clearEpoch = 0;
+  const ownerEpochs = new Map<string, number>();
+  const removalListeners = new Set<(scope: MemoryRemovalScope) => void>();
+  /** 임베딩 채우기. 겹쳐 돌지 않게 하나만 둔다. */
+  let backfillTask: Promise<void> = Promise.resolve();
+  let backfilling = false;
+  let backfillRetryAt = 0;
+
+  const ownerKey = (ownerId: string | undefined) => ownerId ?? "";
+
+  /** 지운 범위의 세대를 올리고 알린다. 알림 실패는 삭제를 막지 않는다. */
+  function markRemoved(scope: MemoryRemovalScope) {
+    if (scope === "all") clearEpoch += 1;
+    else for (const id of scope) ownerEpochs.set(id, (ownerEpochs.get(id) ?? 0) + 1);
+    for (const listener of removalListeners) {
+      try {
+        listener(scope);
+      } catch (error) {
+        warn(`기억 삭제 알림을 처리하지 못했습니다. (${errorCode(error)})`);
+      }
+    }
+  }
+
+  /** 지금 세대를 잡아 두고, 그 뒤에 이 소유자들의 기억을 지웠는지 알려 주는 함수를 돌려준다. */
+  function watchRemovals(ownerIds: readonly (string | undefined)[]): () => boolean {
+    const startedClear = clearEpoch;
+    const keys = [...new Set(ownerIds.map(ownerKey))];
+    const started = keys.map(key => ownerEpochs.get(key) ?? 0);
+    return () => clearEpoch !== startedClear || keys.some((key, index) => (ownerEpochs.get(key) ?? 0) !== started[index]);
+  }
 
   /**
    * 원본을 unreadable 백업으로 남긴다. 남기지 못하면 이번 실행 동안 파일에 쓰지 않는다.
@@ -200,38 +252,53 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
 
   /**
    * 후보를 기억으로 저장한다.
-   * 같은 뜻의 기억이 이미 있으면 새로 만들지 않고 반복 횟수·수명·마지막 시각만 올린다.
-   * 계획서의 "여러 방송에서 반복된 내용"을 중요하게 다루기 위한 처리다.
+   * 같은 기억이 이미 있으면 새로 만들지 않고, 그 기억을 새 문장으로 바꾼 뒤 반복 횟수·수명·마지막 시각을 올린다.
+   * 계획서의 "여러 방송에서 반복된 내용"을 중요하게 다루기 위한 처리다. 예전에는 옛 문장을 남겨 새 문장이 버려졌다(점검 M-1).
    *
-   * 같은 뜻은 두 단계로 본다. 먼저 문자열 규칙으로, 남은 것은 임베딩이 있으면 유사도로 본다(similar.ts).
+   * 같은 기억인지는 문자열 규칙으로만 본다(similar.ts). 임베딩 유사도로는 합치지 않는다(ADR-023).
    * 비교 대상은 공개 범위·소유자·종류가 모두 같은 기억뿐이다. 다른 사람의 기억과는 뜻이 같아도 합치지 않는다.
+   * 후보에 replaces가 있으면 같은 소유자의 그 기억을 지운다. 정정·변경된 옛 사실을 새 사실로 바꾸는 데 쓴다(점검 M-4).
    */
   async function add(candidates: readonly MemoryCandidate[], settings: MemorySettings, embedding: EmbeddingProvider | null, options: MemoryAddOptions = {}): Promise<number> {
     if (candidates.length === 0 || options.isStale?.()) return 0;
+    // 임베딩을 기다리는 사이 이 소유자들의 기억이 지워졌으면 저장하지 않는다. 관리자 삭제도 여기에 걸린다.
+    const removedMeanwhile = watchRemovals(candidates.map(candidate => candidate.ownerId));
+    dropExpired();
 
     const now = Date.now();
     const seenAt = new Date(now).toISOString();
     const expiresAt = new Date(now + settings.retentionDays * 86_400_000).toISOString();
     const fresh: MemoryRecord[] = [];
+    /** 이미 있는 기억에 합칠 후보. 지운 기억에 손대지 않도록 세대를 확인한 뒤에 반영한다. */
+    const merges = new Map<MemoryRecord, MemoryCandidate>();
+    const replaced = new Set<string>();
 
     // 공개 범위나 소유자가 다르면 같은 문장이라도 다른 기억이다. 합치면 남의 기억이 섞인다.
-    const sameOwner = (record: MemoryRecord, other: Pick<MemoryRecord, "kind" | "scope" | "ownerId">) =>
+    const sameOwner = (record: Pick<MemoryRecord, "kind" | "scope" | "ownerId">, other: Pick<MemoryRecord, "kind" | "scope" | "ownerId">) =>
       record.kind === other.kind && record.scope === other.scope && record.ownerId === other.ownerId;
-    const repeat = (record: MemoryRecord) => {
-      record.repeatCount += 1;
-      record.importance = Math.min(1, record.importance + 0.1);
-      record.expiresAt = expiresAt;
-      record.lastSeenAt = seenAt;
-    };
 
     for (const candidate of candidates) {
       const normalized = candidate.text.trim();
       if (normalized.length === 0) continue;
+      for (const id of candidate.replaces ?? []) {
+        const target = records.find(record => record.id === id);
+        if (target && sameOwner(target, candidate)) replaced.add(id);
+      }
 
       // 같은 묶음 안에서 앞서 나온 후보와도 비교한다. 한 방송에서 같은 말을 두 번 해도 한 건이다.
-      const existing = [...records, ...fresh].find(record => sameOwner(record, candidate) && (record.text === normalized || isSameMemoryText(record.text, normalized)));
+      const sameFresh = fresh.find(record => sameOwner(record, candidate) && isSameMemoryText(record.text, normalized));
+      if (sameFresh) {
+        sameFresh.text = normalized;
+        sameFresh.repeatCount += 1;
+        sameFresh.importance = Math.min(1, sameFresh.importance + 0.1);
+        sameFresh.confidence = Math.max(sameFresh.confidence, candidate.confidence);
+        continue;
+      }
+      const existing = records.find(record => sameOwner(record, candidate) && isSameMemoryText(record.text, normalized));
       if (existing) {
-        repeat(existing);
+        // 대체하라고 한 기억과 같은 문장이면 지우지 않고 갱신만 한다.
+        replaced.delete(existing.id);
+        merges.set(existing, { ...candidate, text: normalized });
         continue;
       }
 
@@ -249,37 +316,76 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
       });
     }
 
-    // 임베딩은 있으면 좋고 없어도 저장은 된다. 검색 품질과 뜻 비교만 문자열 규칙으로 떨어진다.
-    if (fresh.length > 0 && embedding?.isConfigured()) {
+    // 문장이 바뀌는 기존 기억도 임베딩을 다시 만든다. 옛 문장의 임베딩을 새 문장에 붙여 두면 검색이 어긋난다.
+    const rewritten = [...merges].filter(([record, candidate]) => record.text !== candidate.text);
+    const texts = [...fresh.map(record => record.text), ...rewritten.map(([, candidate]) => candidate.text)];
+    let vectors: (number[] | undefined)[] = [];
+    // 임베딩은 있으면 좋고 없어도 저장은 된다. 검색은 문자열 비교로 떨어지고, 나중에 검색할 때 채운다.
+    if (texts.length > 0 && embedding?.isConfigured()) {
       try {
-        const vectors = await embedding.embed(fresh.map(record => record.text));
-        fresh.forEach((record, index) => { record.embedding = vectors[index]; });
+        vectors = await embedding.embed(texts);
       } catch {
         // 임베딩 실패는 저장을 막지 않는다.
       }
     }
 
-    // isStale은 그 소유자의 기억을 지운 뒤에 true가 된다. 위에서 반복 횟수를 올린 기존 기억도 이미 목록에 없다.
-    if (options.isStale?.()) return 0;
+    // 기다리는 사이 그 소유자의 기억을 지웠으면 아무것도 바꾸지 않는다. 합칠 기억도 이미 목록에 없다.
+    if (options.isStale?.() || removedMeanwhile()) return 0;
 
-    // 문자열로 못 잡은 바꿔 쓰기를 임베딩으로 한 번 더 합친다. 임베딩이 없는 기억끼리는 비교하지 않는다.
-    const kept: MemoryRecord[] = [];
-    for (const record of fresh) {
-      const vector = record.embedding;
-      const match = vector && [...records, ...kept].find(other =>
-        sameOwner(other, record)
-        && other.embedding !== undefined
-        && isSameMemoryEmbedding({ text: other.text, embedding: other.embedding }, { text: record.text, embedding: vector }));
-      if (match) {
-        repeat(match);
-        continue;
-      }
-      kept.push(record);
+    fresh.forEach((record, index) => {
+      const vector = vectors[index];
+      if (vector) record.embedding = vector;
+    });
+    rewritten.forEach(([record, candidate], index) => {
+      record.text = candidate.text;
+      const vector = vectors[fresh.length + index];
+      if (vector) record.embedding = vector;
+      else delete record.embedding;
+    });
+    for (const [record, candidate] of merges) {
+      record.repeatCount += 1;
+      record.importance = Math.min(1, record.importance + 0.1);
+      record.confidence = Math.max(record.confidence, candidate.confidence);
+      record.expiresAt = expiresAt;
+      record.lastSeenAt = seenAt;
     }
 
-    records.push(...kept);
-    await persist();
-    return kept.length;
+    if (replaced.size > 0) records = records.filter(record => !replaced.has(record.id));
+    records.push(...fresh);
+    if (fresh.length > 0 || merges.size > 0 || replaced.size > 0) await persist();
+    return fresh.length;
+  }
+
+  /**
+   * 임베딩이 없거나 길이가 다른(모델을 바꾼) 기억의 임베딩을 다시 만든다. 한 번에 BACKFILL_BATCH건까지다.
+   * 예전에는 임베딩 없이 저장된 기억이 임베딩을 켠 뒤 검색에서 영구히 빠졌다(점검 M-8).
+   * 기다리는 사이 지우거나 문장이 바뀐 기억에는 붙이지 않는다. 채운 건수를 돌려준다.
+   */
+  function backfillEmbeddings(embedding: EmbeddingProvider, dimension?: number): Promise<number> {
+    if (backfilling || !embedding.isConfigured()) return Promise.resolve(0);
+    const targets = records.filter(record => !record.embedding || (dimension !== undefined && record.embedding.length !== dimension)).slice(0, BACKFILL_BATCH);
+    if (targets.length === 0) return Promise.resolve(0);
+
+    backfilling = true;
+    const texts = targets.map(record => record.text);
+    const task = embedding.embed(texts).then(async vectors => {
+      const live = new Set(records);
+      let filled = 0;
+      targets.forEach((record, index) => {
+        const vector = vectors[index];
+        if (!vector || !live.has(record) || record.text !== texts[index]) return;
+        record.embedding = vector;
+        filled += 1;
+      });
+      if (filled > 0) await persist();
+      return filled;
+    }).catch(error => {
+      backfillRetryAt = Date.now() + BACKFILL_RETRY_MS;
+      warn(`기억 임베딩을 채우지 못했습니다. ${BACKFILL_RETRY_MS / 1000}초 뒤 다시 시도합니다. (${errorCode(error)})`);
+      return 0;
+    }).finally(() => { backfilling = false; });
+    backfillTask = task.then(() => {});
+    return task;
   }
 
   /**
@@ -288,10 +394,15 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
    * 최종적으로 어떤 기억을 실제로 쓸지는 답변을 만드는 LLM이 프롬프트 안에서 판단한다.
    *
    * 접근 범위는 순위를 매기기 전에 먼저 거른다. 남의 기억은 점수를 받을 기회조차 없어야 한다.
+   * 만료된 기억은 서버를 다시 띄우지 않아도 여기서 빠진다(점검 M-7).
+   * 1:1 개인 기억이 PRIVATE_RECALL_ALL_LIMIT건 이하면 유사도와 상관없이 모두 돌려준다(점검 M-5).
+   * 임베딩이 없거나 길이가 다른 기억은 문자열 유사도로 점수를 매기고, 백그라운드로 임베딩을 채운다(점검 M-8).
    */
   async function search(query: string, settings: MemorySettings, embedding: EmbeddingProvider | null, access: MemoryAccess): Promise<MemorySearchHit[]> {
+    dropExpired();
     const visible = records.filter(record => canAccessMemory(record, access));
     if (visible.length === 0) return [];
+    const recallAll = access.mode === "private" && visible.length <= PRIVATE_RECALL_ALL_LIMIT;
 
     let queryVector: number[] | null = null;
     if (embedding?.isConfigured()) {
@@ -303,35 +414,44 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
       }
     }
 
-    if (!queryVector) {
+    if (!embedding || !queryVector) {
       // 임베딩을 못 쓰면 중요도와 최신순으로 대신한다.
       return visible
         .sort((a, b) => (b.importance - a.importance) || (Date.parse(b.createdAt) - Date.parse(a.createdAt)))
-        .slice(0, settings.maxMemories)
+        .slice(0, recallAll ? visible.length : settings.maxMemories)
         .map(record => ({ record, score: 0 }));
     }
 
-    return visible
+    const vector = queryVector;
+    const comparable = (record: MemoryRecord): record is MemoryRecord & { embedding: number[] } =>
+      record.embedding !== undefined && record.embedding.length === vector.length;
+    if (Date.now() >= backfillRetryAt && records.some(record => !comparable(record))) void backfillEmbeddings(embedding, vector.length);
+
+    const hits = visible
       .map(record => ({
         record,
         // 중요도를 약하게 섞어 같은 유사도면 중요한 기억이 먼저 오게 한다.
-        score: record.embedding ? cosineSimilarity(queryVector, record.embedding) + record.importance * 0.05 : 0,
+        score: (comparable(record) ? cosineSimilarity(vector, record.embedding) : textSimilarity(query, record.text)) + record.importance * 0.05,
       }))
-      .filter(hit => hit.score >= settings.minSimilarity)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, settings.maxMemories);
+      .sort((a, b) => b.score - a.score);
+    return recallAll ? hits : hits.filter(hit => hit.score >= settings.minSimilarity).slice(0, settings.maxMemories);
   }
 
   return {
     load,
     /** 지금 상태를 파일에 쓴다. 쓰기가 끝나면 풀린다. */
     save: () => persist(),
-    /** 진행 중인 저장이 모두 끝날 때까지 기다린다. 실패는 넘기지 않는다. 검사와 종료 때 쓴다. */
-    flush: (): Promise<void> => writing.catch(() => {}),
+    /** 진행 중인 임베딩 채우기와 저장이 모두 끝날 때까지 기다린다. 실패는 넘기지 않는다. 검사와 종료 때 쓴다. */
+    async flush(): Promise<void> {
+      await backfillTask;
+      await writing.catch(() => {});
+    },
     purgeExpired,
     add,
     search,
-    all: () => [...records],
+    backfillEmbeddings,
+    /** 만료되지 않은 기억 전부. 만료된 것은 이때 메모리에서 빠지고 다음 저장 때 파일에서도 빠진다. */
+    all: () => { dropExpired(); return [...records]; },
     count: () => records.length,
     /** 이전 실행이 남긴 임시 파일을 지운다. 사용자 데이터 삭제 때 함께 부른다. */
     removeLeftovers: () => removeLeftoverFiles(filePath, { unreadable: false }),
@@ -340,6 +460,7 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
       const removed = records.filter(record => record.id === id);
       if (removed.length === 0) return false;
       records = records.filter(record => record.id !== id);
+      markRemoved([...new Set(removed.map(record => ownerKey(record.ownerId)))]);
       await commitRemoval(removed);
       return true;
     },
@@ -348,13 +469,26 @@ export function createMemoryStore(filePath: string, options: MemoryStoreOptions 
       if (ownerId.length === 0) return 0;
       const removed = records.filter(record => record.ownerId === ownerId);
       records = records.filter(record => record.ownerId !== ownerId);
+      // 지울 것이 없어도 세대를 올린다. 진행 중인 정리가 삭제를 누른 뒤에 기억을 만들면 안 된다.
+      markRemoved([ownerId]);
       await commitRemoval(removed);
       return removed.length;
+    },
+    /**
+     * 그 뒤에 이 소유자의 기억을 지웠는지(관리자 삭제 포함) 알려 주는 함수를 돌려준다.
+     * 기억을 만들기까지 오래 걸리는 작업(LLM 정리)이 시작할 때 잡아 두고, 저장 직전에 확인한다.
+     */
+    watchRemovals: (ownerId: string) => watchRemovals([ownerId]),
+    /** 기억을 지울 때마다 부른다. 지운 범위를 넘긴다. 돌려준 함수를 부르면 그만 듣는다. */
+    onRemoved(listener: (scope: MemoryRemovalScope) => void): () => void {
+      removalListeners.add(listener);
+      return () => { removalListeners.delete(listener); };
     },
     /** 모두 지운다. 쓰기에 실패하면 되돌리고 예외를 넘긴다. */
     async clear(): Promise<void> {
       const removed = records;
       records = [];
+      markRemoved("all");
       // 지울 것이 없어도 파일을 쓴다. 전체 삭제를 눌렀으면 파일도 비어 있어야 한다.
       if (removed.length === 0) { await persist(); return; }
       await commitRemoval(removed);

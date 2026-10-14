@@ -49,6 +49,19 @@ export async function run({ bori, mock, report, dataDir }) {
     return { status: response.status, body: await response.json().catch(() => null) };
   };
   const alive = async () => (await fetch(`${bori.baseUrl}/api/health`).then(response => response.status).catch(() => 0)) === 200;
+  /**
+   * 방금 보낸 1:1 메시지를 개인 기억으로 만든다. LLM을 쓸 수 있으면 기억은 LLM 정리가 만들고(ADR-023),
+   * 새 대화를 열 때 앞 대화의 남은 메시지를 정리한다. 정리가 끝날 때까지 기다려 개인 기억 목록을 돌려준다.
+   */
+  async function makePrivateMemory() {
+    await send("POST", "/api/conversations", { title: "정리용" });
+    let memories = [];
+    for (let tries = 0; tries < 50 && memories.length === 0; tries += 1) {
+      memories = (await send("GET", "/api/me/memories")).body?.memories ?? [];
+      if (memories.length === 0) await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return memories;
+  }
 
   /** 파일 자리를 비어 있지 않은 디렉터리로 바꿔 다음 쓰기를 실패하게 한다. 되돌릴 함수를 돌려준다. */
   async function blockWrites(name) {
@@ -110,7 +123,7 @@ export async function run({ bori, mock, report, dataDir }) {
 
       const conversation = (await send("POST", "/api/conversations", { title: "내구성" })).body.conversation;
       await send("POST", `/api/conversations/${conversation.id}/messages`, { content: PRIVATE_MEMORY });
-      const mine = (await send("GET", "/api/me/memories")).body?.memories ?? [];
+      const mine = await makePrivateMemory();
       report.check("기억 설정 값을 고친 뒤 1:1 개인 기억이 저장된다", mine.length > 0, `개인 기억 ${mine.length}건`);
 
       const llm = await bori.llm();
@@ -148,7 +161,7 @@ export async function run({ bori, mock, report, dataDir }) {
       await boot();
       const conversation = (await send("POST", "/api/conversations", { title: "삭제 실패" })).body.conversation;
       await send("POST", `/api/conversations/${conversation.id}/messages`, { content: PRIVATE_MEMORY });
-      const privateBefore = (await send("GET", "/api/me/memories")).body?.memories?.length ?? 0;
+      const privateBefore = (await makePrivateMemory()).length;
       const conversationsBefore = (await send("GET", "/api/conversations")).body?.conversations?.length ?? 0;
 
       const unblock = await blockWrites("memories.json");

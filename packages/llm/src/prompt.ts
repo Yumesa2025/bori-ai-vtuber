@@ -111,13 +111,42 @@ function personaLayer(): string[] {
   return ["[페르소나]", ...boriPersonaLines, "", "[역할 범위]", ...boriScopeLines];
 }
 
+/** 한국 시간(UTC+9). 한국은 서머타임이 없어 고정 차이로 계산한다. */
+const KOREA_OFFSET_MS = 9 * 3_600_000;
+const WEEKDAYS = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"] as const;
+
+/** 한국 시간의 날짜 부분. 서버 시각대와 상관없이 같은 값을 낸다. */
+export function koreanDateParts(now: number): { year: number; month: number; day: number; weekday: string; hour: number } {
+  const shifted = new Date(now + KOREA_OFFSET_MS);
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate(), weekday: WEEKDAYS[shifted.getUTCDay()], hour: shifted.getUTCHours() };
+}
+
+/** 기억에 붙이는 짧은 날짜("10월 15일"). 한국 시간 기준이다. */
+export function koreanDateLabel(now: number): string {
+  const { month, day } = koreanDateParts(now);
+  return `${month}월 ${day}일`;
+}
+
+/**
+ * 프롬프트 상황 섹션에 넣는 오늘 날짜 문장. 서버 시각을 한국 시간으로 바꿔 쓴다.
+ * 점검(a6 A6-12)에서 프롬프트에 날짜가 없어 "오늘 무슨 요일이에요?"에 요일을 지어냈고,
+ * 8일 전에 들은 "다음 주 토요일 여행"을 아직 다가올 일로 말했다(점검 M-7).
+ */
+export function currentDateLine(now: number): string {
+  const { year, month, day, weekday, hour } = koreanDateParts(now);
+  const period = hour === 0 ? "밤" : hour < 6 ? "새벽" : hour < 12 ? "오전" : hour === 12 ? "낮" : hour < 18 ? "오후" : "저녁";
+  const clock = hour % 12 === 0 ? 12 : hour % 12;
+  return `지금은 한국 시간으로 ${year}년 ${month}월 ${day}일 ${weekday} ${period} ${clock}시 무렵이다.`;
+}
+
 function sessionLayer(request: LlmRequest, policy: ConversationPolicy): string[] {
   const lines: string[] = [];
 
-  // 경과 시간이나 답변 수는 모델이 대화만 보고 셀 수 없다.
+  // 경과 시간이나 답변 수, 오늘 날짜는 모델이 대화만 보고 알 수 없다.
   // 모델에게 세라고 시키는 대신 서버가 계산한 값을 그대로 준다.
-  if (request.broadcastStatus.length > 0) {
-    lines.push(`[${policy.sectionTitles.status}]`, ...request.broadcastStatus.map(line => `- ${line}`));
+  const status = [...(request.currentDate ? [request.currentDate] : []), ...request.broadcastStatus];
+  if (status.length > 0) {
+    lines.push(`[${policy.sectionTitles.status}]`, ...status.map(line => `- ${line}`));
   }
 
   // 최근 대화 창 밖으로 밀려난 흐름. 긴 방송에서 초반 이야기를 잊지 않기 위한 문맥이다.

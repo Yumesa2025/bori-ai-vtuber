@@ -43,7 +43,7 @@ export function createCompanionHandler(options: CompanionOptions): CompanionHand
 }
 
 export { createConversationStore, CONVERSATION_FILE_VERSION, type ConversationStore } from "./store.js";
-export { createCompanionService, type CompanionService, type CompanionServiceDeps } from "./service.js";
+export { createCompanionService, DIGEST_MAX_ATTEMPTS, IDLE_DIGEST_MS, PENDING_DIGEST_WAIT_MS, type CompanionService, type CompanionServiceDeps } from "./service.js";
 export { createCompanionRoutes, MESSAGE_MAX_LENGTH } from "./routes.js";
-export { createPrivateMemoryDigest, type DigestMemories, type PrivateMemoryDigestDeps } from "./memory-digest.js";
-export { relationshipStatusLines, NEW_VISIT_GAP_MS, PREVIOUS_SUMMARY_MAX_LENGTH, type ConversationActivity, type RelationshipInput } from "./relationship.js";
+export { createPrivateMemoryDigest, type DigestMemories, type DigestRequest, type PrivateMemoryDigestDeps } from "./memory-digest.js";
+export { relationshipStatusLines, NEW_VISIT_GAP_MS, PREVIOUS_SUMMARY_COUNT, PREVIOUS_SUMMARY_MAX_LENGTH, type ConversationActivity, type RelationshipInput } from "./relationship.js";

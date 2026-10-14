@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { boriCrisisHelpLine, boriCrisisLines, boriCrisisReplies } from "@bori/character";
 import type { LlmAdapter, LlmRequest, SummaryTurn } from "@bori/llm";
 import { createMemoryStore, type MemoryStore } from "@bori/memory";
-import { createCompanionService, createConversationStore, type DigestMemories } from "../src/companion/index.js";
+import { createCompanionService, createConversationStore } from "../src/companion/index.js";
 import {
   createConversationEngine,
   isCrisisContent,
@@ -19,7 +19,7 @@ import {
   isUnsafeContent,
   withoutCrisisTurns,
 } from "../src/conversation/index.js";
-import { createFakeEngineHarness, testMemorySettings, type FakeEngineHarness } from "./fakes.js";
+import { createFakeEngineHarness, fakeDigest, testMemorySettings, type FakeEngineHarness } from "./fakes.js";
 
 const OWNER = "companion:local";
 const silent = () => {};
@@ -217,7 +217,8 @@ describe("위기 대화는 요약·기억에 남지 않는다(S-3)", () => {
       complete: async request => { summaryRequests.push(request); return { raw: JSON.stringify({ summary: "요약" }), latencyMs: 1 }; },
     };
     const engine = createConversationEngine({ ...h.deps, createAdapter: () => summaryAdapter });
-    const digestMemories: DigestMemories = async turns => { digestCalls.push([...turns]); return []; };
+    // LLM을 못 쓰는 것으로 두어 규칙 추출도 함께 돌게 한다. 정리 자체는 그래도 불린다.
+    const digestMemories = fakeDigest(async ({ turns }) => { digestCalls.push([...turns]); return []; }, false);
     const service = createCompanionService({
       engine,
       store,

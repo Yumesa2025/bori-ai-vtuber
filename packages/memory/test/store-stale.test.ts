@@ -88,3 +88,75 @@ describe("isStale", () => {
     assert.equal(store.count(), 2);
   });
 });
+
+describe("저장소 삭제 세대(점검 M-9)", () => {
+  // 관리자 DELETE /api/memory/all·/:id는 저장소를 직접 부른다. isStale을 넘기지 않아도 막혀야 한다.
+  test("임베딩을 기다리는 사이 관리자가 전체 삭제하면 저장하지 않는다", async () => {
+    const store = createMemoryStore(filePath, { log: () => {} });
+    const embedding = gatedEmbedding();
+    const adding = store.add([candidate("상대는 재즈를 좋아한다.")], settings, embedding.provider);
+    await embedding.entered;
+    await store.clear();
+    embedding.release();
+
+    assert.equal(await adding, 0);
+    assert.deepEqual(store.all(), []);
+    assert.deepEqual(JSON.parse(readFileSync(filePath, "utf8")).records, []);
+  });
+
+  test("임베딩을 기다리는 사이 그 소유자의 기억 한 건을 지워도 저장하지 않는다", async () => {
+    const store = createMemoryStore(filePath, { log: () => {} });
+    await store.add([candidate("상대는 보사노바를 즐겨 듣는다.")], settings, null);
+    const [deleted] = store.all();
+    const embedding = gatedEmbedding();
+    const adding = store.add([candidate("상대는 보사노바를 좋아한다.")], settings, embedding.provider);
+    await embedding.entered;
+    await store.remove(deleted.id);
+    embedding.release();
+
+    assert.equal(await adding, 0);
+    assert.deepEqual(store.all(), []);
+  });
+
+  test("다른 소유자의 기억을 지운 것은 저장을 막지 않는다", async () => {
+    const store = createMemoryStore(filePath, { log: () => {} });
+    const embedding = gatedEmbedding();
+    const adding = store.add([candidate("상대는 재즈를 좋아한다.")], settings, embedding.provider);
+    await embedding.entered;
+    await store.removeByOwner("local:viewer");
+    embedding.release();
+    assert.equal(await adding, 1);
+  });
+
+  test("watchRemovals는 그 뒤에 소유자의 기억이 지워졌는지 알려 준다", async () => {
+    const store = createMemoryStore(filePath, { log: () => {} });
+    await store.add([candidate("상대는 재즈를 좋아한다."), { text: "방송 요약", kind: "broadcast", scope: "broadcast", importance: 0.5, confidence: 0.5 }], settings, null);
+    const mine = store.watchRemovals(OWNER);
+    await store.removeByOwner("local:viewer");
+    assert.equal(mine(), false);
+    const broadcast = store.all().find(record => record.scope === "broadcast");
+    assert.ok(broadcast);
+    await store.remove(broadcast.id);
+    assert.equal(mine(), false, "소유자 없는 기억을 지운 것은 1:1과 상관없다");
+    await store.clear();
+    assert.equal(mine(), true);
+  });
+
+  test("onRemoved는 지운 범위를 알려 주고, 대체(replaces)로 지운 것은 알리지 않는다", async () => {
+    const store = createMemoryStore(filePath, { log: () => {} });
+    const scopes: unknown[] = [];
+    const stop = store.onRemoved(scope => { scopes.push(scope); });
+    await store.add([candidate("상대는 부산에 산다.")], settings, null);
+    const [old] = store.all();
+    await store.add([{ ...candidate("상대는 서울로 이사했다."), replaces: [old.id] }], settings, null);
+    assert.deepEqual(scopes, []);
+
+    const [current] = store.all();
+    await store.remove(current.id);
+    await store.removeByOwner(OWNER);
+    await store.clear();
+    stop();
+    await store.clear();
+    assert.deepEqual(scopes, [[OWNER], [OWNER], "all"]);
+  });
+});

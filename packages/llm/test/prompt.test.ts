@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { conversationPolicies, type ConversationMode } from "@bori/character";
 import { boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
-import { buildPromptLayers, buildSystemPrompt, buildUserPrompt, promptLayerOrder } from "../src/prompt.js";
+import { buildPromptLayers, buildSystemPrompt, buildUserPrompt, currentDateLine, koreanDateLabel, promptLayerOrder } from "../src/prompt.js";
 import type { LlmRequest } from "../src/types.js";
 
 const allowedMotions = boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] }));
@@ -283,5 +283,34 @@ describe("사람이 쓴 글의 주입 방어(B-1)", () => {
     const system = buildSystemPrompt(makeRequest("companion", { crisisGuidance: ["- 지침 하나"] }));
     assertInOrder(system, ["[대화 정책: 1:1 대화]", "[위기 대응]\n- 지침 하나", "[입력 취급]", "[출력 규칙]"]);
     assert.ok(!buildUserPrompt(makeRequest("companion", { crisisGuidance: ["- 지침 하나"] })).includes("지침 하나"));
+  });
+});
+
+describe("오늘 날짜(점검 M-7)", () => {
+  // 2026-10-15 01:00 UTC = 한국 시간 10월 15일 목요일 오전 10시
+  const morning = Date.UTC(2026, 9, 15, 1);
+
+  test("날짜 문장은 서버 시각대와 상관없이 한국 시간으로 쓴다", () => {
+    assert.equal(currentDateLine(morning), "지금은 한국 시간으로 2026년 10월 15일 목요일 오전 10시 무렵이다.");
+    // UTC 15:30은 한국 시간 다음 날 0시 30분이다. 날짜가 넘어가야 한다.
+    assert.equal(currentDateLine(Date.UTC(2026, 9, 15, 15, 30)), "지금은 한국 시간으로 2026년 10월 16일 금요일 밤 12시 무렵이다.");
+    assert.equal(currentDateLine(Date.UTC(2026, 9, 15, 3)), "지금은 한국 시간으로 2026년 10월 15일 목요일 낮 12시 무렵이다.");
+    assert.equal(currentDateLine(Date.UTC(2026, 9, 15, 6)), "지금은 한국 시간으로 2026년 10월 15일 목요일 오후 3시 무렵이다.");
+    assert.equal(currentDateLine(Date.UTC(2026, 9, 15, 11)), "지금은 한국 시간으로 2026년 10월 15일 목요일 저녁 8시 무렵이다.");
+    assert.equal(koreanDateLabel(morning), "10월 15일");
+  });
+
+  test("currentDate가 있으면 1:1·방송 상황 섹션 맨 앞에 들어간다", () => {
+    const line = currentDateLine(morning);
+    assertInOrder(buildUserPrompt(makeRequest("companion", { currentDate: line })), ["[대화 상황]", `- ${line}`, "- 방송 시작 후 12분이 지났다."]);
+    assertInOrder(buildUserPrompt(makeRequest("broadcast", { currentDate: line })), ["[방송 상황]", `- ${line}`, "- 방송 시작 후 12분이 지났다."]);
+  });
+
+  test("상황 문장이 없어도 날짜만으로 상황 섹션이 생기고, 날짜가 없으면 예전 그대로다", () => {
+    const line = currentDateLine(morning);
+    const user = buildUserPrompt(makeRequest("companion", { currentDate: line, broadcastStatus: [] }));
+    assert.ok(user.startsWith(`[대화 상황]\n- ${line}\n\n[지금까지의 대화]`), user);
+    assert.ok(!buildUserPrompt(makeRequest("companion", { broadcastStatus: [] })).includes("[대화 상황]"));
+    assert.ok(!buildSystemPrompt(makeRequest("companion", { currentDate: line })).includes(line), "날짜는 매 턴 바뀌므로 system에 넣지 않는다");
   });
 });
