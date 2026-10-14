@@ -1,6 +1,7 @@
+import { conversationPolicies, type ConversationMode } from "@bori/character";
 import { boriEmotionNames, boriMotionGroupNames, resolveMotion } from "@bori/live2d";
 import { createAdapter, defaultModels, validateLlmOutput, type LlmAdapter } from "@bori/llm";
-import { judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeMemoryClaim, judgeOutsideStory, judgeReaction } from "./judge.js";
+import { judgeAllowlist, judgeFabrication, judgeForbidden, judgeHonorific, judgeLength, judgeMemoryClaim, judgeOutsideStory, judgeReaction, judgeSentenceCount } from "./judge.js";
 import { buildScenarioRequest, evalReplyLimit, selectMemories } from "./request.js";
 import type { ExpectedReaction, Scenario, ScenarioSet } from "./scenarios.js";
 import { countStatuses, statusFromChecks, type CheckResult, type EvalResultFile, type ScenarioResult } from "./types.js";
@@ -35,6 +36,13 @@ export function modelExpectation(scenario: Scenario): { reactions: ExpectedReact
     case "monologue":
       return { outOfScope: "혼잣말 규칙 문장, 실모델 평가 범위 밖" };
   }
+}
+
+/** 모드별 정책의 문장 수 상한. "1~2문장"이면 2다. 정책 문장을 그대로 읽어 숫자를 두 곳에 두지 않는다. */
+export function maxSentences(mode: ConversationMode): number {
+  const match = /(\d+)\s*문장/.exec(conversationPolicies[mode].replySentences);
+  if (!match) throw new Error(`${mode} 정책의 문장 수를 읽을 수 없습니다: ${conversationPolicies[mode].replySentences}`);
+  return Number(match[1]);
 }
 
 /** 키가 없으면 아무것도 호출하지 않고 건너뛴 결과를 돌려준다. */
@@ -93,13 +101,14 @@ async function evaluateScenarioWithModel(scenario: Scenario, set: ScenarioSet, a
     { id: "validation", label: "출력 검증 통과", status: "pass" },
     judgeAllowlist(response.emotion.primary, actionNames, boriEmotionNames, boriMotionGroupNames),
     judgeLength(response.reply, evalReplyLimit),
+    judgeSentenceCount(response.reply, maxSentences(scenario.mode)),
     judgeForbidden(response.reply, [
       ...set.commonForbiddenPatterns,
       ...(scenario.mode === "companion" ? set.companionForbiddenPatterns ?? [] : []),
       ...(scenario.forbiddenPatterns ?? []),
     ]),
     judgeHonorific(response.reply),
-    judgeReaction(response.emotion.primary, displayedMotion, expectation.reactions),
+    ...judgeReaction(response.emotion.primary, displayedMotion, expectation.reactions),
     ...(scenario.fabricationGuard ? [judgeFabrication(response.reply, scenario.fabricationGuard)] : []),
     ...groundingChecks(scenario, response.reply),
     ...manualChecks(scenario),

@@ -14,6 +14,18 @@ export function judgeLength(reply: string, limit: number): CheckResult {
     : { id: "length", label: `길이 ${limit}자 이내`, status: "fail", detail: `${length}자` };
 }
 
+/**
+ * 문장 수 상한. 모드별 정책의 "1~2문장"·"1~3문장"을 넘으면 실패다(점검 C-4: 방송 답의 34%가 3문장 이상).
+ * 두 글자 이하 감탄사("앗", "와")는 문장으로 세지 않는다.
+ */
+export function judgeSentenceCount(reply: string, max: number): CheckResult {
+  const label = `${max}문장 이내`;
+  const count = splitSentences(reply).filter(sentence => sentence.replace(/[^가-힣]/g, "").length > 2).length;
+  return count <= max
+    ? { id: "sentences", label, status: "pass", detail: `${count}문장` }
+    : { id: "sentences", label, status: "fail", detail: `${count}문장` };
+}
+
 /** 금지 표현. 걸린 패턴과 걸린 부분을 남긴다. */
 export function judgeForbidden(reply: string, patterns: readonly ForbiddenPattern[]): CheckResult {
   const hits: string[] = [];
@@ -50,18 +62,43 @@ export function judgeHonorific(reply: string): CheckResult {
 }
 
 /**
- * 기대 감정·모션 일치. 묶음 중 하나라도 감정과 모션이 함께 맞으면 통과다.
+ * 기대 감정·모션 일치. 감정과 모션을 따로 판정한다. 한 칸에서 보면 모션 기대값 충돌이 감정 실패와 섞여
+ * 진짜 실패가 묻힌다(점검 A6-24).
+ *   감정  묶음 중 하나에 실제 감정이 있으면 통과
+ *   모션  실제 감정이 든 묶음(없으면 모든 묶음)의 허용 모션 안이면 통과. motions가 없는 묶음은 모션을 따지지 않지만,
+ *         게임패드(shoushi)는 기대값에 shoushi가 있는 시나리오(게임 이야기)에서만 허용한다. 모션 설명이 "게임 이야기에만"이다
  * 모션은 화면에 실제로 나갈 모션(displayedMotion)으로 본다. 모델이 actions를 비워도 감정 매핑의 모션이 나가기 때문이다.
  */
-export function judgeReaction(emotion: string, displayedMotion: string | null, reactions: readonly ExpectedReaction[]): CheckResult {
-  const label = "기대 감정·모션 일치";
-  if (reactions.length === 0) return { id: "reaction", label, status: "manual", detail: "기대 감정·모션이 정해지지 않았다" };
-  const shown = `${emotion} / ${displayedMotion ?? "없음"}`;
-  const matched = reactions.some(reaction =>
-    reaction.emotions.includes(emotion) && (reaction.motions === undefined || reaction.motions.includes(displayedMotion)));
-  return matched
-    ? { id: "reaction", label, status: "pass", detail: shown }
-    : { id: "reaction", label, status: "fail", detail: `실제 ${shown}, 기대 ${describeReactions(reactions)}` };
+export function judgeReaction(emotion: string, displayedMotion: string | null, reactions: readonly ExpectedReaction[]): CheckResult[] {
+  const emotionLabel = "기대 감정";
+  const motionLabel = "기대 모션";
+  if (reactions.length === 0) {
+    const detail = "기대 감정·모션이 정해지지 않았다";
+    return [
+      { id: "reaction.emotion", label: emotionLabel, status: "manual", detail },
+      { id: "reaction.motion", label: motionLabel, status: "manual", detail },
+    ];
+  }
+
+  const expectedEmotions = [...new Set(reactions.flatMap(reaction => reaction.emotions))];
+  const emotionGroups = reactions.filter(reaction => reaction.emotions.includes(emotion));
+  const emotionCheck: CheckResult = emotionGroups.length > 0
+    ? { id: "reaction.emotion", label: emotionLabel, status: "pass", detail: emotion }
+    : { id: "reaction.emotion", label: emotionLabel, status: "fail", detail: `실제 ${emotion}, 기대 ${expectedEmotions.join("·")}` };
+
+  const shown = displayedMotion ?? "없음";
+  const pool = emotionGroups.length > 0 ? emotionGroups : reactions;
+  const gameScenario = reactions.some(reaction => reaction.motions?.includes("shoushi"));
+  const expected = describeReactions(pool);
+  let motionCheck: CheckResult;
+  if (displayedMotion === "shoushi" && !gameScenario) {
+    motionCheck = { id: "reaction.motion", label: motionLabel, status: "fail", detail: `실제 shoushi, 게임 이야기가 아닌 시나리오. 기대 ${expected}` };
+  } else if (pool.some(reaction => reaction.motions === undefined || reaction.motions.includes(displayedMotion))) {
+    motionCheck = { id: "reaction.motion", label: motionLabel, status: "pass", detail: shown };
+  } else {
+    motionCheck = { id: "reaction.motion", label: motionLabel, status: "fail", detail: `실제 ${emotion} / ${shown}, 기대 ${expected}` };
+  }
+  return [emotionCheck, motionCheck];
 }
 
 export function describeReactions(reactions: readonly ExpectedReaction[]): string {
