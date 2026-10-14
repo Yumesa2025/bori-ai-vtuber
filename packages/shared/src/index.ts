@@ -152,6 +152,8 @@ export type BroadcastState = {
   lastTestAction?: TestAction;
   /** 이번 답변의 음성 식별자. `/api/tts/{id}`로 받아 재생한다. 음성이 없으면 비어 있다. */
   currentAudioId?: string;
+  /** 방송 진행(쇼) 상태. 방송 진행기가 꺼져 있으면 비어 있다. */
+  show?: ShowState;
 };
 
 // ── 1:1 대화(companion) API ─────────────────────────────────
