@@ -212,3 +212,41 @@ export const responseJsonSchema = {
   required: ["reply", "emotion", "actions"],
   additionalProperties: false,
 } as const;
+
+/**
+ * 요청별 응답 스키마. 허용 감정·모션과 고정 레이어·우선순위를 enum으로 넣어 업체가 목록 밖 값을 내지 못하게 한다(a3 F8, a6 A6-02).
+ * 검증(validateLlmOutput)은 그대로 거친다. 스키마를 지원하지 않는 업체·모델이 목록 밖 값을 내면 검증이 기본값으로 바꾼다.
+ * 모션 개수(하나)는 스키마로 묶지 않는다. 업체마다 maxItems 지원이 달라 요청 자체가 거절될 수 있어 검증에서 맞춘다.
+ */
+export function responseJsonSchemaFor(request: Pick<LlmRequest, "allowedEmotions" | "allowedMotions">) {
+  const base = responseJsonSchema;
+  // 빈 enum은 스키마 오류다. 목록이 비면 문자열로 두고 검증에 맡긴다.
+  const enumOf = (values: readonly string[]) => (values.length > 0 ? { type: "string", enum: [...values] } : { type: "string" });
+  return {
+    ...base,
+    properties: {
+      ...base.properties,
+      emotion: { ...base.properties.emotion, properties: { ...base.properties.emotion.properties, primary: enumOf(request.allowedEmotions) } },
+      actions: {
+        ...base.properties.actions,
+        items: {
+          ...base.properties.actions.items,
+          properties: {
+            name: enumOf(request.allowedMotions.map(motion => motion.name)),
+            layer: { type: "string", enum: ["body"] },
+            priority: { type: "integer", enum: [2] },
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * 최대 출력 토큰. 답이 상한을 넘게 길어지면 다 생성·과금된 뒤 검증에서 버려지므로 업체 쪽에서 끊는다(a3 F8).
+ * 답변 JSON은 120자 한국어 답(약 150토큰)에 감정·모션 필드를 더해도 300토큰 안팎이라 512면 넉넉하다.
+ * 요약·기억 정리(스키마를 갈아 끼운 요청)는 문장이 여러 개라 두 배를 둔다. 잘리면 JSON이 깨져 그 요약만 실패한다.
+ */
+export const REPLY_MAX_OUTPUT_TOKENS = 512;
+export const TASK_MAX_OUTPUT_TOKENS = 1024;
+export const maxOutputTokensFor = (request: Pick<LlmRequest, "overrideSchema">) => (request.overrideSchema ? TASK_MAX_OUTPUT_TOKENS : REPLY_MAX_OUTPUT_TOKENS);

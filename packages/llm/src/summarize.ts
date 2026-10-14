@@ -67,8 +67,39 @@ const broadcastMemoryRejectPatterns: readonly RegExp[] = [
 ];
 
 /**
+ * 요약 요청 입력 상한. 대화를 최근 것부터 담아 상한에 닿으면 그 앞(오래된 것)을 버린다(a3 F5·F6, a4 A4-17).
+ * 상한이 없으면 실패가 이어진 누적 요약은 300턴에 3만 자, 3시간 방송의 종료 요약은 십만 자 단위가 되어
+ * 타임아웃·비용이 커지고, 실패하면 그만큼 다시 커진 요청을 또 보낸다.
+ */
+export function limitSummaryTurns<T extends SummaryTurn>(turns: readonly T[], limits: { maxTurns: number; maxChars: number }): T[] {
+  const kept: T[] = [];
+  let chars = 0;
+  for (let index = turns.length - 1; index >= 0 && kept.length < limits.maxTurns; index -= 1) {
+    chars += turns[index].text.length;
+    // 한 발언이 상한보다 길어도 마지막 발언 하나는 넘긴다. 빈 요청을 보내는 것보다 낫다.
+    if (chars > limits.maxChars && kept.length > 0) break;
+    kept.unshift(turns[index]);
+  }
+  return kept;
+}
+
+/**
+ * 방송 종료 요약 입력 상한. 최근 발언부터 1만 2천 자(gpt-4o-mini 기준 약 1만 토큰 안쪽)까지만 넘긴다.
+ * 방송 채팅·답은 각각 500자·120자 이하라 적어도 수십 턴, 평소 길이(40~60자)면 200턴 남짓이 들어간다.
+ * 그보다 앞의 흐름은 종료 요약에서 빠진다. 종료 요약은 다음 방송의 공용 기억이라 주제와 분위기만 남기면 되고(B-2·B-3),
+ * 15초 타임아웃 안에 끝나 요약 기억이 통째로 빠지지 않는 쪽을 택했다.
+ */
+export const BROADCAST_SUMMARY_LIMITS = { maxTurns: 400, maxChars: 12_000 } as const;
+/**
+ * 누적 요약 입력 상한. 평소에는 rollingSummaryTurns(기본 10)발언씩 접으므로 걸리지 않는다.
+ * 요약이 실패한 동안 쌓인 대화만 이 상한으로 잘린다. 잘린 앞부분은 요약에 남지 않는다.
+ */
+export const PROGRESS_SUMMARY_LIMITS = { maxTurns: 40, maxChars: 4_000 } as const;
+
+/**
  * 방송 대화를 요약한다.
  * 어댑터 인터페이스를 그대로 쓰되 스키마가 달라 별도 함수로 둔다.
+ * 입력은 BROADCAST_SUMMARY_LIMITS만큼 최근 대화만 넘긴다.
  */
 export async function summarizeBroadcast(
   adapter: LlmAdapter,
@@ -77,7 +108,7 @@ export async function summarizeBroadcast(
 ): Promise<BroadcastSummary | null> {
   if (turns.length === 0) return null;
 
-  const transcript = turns.map(turn => `${turn.role === "viewer" ? "시청자" : "보리"}: ${quoteUserText(turn.text)}`).join("\n");
+  const transcript = limitSummaryTurns(turns, BROADCAST_SUMMARY_LIMITS).map(turn => `${turn.role === "viewer" ? "시청자" : "보리"}: ${quoteUserText(turn.text)}`).join("\n");
 
   const result = await adapter.complete({
     // 방송 대화를 정리하는 작업이다. 프롬프트는 아래 override로 통째로 바뀌어 모드 정책은 쓰이지 않는다.
@@ -183,7 +214,8 @@ export async function summarizeSessionProgress(
   // 모드를 모르면 다른 모드 지시문으로 대신하지 않는다.
   if (!prompts) throw new Error(`알 수 없는 대화 모드입니다: ${String(mode)}`);
 
-  const transcript = turns.map(turn => `${turn.role === "viewer" ? prompts.user : "보리"}: ${quoteUserText(turn.text)}`).join("\n");
+  // 실패가 이어져 쌓인 대화는 최근 것만 접는다.
+  const transcript = limitSummaryTurns(turns, PROGRESS_SUMMARY_LIMITS).map(turn => `${turn.role === "viewer" ? prompts.user : "보리"}: ${quoteUserText(turn.text)}`).join("\n");
   const previous = previousSummary.trim();
   const userPrompt = [
     previous.length > 0 ? `[이전 요약]\n${previous}\n` : "[이전 요약]\n(아직 없음)\n",

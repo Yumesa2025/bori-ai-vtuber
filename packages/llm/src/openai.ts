@@ -1,5 +1,6 @@
-import { buildSystemPrompt, buildUserPrompt, responseJsonSchema } from "./prompt.js";
+import { buildSystemPrompt, buildUserPrompt, maxOutputTokensFor, responseJsonSchemaFor } from "./prompt.js";
 import { redactError, redactSecrets } from "./redact.js";
+import { RateLimitError, sendWithRateLimitRetry } from "./retry.js";
 import type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest } from "./types.js";
 import { tokenUsageFrom } from "./usage.js";
 
@@ -24,7 +25,8 @@ export function createOpenAiAdapter(config: LlmAdapterConfig): LlmAdapter {
       const timer = setTimeout(() => controller.abort(), request.timeoutMs);
 
       try {
-        const response = await fetch(`${baseUrl}/chat/completions`, {
+        // 429면 Retry-After를 지켜 한 번 다시 보낸다. 다시 보내도 타임아웃 상한은 처음 시작 기준 그대로다.
+        const response = await sendWithRateLimitRetry(() => fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -38,15 +40,17 @@ export function createOpenAiAdapter(config: LlmAdapterConfig): LlmAdapter {
             ],
             response_format: {
               type: "json_schema",
-              json_schema: { name: "bori_response", strict: true, schema: request.overrideSchema ?? responseJsonSchema },
+              json_schema: { name: "bori_response", strict: true, schema: request.overrideSchema ?? responseJsonSchemaFor(request) },
             },
+            max_completion_tokens: maxOutputTokensFor(request),
           }),
           signal: controller.signal,
-        });
+        }), startedAt + request.timeoutMs);
 
         if (!response.ok) {
           // 응답 본문에 키가 섞여 들어가지 않도록 키 모양 문자열을 가린 뒤 앞부분만 남긴다.
           const detail = redactSecrets(await response.text(), [config.apiKey]).slice(0, 200);
+          if (response.status === 429) throw new RateLimitError(`OpenAI 429: ${detail}`);
           throw new Error(`OpenAI ${response.status}: ${detail}`);
         }
 

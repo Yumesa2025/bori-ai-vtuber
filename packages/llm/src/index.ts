@@ -3,16 +3,21 @@ import type { CharacterResponse, LlmProvider, LlmSettings, LlmStatus } from "@bo
 import { createAnthropicAdapter } from "./anthropic.js";
 import { createOpenAiAdapter } from "./openai.js";
 import type { LlmAdapter, LlmAdapterConfig, LlmRequest, LlmTokenUsage } from "./types.js";
+import { isRateLimitError } from "./retry.js";
 import { validateLlmOutput } from "./validate.js";
 
 export type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest, LlmTokenUsage, LlmValidation } from "./types.js";
-export { validateLlmOutput } from "./validate.js";
-export { buildPromptLayers, buildSystemPrompt, buildUserPrompt, neutralizeUserText, promptLayerOrder, quoteUserText, type PromptLayer, type PromptLayerId } from "./prompt.js";
+export { DEFAULT_EMOTION, replyLengthOf, stripDecorations, validateLlmOutput } from "./validate.js";
+export { isRateLimitError, RateLimitError, retryAfterMsOf, sendWithRateLimitRetry } from "./retry.js";
+export { buildPromptLayers, buildSystemPrompt, buildUserPrompt, maxOutputTokensFor, neutralizeUserText, promptLayerOrder, quoteUserText, responseJsonSchemaFor, type PromptLayer, type PromptLayerId } from "./prompt.js";
 export type { ConversationMode } from "@bori/character";
-export { digestPrivateMemories, isBroadcastMemoryText, PRIVATE_MEMORY_DIGEST_LIMIT, summarizeBroadcast, summarizeSessionProgress, type BroadcastSummary, type SummaryTurn } from "./summarize.js";
+export { digestPrivateMemories, isBroadcastMemoryText, limitSummaryTurns, PRIVATE_MEMORY_DIGEST_LIMIT, summarizeBroadcast, summarizeSessionProgress, type BroadcastSummary, type SummaryTurn } from "./summarize.js";
 export {
   synthesizeSpeech,
   listVoices,
+  createVoiceListCache,
+  mp3DurationMs,
+  AUDIO_MAX_BYTES,
   defaultTtsSettings,
   defaultTtsModels,
   openAiVoices,
@@ -162,6 +167,13 @@ export function createLlmClient(options: LlmClientOptions = {}) {
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         reportCall({ mode: request.mode, model: settings.model, ok: false });
+        // 속도 제한(429)은 어댑터가 Retry-After를 지켜 한 번 다시 보낸 뒤에도 남은 경우다.
+        // 업체가 고장 난 것이 아니므로 실패 수와 lastError에만 남기고 회로를 열 연속 실패로 세지 않는다(ADR-024).
+        if (isRateLimitError(error)) {
+          failureCount += 1;
+          lastError = reason;
+          return { ok: false, reason, kind: "call" };
+        }
         recordFailure(settings, reason, false);
         return { ok: false, reason, kind: "call" };
       }
@@ -171,6 +183,8 @@ export function createLlmClient(options: LlmClientOptions = {}) {
         recordFailure(settings, validated.reason, true);
         return { ok: false, reason: validated.reason, kind: "validation" };
       }
+      // 감정·모션·기호를 기본값으로 바꾼 답은 정상 답이다. 실패로 세지 않고 로그로만 남긴다.
+      if (validated.corrections.length > 0) console.warn(`[bori-llm] 출력 보정(${request.mode}): ${validated.corrections.join(" / ")}`);
 
       consecutiveFailures = 0;
       lastError = null;
