@@ -1,0 +1,9 @@
+{
+  "code": 200,
+  "message": "Success",
+  "topRanks": [
+    { "nickname": "랭커B", "rank": 2, "mmr": 9800, "userEmblems": [] },
+    { "nickname": "랭커A", "rank": 1, "mmr": 9900, "userEmblems": [] },
+    { "nickname": "랭커C", "rank": 3, "mmr": 9700, "userEmblems": [] }
+  ]
+}

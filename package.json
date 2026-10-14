@@ -18,7 +18,7 @@
     "test": "node tools/test/run.mjs",
     "test:soak": "node tools/test/soak.mjs",
     "test:unit": "node --import tsx --test --test-timeout=30000 \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
-    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character && npm run typecheck:companion",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character && npm run typecheck:companion && npm run typecheck:er",
     "typecheck:shared": "npm --workspace packages/shared run typecheck",
     "typecheck:server": "npm --workspace apps/server run typecheck",
     "typecheck:broadcast": "npm --workspace apps/broadcast run typecheck",
@@ -28,6 +28,7 @@
     ,"typecheck:memory": "npm --workspace packages/memory run typecheck"
     ,"typecheck:character": "npm --workspace packages/character run typecheck"
     ,"typecheck:companion": "npm --workspace apps/companion run typecheck"
+    ,"typecheck:er": "npm --workspace packages/er run typecheck"
     ,"eval": "node --import tsx tools/eval/run.ts"
     ,"eval:static": "node --import tsx tools/eval/run.ts --only static"
     ,"eval:model": "node --import tsx tools/eval/run.ts --only model"

@@ -1,0 +1,10 @@
+{
+  "code": 200,
+  "message": "Success",
+  "userGames": [
+    { "gameId": 1001, "matchingMode": 3, "characterNum": 1, "gameRank": 1, "bestWeapon": 15 },
+    { "gameId": 1001, "matchingMode": 3, "characterNum": 2, "gameRank": 2, "bestWeapon": 9 },
+    { "gameId": 1001, "matchingMode": 3, "characterNum": 3, "gameRank": 3, "bestWeapon": 21 },
+    { "gameId": 1001, "matchingMode": 3, "characterNum": 1, "gameRank": 4, "bestWeapon": 16 }
+  ]
+}
