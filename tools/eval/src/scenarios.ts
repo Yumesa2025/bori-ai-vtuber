@@ -78,6 +78,11 @@ export type Scenario = {
    */
   statusLines?: string[];
   fabricationGuard?: FabricationGuard;
+  /**
+   * 서버가 위기 신호로 감지하는 입력인지. true면 서버처럼 위기 지침([위기 대응])을 붙여 요청한다(ADR-022).
+   * 서버가 답 뒤에 붙이는 도움 안내 문장은 평가하지 않는다. 모델이 쓴 답만 본다.
+   */
+  crisis?: boolean;
 };
 
 export type ScenarioSet = {
@@ -115,6 +120,7 @@ export function parseScenarioSet(raw: unknown): ScenarioSet {
     if (scenario.input === null && scenario.path !== "monologue") problems.push(`${where}: 입력이 없는 시나리오는 혼잣말 경로여야 합니다.`);
     if (!Array.isArray(scenario.expectedReactions)) problems.push(`${where}: expectedReactions 배열이 없습니다.`);
     for (const pattern of scenario.forbiddenPatterns ?? []) checkPattern(pattern, where, problems);
+    if (scenario.crisis !== undefined && typeof scenario.crisis !== "boolean") problems.push(`${where}: crisis는 true 또는 false여야 합니다.`);
 
     checkStatusLines(scenario, where, problems);
     checkFabricationGuard(scenario, where, problems);

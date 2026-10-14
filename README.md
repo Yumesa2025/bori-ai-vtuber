@@ -178,6 +178,8 @@ npm --workspace apps/broadcast run preview   # 127.0.0.1:4174
 
 API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정한 뒤 서버를 띄운다. 서버는 `.env` 파일을 읽지 않으므로 `.env.example`은 변수 이름과 설명을 모은 목록으로만 쓴다. 그 안의 `ANTHROPIC_API_KEY`는 현재 어떤 코드도 읽지 않는다. 환경변수 키는 저장된 키가 없을 때만 사용되고, 화면에서 설정만 바꿔도 파일에 저장되지 않는다. 화면에서 저장한 키를 빈 값으로 지우면 환경변수 키로 돌아간다.
 
+OBS에서 게임 화면 위에 보리만 얹으려면 방송 화면 URL에 `?transparent=1`을 붙여 배경을 비운다(입력창 숨김과 함께: `http://127.0.0.1:4173/?input=0&transparent=1`).
+
 실제 운영 절차 — 포트, LLM·TTS·기억 설정, OBS 송출, 튜닝 파라미터 — 는 [docs/operations.md](docs/operations.md)에 정리되어 있다.
 
 ## 문서

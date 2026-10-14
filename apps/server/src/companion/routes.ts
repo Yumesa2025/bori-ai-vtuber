@@ -2,8 +2,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { boriName, boriPersonaLines, conversationPolicies } from "@bori/character";
 import { boriEmotionNames, boriExpressionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
 import type { CharacterCatalog, CharacterProfile } from "@bori/shared";
+import { cleanInputText, lengthOf } from "../input-text.js";
 import { readBodyText } from "./body.js";
-import type { CompanionService } from "./service.js";
+import { PartialDeletionError, type CompanionService } from "./service.js";
 import type { ConversationStore } from "./store.js";
 
 /** 메시지 최대 길이(글자). */
@@ -48,9 +49,6 @@ async function readJsonObject(request: IncomingMessage, response: ServerResponse
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new HttpError(400, "Invalid JSON");
   return parsed as Record<string, unknown>;
 }
-
-/** 글자 수. 한글 한 글자도, 이모지 하나도 한 글자로 센다. */
-const lengthOf = (text: string) => Array.from(text).length;
 
 function decodeId(segment: string): string {
   try {
@@ -100,7 +98,8 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
           const body = await readJsonObject(request, response);
           if (!body) return;
           if (body.title !== undefined && typeof body.title !== "string") throw new HttpError(400, "title은 문자열이어야 합니다.");
-          const title = Array.from((body.title ?? "").trim()).slice(0, TITLE_MAX_LENGTH).join("");
+          // 제목은 목록에 한 줄로 나가므로 줄바꿈도 공백으로 바꾼다.
+          const title = Array.from(cleanInputText(body.title ?? "").replace(/\s+/g, " ").trim()).slice(0, TITLE_MAX_LENGTH).join("");
           sendJson(response, 201, { conversation: store.create(ownerId, title.length > 0 ? title : DEFAULT_TITLE) });
           return;
         }
@@ -130,7 +129,8 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
       if (!body) return;
       if (typeof body.content !== "string") throw new HttpError(400, "content는 문자열이어야 합니다.");
       if (body.tts !== undefined && typeof body.tts !== "boolean") throw new HttpError(400, "tts는 true 또는 false여야 합니다.");
-      const content = body.content.trim();
+      // 제어문자·방향 바꿈 문자는 저장 전에 지운다(a1 L6).
+      const content = cleanInputText(body.content).trim();
       if (content.length === 0) throw new HttpError(400, "내용이 비어 있습니다.");
       if (lengthOf(content) > MESSAGE_MAX_LENGTH) throw new HttpError(400, `내용은 ${MESSAGE_MAX_LENGTH}자 이하여야 합니다.`);
 
@@ -145,18 +145,25 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
       // /api/me/data: 1:1 대화·요약·세션·개인 기억을 한 번에 지운다. 방송 기억은 남는다.
       if (id === "data") {
         if (method !== "DELETE") throw new HttpError(405, "지원하지 않는 메서드입니다.");
-        sendJson(response, 200, { deleted: service.clearAll(ownerId) });
+        try {
+          sendJson(response, 200, { deleted: await service.clearAll(ownerId) });
+        } catch (error) {
+          if (!(error instanceof PartialDeletionError)) throw error;
+          // 일부만 지웠다. 무엇이 남았는지 함께 알려 다시 시도하게 한다.
+          console.error("[bori-companion] 1:1 기록 일부 삭제 실패:", error.failed.join(", "), error.cause ?? "");
+          sendJson(response, 500, { error: "일부만 지웠습니다. 다시 시도해 주세요.", deleted: error.deleted, failed: error.failed });
+        }
         return;
       }
       // /api/me/memories
       if (segments.length === 3) {
         if (method === "GET") { sendJson(response, 200, { memories: service.listMemories(ownerId) }); return; }
-        if (method === "DELETE") { sendJson(response, 200, { deleted: service.clearMemories(ownerId) }); return; }
+        if (method === "DELETE") { sendJson(response, 200, { deleted: await service.clearMemories(ownerId) }); return; }
         throw new HttpError(405, "지원하지 않는 메서드입니다.");
       }
       // /api/me/memories/:id
       if (method !== "DELETE") throw new HttpError(405, "지원하지 않는 메서드입니다.");
-      if (!service.deleteMemory(ownerId, decodeId(sub))) throw new HttpError(404, "기억을 찾을 수 없습니다.");
+      if (!(await service.deleteMemory(ownerId, decodeId(sub)))) throw new HttpError(404, "기억을 찾을 수 없습니다.");
       sendJson(response, 200, { deleted: true });
       return;
     }

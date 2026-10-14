@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, describeError, MAX_MESSAGE_LENGTH, type Conversation, type Message } from "./api";
 import { useBoriLive2D } from "./live2d/useBoriLive2D";
-import { loadTtsEnabled, saveTtsEnabled } from "./preferences";
+import { loadActiveConversation, loadTtsEnabled, saveActiveConversation, saveTtsEnabled } from "./preferences";
+import { failureNotice, speechNotice, withParticle } from "./ui";
 import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ConversationList } from "./components/ConversationList";
@@ -10,6 +11,8 @@ import { MessageList } from "./components/MessageList";
 
 /** 새 대화 제목은 첫 메시지 앞부분으로 정한다. 서버가 따로 정하지 않아도 목록에서 구분된다. */
 const TITLE_LENGTH = 30;
+/** 서버에 닿지 못하는 동안 다시 연결을 시도하는 간격. 서버가 돌아오면 연결 안내가 저절로 사라진다. */
+const RECONNECT_INTERVAL_MS = 5000;
 
 type Notice = { tone: "error" | "info"; text: string };
 
@@ -30,7 +33,15 @@ export function App() {
   const [deleting, setDeleting] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // 저장된 값은 아래 effect가 activeId로 덮으므로 첫 렌더 때 한 번만 읽어 둔다.
+  const [restoreId] = useState(loadActiveConversation);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  /** 대화를 지운 뒤 입력창으로 포커스를 옮기라는 신호. 지운 항목의 버튼이 사라져 포커스가 body로 빠지는 것을 막는다. */
+  const [focusInputSeq, setFocusInputSeq] = useState(0);
+  /** 답을 기다리는 사이 1:1 기록을 모두 지웠는지. 그러면 보낸 문장을 입력창에 되돌리지 않는다. */
+  const dataClearedRef = useRef(false);
   // 답을 기다리는 사이 다른 대화로 옮겨도 늦게 온 답이 엉뚱한 대화에 붙지 않게 현재 대화를 따로 둔다.
   const activeIdRef = useRef<string | null>(null);
   activeIdRef.current = activeId;
@@ -57,11 +68,12 @@ export function App() {
     }
   }, [showError]);
 
+  // 끊긴 동안에만 주기적으로 다시 연결해 본다. 붙으면 refreshConversations가 안내를 내린다.
   useEffect(() => {
-    void refreshConversations();
-    // 프로필은 이름 표시용이다. 받지 못해도 기본 이름으로 동작한다.
-    api.getProfile().then(profile => { if (profile.name) setCharacterName(profile.name); }).catch(() => undefined);
-  }, [refreshConversations]);
+    if (!disconnected) return;
+    const timer = window.setInterval(() => void refreshConversations(), RECONNECT_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [disconnected, refreshConversations]);
 
   const openConversation = useCallback(async (id: string) => {
     setActiveId(id);
@@ -82,6 +94,17 @@ export function App() {
     }
   }, [refreshConversations, showError]);
 
+  useEffect(() => {
+    // 새로고침 전에 열려 있던 대화가 아직 있으면 다시 연다. 이미 지워졌으면 새 대화로 시작한다.
+    void refreshConversations().then(list => {
+      if (restoreId && list?.some(conversation => conversation.id === restoreId) && activeIdRef.current === null) void openConversation(restoreId);
+    });
+    // 프로필은 이름 표시용이다. 받지 못해도 기본 이름으로 동작한다.
+    api.getProfile().then(profile => { if (profile.name) setCharacterName(profile.name); }).catch(() => undefined);
+  }, [openConversation, refreshConversations, restoreId]);
+
+  useEffect(() => { saveActiveConversation(activeId); }, [activeId]);
+
   const startNewConversation = useCallback(() => {
     // 대화는 첫 메시지를 보낼 때 만든다. 빈 대화가 목록에 쌓이지 않게 한다.
     setActiveId(null);
@@ -98,6 +121,7 @@ export function App() {
     setPendingContent(content);
     setDraft("");
     setNotice(null);
+    dataClearedRef.current = false;
     live2d.lookAtChat();
 
     let conversationId = activeId;
@@ -115,15 +139,22 @@ export function App() {
       if (activeIdRef.current === conversationId) {
         setMessages(current => [...current, result.userMessage, result.reply]);
         live2d.react(result.reply.emotion, result.reply.actions);
+        // LLM을 쓸 수 없어 기본 문장으로 답했으면 이유를 알려 준다. 고장인지 설정 문제인지 구분할 수 있다.
+        const unavailable = failureNotice(result.failure?.kind);
+        if (unavailable) setNotice({ tone: "info", text: unavailable });
         if (result.audioId && ttsEnabled) {
           void live2d.speakAudio(result.audioId, result.reply.content).then(outcome => {
-            if (outcome === "audioBlocked") setNotice({ tone: "info", text: "브라우저가 소리 재생을 막았어요. 화면을 한 번 누른 뒤 다음 답부터 들을 수 있어요." });
+            const text = speechNotice(outcome);
+            // LLM 안내가 더 중요하므로 덮지 않는다.
+            if (text && !unavailable) setNotice({ tone: "info", text });
           });
         } else {
           live2d.speakText(result.reply.content);
         }
       }
     } catch (error) {
+      // 기다리는 사이 1:1 기록을 모두 지웠으면 실패는 당연하다. 지운 문장을 되살리거나 오류를 띄우지 않는다.
+      if (dataClearedRef.current) return;
       showError(error);
       // 보내지 못한 내용은 입력창에 되돌려 다시 보낼 수 있게 한다.
       setDraft(current => current || content);
@@ -136,6 +167,21 @@ export function App() {
 
   // 전송이 끝나면 입력창에 다시 포커스를 둔다. 보내는 동안 잠겨 있어 포커스가 빠진다.
   useEffect(() => { if (pendingContent === null) inputRef.current?.focus(); }, [pendingContent]);
+  // 대화를 지운 뒤에도 입력창으로 돌아온다. 확인 대화상자가 닫힌 뒤(자식 effect 다음)에 돈다.
+  useEffect(() => { if (focusInputSeq > 0) inputRef.current?.focus(); }, [focusInputSeq]);
+
+  // 좁은 화면 서랍: 열면 첫 버튼으로 포커스를 옮기고, Esc로 닫으면 여닫는 버튼으로 돌려준다.
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+    sidebarToggleRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    sidebarRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") closeSidebar(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen, closeSidebar]);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -143,18 +189,20 @@ export function App() {
     try {
       await api.deleteConversation(deleteTarget.id);
       if (deleteTarget.id === activeId) { setActiveId(null); setMessages([]); }
-      setNotice({ tone: "info", text: "대화를 삭제했어요." });
+      setNotice({ tone: "info", text: "대화를 지웠어요." });
     } catch (error) {
       showError(error);
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
+      setFocusInputSeq(seq => seq + 1);
       void refreshConversations();
     }
   };
 
   // 1:1 기록을 모두 지웠으면 열린 대화도 없어졌다. 화면을 비우고 목록을 서버와 맞춘다.
   const handleDataCleared = useCallback(() => {
+    dataClearedRef.current = true;
     setActiveId(null);
     setMessages([]);
     setNotice(null);
@@ -176,15 +224,16 @@ export function App() {
         </div>
       )}
       <header className="app-header">
-        <button type="button" className="ghost-button sidebar-toggle" aria-expanded={sidebarOpen} aria-controls="conversation-sidebar" onClick={() => setSidebarOpen(open => !open)}>대화 목록</button>
-        <h1>{characterName}와 대화</h1>
+        <button type="button" ref={sidebarToggleRef} className="ghost-button sidebar-toggle" aria-expanded={sidebarOpen} aria-controls="conversation-sidebar" onClick={() => setSidebarOpen(open => !open)}>대화 목록</button>
+        <h1>{withParticle(characterName, "와", "과")} 대화</h1>
         <div className="header-actions">
           <button type="button" className="ghost-button" aria-pressed={ttsEnabled} onClick={toggleTts}>{ttsEnabled ? "음성 켜짐" : "음성 꺼짐"}</button>
           <button type="button" className="ghost-button" onClick={() => setMemoryOpen(true)}>내 기억</button>
         </div>
       </header>
       <div className="companion-body">
-        <aside id="conversation-sidebar" className={`conversation-sidebar${sidebarOpen ? " open" : ""}`}>
+        {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label="대화 목록 닫기" tabIndex={-1} onClick={closeSidebar} />}
+        <aside id="conversation-sidebar" ref={sidebarRef} className={`conversation-sidebar${sidebarOpen ? " open" : ""}`}>
           <ConversationList
             conversations={conversations}
             activeId={activeId}
@@ -208,9 +257,9 @@ export function App() {
       </div>
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="대화를 삭제할까요?"
+        title="대화를 지울까요?"
         description={`"${deleteTarget?.title || "제목 없는 대화"}" 대화와 메시지가 모두 지워져요. 되돌릴 수 없어요.`}
-        confirmLabel="삭제"
+        confirmLabel="지우기"
         busy={deleting}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}

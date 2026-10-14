@@ -10,6 +10,8 @@ declare module "@sdk-sample/lappdelegate" {
     clearExpression(): void;
     startMotion(group: string, no: number, priority: number, onFinished?: () => void): unknown;
     setManualLipSync(value: number | null): void;
+    /** 모델 파일·모션까지 다 읽어 그릴 수 있는 상태인지(CubismUserModel). */
+    isInitialized(): boolean;
   }
 
   export class LAppDelegate {

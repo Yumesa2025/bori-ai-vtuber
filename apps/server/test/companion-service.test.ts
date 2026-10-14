@@ -231,8 +231,8 @@ describe("개인 기억", () => {
     const others = memoryStore.all().filter(record => record.ownerId !== OWNER);
 
     assert.deepEqual(service.listMemories(OWNER).map(memory => memory.text), ["내 취향"]);
-    for (const record of others) assert.equal(service.deleteMemory(OWNER, record.id), false);
-    assert.equal(service.clearMemories(OWNER), 1);
+    for (const record of others) assert.equal(await service.deleteMemory(OWNER, record.id), false);
+    assert.equal(await service.clearMemories(OWNER), 1);
     assert.deepEqual(memoryStore.all().map(record => record.text).sort(), ["다른 사용자의 취향", "방송 시청자의 취향"]);
   });
 });
@@ -246,6 +246,18 @@ describe("관계 맥락", () => {
     const conversation = store.create(OWNER, "첫 대화");
     await service.sendMessage(OWNER, conversation.id, "안녕하세요", { tts: false });
     assert.deepEqual(lastRequest()?.broadcastStatus, ["이 사람과는 오늘 처음 대화한다."]);
+  });
+
+  test("첫 대화의 첫 답에만 처음이라는 문장이 들어가고, 이어지는 메시지에는 인사를 이미 나눴다는 문장이 들어간다", async () => {
+    // 점검 C-5: 첫날 매 턴 "오늘 처음 대화한다"가 들어가 반복 인사를 불렀다.
+    const { store, service } = boot({ now: () => local(12) });
+    const conversation = store.create(OWNER, "첫 대화");
+    await service.sendMessage(OWNER, conversation.id, "안녕하세요", { tts: false });
+    assert.deepEqual(lastRequest()?.broadcastStatus, ["이 사람과는 오늘 처음 대화한다."]);
+    for (const content of ["요즘 날이 좀 춥네요", "오늘은 일찍 잘까 봐요"]) {
+      await service.sendMessage(OWNER, conversation.id, content, { tts: false });
+      assert.deepEqual(lastRequest()?.broadcastStatus, ["이 사람과는 첫 대화를 이어 가는 중이다. 인사는 이미 나눴다."]);
+    }
   });
 
   test("며칠 뒤 새 대화에는 몇 번째 대화인지와 지난 대화 요약이 들어간다", async () => {
@@ -305,7 +317,7 @@ describe("누적 요약 영속화", () => {
     assert.equal(summaryRequests.length, 1);
     assert.ok(summaryRequests[0].overrideSystemPrompt?.includes("1:1 대화의 흐름"));
     assert.ok(!summaryRequests[0].overrideSystemPrompt?.includes("방송"));
-    assert.ok(summaryRequests[0].overrideUserPrompt?.includes("상대: 첫 메시지"));
+    assert.ok(summaryRequests[0].overrideUserPrompt?.includes('상대: "첫 메시지'));
     assert.equal(store.summaryOf(OWNER, conversation.id), "요약 1");
   });
 
@@ -483,7 +495,7 @@ describe("LLM 개인 기억 정리기", () => {
     for (const phrase of ["직접 말한 사실, 취향, 경험만", "한 문장씩", "추측하거나 지어내지 않는다", "개인정보"]) {
       assert.ok(system.includes(phrase), phrase);
     }
-    assert.ok(fake.requests[0].overrideUserPrompt?.includes("상대: 저는 재즈를 좋아해요"));
+    assert.ok(fake.requests[0].overrideUserPrompt?.includes('상대: "저는 재즈를 좋아해요"'));
   });
 
   test("형식이 틀린 응답은 null이다", async () => {

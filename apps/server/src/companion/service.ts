@@ -1,6 +1,6 @@
 import { extractPrivateMemoryCandidates, isStorableMemory, type EmbeddingProvider, type MemoryCandidate, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, CompanionMemory, ConversationMessage, SendConversationMessageResult } from "@bori/shared";
-import { isUnsafeContent, type ConversationEngine, type ConversationSession, type RespondResult, type SessionTurn } from "../conversation/index.js";
+import { crisisTurnMask, isCrisisContent, isInCrisisContext, isUnsafeContent, type ConversationEngine, type ConversationSession, type RespondResult, type SessionTurn } from "../conversation/index.js";
 import type { DigestMemories } from "./memory-digest.js";
 import { relationshipStatusLines } from "./relationship.js";
 import type { ConversationStore, NewConversationMessage } from "./store.js";
@@ -15,7 +15,7 @@ const DIGEST_MEMORY_MAX_LENGTH = 120;
 export type CompanionServiceDeps = {
   engine: Pick<ConversationEngine, "createSession" | "respond" | "record" | "tickMacros" | "restore">;
   store: ConversationStore;
-  memoryStore: Pick<MemoryStore, "add" | "all" | "remove" | "removeByOwner">;
+  memoryStore: Pick<MemoryStore, "add" | "all" | "remove" | "removeByOwner"> & Partial<Pick<MemoryStore, "removeLeftovers">>;
   memorySettings: () => MemorySettings;
   embedding: () => EmbeddingProvider | null;
   /** 답변 음성을 만든다. 실패하면 undefined를 돌려주고 답변은 그대로 나간다. */
@@ -25,6 +25,20 @@ export type CompanionServiceDeps = {
   /** 현재 시각(ms). 관계 맥락 계산에 쓴다. 검사에서 고정한다. */
   now?: () => number;
 };
+
+/** 1:1 기록 전체 삭제에서 지운 개수. */
+export type ClearAllResult = { conversations: number; messages: number; memories: number };
+
+/**
+ * 1:1 기록 전체 삭제가 일부만 끝났다. 무엇을 지웠고 무엇이 남았는지 담는다.
+ * 지워졌다고 답하면 사용자는 다시 시도하지 않으므로 실패로 알린다.
+ */
+export class PartialDeletionError extends Error {
+  constructor(readonly deleted: ClearAllResult, readonly failed: readonly ("conversations" | "leftovers")[], options?: { cause?: unknown }) {
+    super("1:1 기록을 일부만 지웠습니다.", options);
+    this.name = "PartialDeletionError";
+  }
+}
 
 export type SendMessageOutcome =
   | { kind: "ok"; result: SendConversationMessageResult }
@@ -128,7 +142,8 @@ export function createCompanionService(deps: CompanionServiceDeps) {
    */
   async function digestAndSave(ownerId: string, turns: readonly SessionTurn[]) {
     const digest = deps.digestMemories;
-    if (!digest) return;
+    // 위기 대화를 빼고 나면 상대의 발언이 없을 수 있다. 그때는 부르지 않는다.
+    if (!digest || !turns.some(turn => turn.role === "viewer")) return;
 
     const isStale = staleCheck(ownerId);
     try {
@@ -164,7 +179,10 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     const userIndexes = turns.flatMap((turn, index) => (turn.role === "viewer" ? [index] : []));
     if (userIndexes.length === 0 || userIndexes.length % every !== 0) return;
 
-    const task = digestAndSave(ownerId, turns.slice(userIndexes[userIndexes.length - every]));
+    // 위기 대화는 정리에 넘기지 않는다(S-3). 앞뒤 맥락을 보도록 전체로 표시한 뒤 이번 몫만 자른다.
+    const start = userIndexes[userIndexes.length - every];
+    const excluded = crisisTurnMask(turns);
+    const task = digestAndSave(ownerId, turns.slice(start).filter((_, index) => !excluded[start + index]));
     background.add(task);
     void task.finally(() => background.delete(task));
   }
@@ -184,7 +202,9 @@ export function createCompanionService(deps: CompanionServiceDeps) {
       if (!userMessage) return { kind: "not_found" };
 
       // 기억 저장은 답변 생성과 나란히 돌린다. 막은 입력은 기억으로도 남기지 않는다.
-      const memorySaved = isUnsafeContent(content) ? Promise.resolve() : savePrivateMemories(ownerId, content);
+      // 위기 신호와 그 뒤에 이어진 말도 개인 기억으로 남기지 않는다(S-3). 엔진이 위기 답을 고르는 기준과 같다.
+      const crisis = isCrisisContent(content) || isInCrisisContext(session.recentTurns);
+      const memorySaved = isUnsafeContent(content) || crisis ? Promise.resolve() : savePrivateMemories(ownerId, content);
       const outcome = await deps.engine.respond(session, { content, speaker: { ownerId }, statusLines });
       const reply = deps.store.append(ownerId, conversationId, draftFor(outcome));
       // 다음 메시지가 이번에 만든 기억을 볼 수 있도록 응답 전에 저장을 마친다.
@@ -231,7 +251,8 @@ export function createCompanionService(deps: CompanionServiceDeps) {
    * 본인의 개인 기억을 모두 지운다. 진행 중인 기억 저장·정리 결과도 버린다.
    * 1:1 소유자 ID(companion:)는 방송 시청자 ID(local: 등)와 겹치지 않으므로 소유자로 지워도 방송 기억은 남는다.
    */
-  function clearMemories(ownerId: string): number {
+  function clearMemories(ownerId: string): Promise<number> {
+    // 세대는 바로 올린다. 파일 쓰기를 기다리는 사이 끝난 저장·정리도 버려야 한다.
     generations.set(ownerId, generationOf(ownerId) + 1);
     return deps.memoryStore.removeByOwner(ownerId);
   }
@@ -252,8 +273,8 @@ export function createCompanionService(deps: CompanionServiceDeps) {
         .map(record => ({ id: record.id, text: record.text, createdAt: record.createdAt, expiresAt: record.expiresAt }));
     },
 
-    /** 본인의 개인 기억이 아니면 지우지 않는다. 없는 것과 같이 false를 돌려준다. */
-    deleteMemory(ownerId: string, memoryId: string): boolean {
+    /** 본인의 개인 기억이 아니면 지우지 않는다. 없는 것과 같이 false를 돌려준다. 파일에 쓰지 못하면 예외를 넘긴다. */
+    async deleteMemory(ownerId: string, memoryId: string): Promise<boolean> {
       if (!ownedPrivate(ownerId).some(record => record.id === memoryId)) return false;
       return deps.memoryStore.remove(memoryId);
     },
@@ -263,15 +284,30 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     /**
      * 본인의 1:1 기록을 모두 지운다. 대화·메시지·대화별 누적 요약·메모리의 세션·개인 기억이다.
      * 방송 기억과 남의 기록은 건드리지 않는다. 답변을 만드는 중인 대화는 답변을 저장하지 못하고 끝난다.
+     *
+     * 기억을 먼저 지운다. 기억 삭제는 쓰기에 실패하면 되돌리므로, 거기서 실패하면 아무것도 지우지 않은 채 예외가 난다.
+     * 그 뒤 대화나 남은 조각(읽지 못한 대화 파일 백업·임시 파일) 삭제가 실패하면 PartialDeletionError로 알린다.
      */
-    clearAll(ownerId: string): { conversations: number; messages: number; memories: number } {
+    async clearAll(ownerId: string): Promise<ClearAllResult> {
       // 세션 키는 소유자로 시작한다(keyOf).
       const prefix = keyOf(ownerId, "");
       for (const key of sessions.keys()) {
         if (key.startsWith(prefix)) sessions.delete(key);
       }
-      const removed = deps.store.removeOwner(ownerId);
-      return { ...removed, memories: clearMemories(ownerId) };
+      const memories = await clearMemories(ownerId);
+
+      let removed: { conversations: number; messages: number };
+      try {
+        removed = deps.store.removeOwner(ownerId);
+      } catch (error) {
+        throw new PartialDeletionError({ conversations: 0, messages: 0, memories }, ["conversations"], { cause: error });
+      }
+
+      // 읽지 못한 대화 파일 백업은 소유자별로 나눌 수 없어 통째로 지운다. 지금은 로컬 단일 사용자라 모두 본인 기록이다.
+      const leftovers = [deps.store.removeLeftovers(), deps.memoryStore.removeLeftovers?.() ?? { removed: 0, failed: 0 }];
+      const deleted = { ...removed, memories };
+      if (leftovers.some(result => result.failed > 0)) throw new PartialDeletionError(deleted, ["leftovers"]);
+      return deleted;
     },
   };
 }

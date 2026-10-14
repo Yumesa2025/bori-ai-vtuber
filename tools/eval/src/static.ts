@@ -1,6 +1,6 @@
 import { boriPersonaLines, boriScopeLines, conversationModes, conversationPolicies } from "@bori/character";
 import { boriEmotionNames, isBoriMotionGroup } from "@bori/live2d";
-import { buildSystemPrompt, buildUserPrompt } from "@bori/llm";
+import { buildSystemPrompt, buildUserPrompt, quoteUserText } from "@bori/llm";
 import { ungroundedHits } from "./judge.js";
 import { findRelationshipFragments } from "./relationship.js";
 import { buildScenarioRequest, evalAllowedMotions, evalReplyLimit, selectMemories } from "./request.js";
@@ -82,8 +82,8 @@ export function promptChecks(scenario: Scenario, system: string, user: string): 
     .filter(fragment => system.includes(fragment) || user.includes(fragment));
   checks.push(check("policy.isolation", "다른 모드 정책 미포함", leaked.length === 0, `섞임: ${leaked.join(" / ")}`));
 
-  // 답할 입력
-  const inputBlock = `[${policy.sectionTitles.input}]\n${scenario.input}`;
+  // 답할 입력. 사람이 쓴 글은 큰따옴표 문자열로 감싸 들어간다(ADR-022).
+  const inputBlock = `[${policy.sectionTitles.input}]\n${quoteUserText(scenario.input ?? "")}`;
   checks.push(check("input", "입력 섹션", user.includes(inputBlock), `"${inputBlock}"가 user 프롬프트에 없습니다.`));
 
   // 기억 섹션. 기억이 없으면 섹션을 지우지 않고 기억 없음 문장을 넣어야 한다.
@@ -166,6 +166,7 @@ export function dataChecks(scenario: Scenario): CheckResult[] {
 /**
  * 지어내기 판정 자료가 고정값과 맞는지. 고정값(입력·관계 문장·보이는 기억) 자체가 지어내기 후보에 걸리는데
  * 근거 말로 설명되지 않거나, 언급을 기대한 말이 고정값에 없으면 실모델 판정이 맞는 답을 실패시킨다.
+ * 보리 자기 설정을 묻는 시나리오는 근거가 페르소나 문장에 있으므로, 언급 기대 말은 페르소나에서도 찾는다.
  */
 export function fabricationDataCheck(scenario: Scenario): CheckResult {
   const guard = scenario.fabricationGuard!;
@@ -174,9 +175,10 @@ export function fabricationDataCheck(scenario: Scenario): CheckResult {
     ...(scenario.statusLines ?? []),
     ...selectMemories(scenario).visible.map(memory => memory.text),
   ].join("\n");
+  const groundingText = [fixtureText, ...boriPersonaLines].join("\n");
   const problems = [
     ...ungroundedHits(fixtureText, guard).map(hit => `고정값이 지어내기 후보에 걸림: ${hit}`),
-    ...(guard.mentions ?? []).filter(term => !fixtureText.includes(term)).map(term => `언급 기대 말이 고정값에 없음: ${term}`),
+    ...(guard.mentions ?? []).filter(term => !groundingText.includes(term)).map(term => `언급 기대 말이 고정값에 없음: ${term}`),
   ];
   return check("data.fabrication", "지어내기 판정 자료가 고정값과 맞음", problems.length === 0, problems.join(" / "));
 }

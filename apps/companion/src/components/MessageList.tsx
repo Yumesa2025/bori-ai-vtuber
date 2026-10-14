@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Message } from "../api";
+import { withParticle } from "../ui";
 
 type Props = {
   characterName: string;
@@ -48,7 +49,7 @@ export function MessageList({ characterName, messages, pendingContent, loading }
       {pendingContent !== null && (
         <div className="typing-indicator" role="status">
           <span className="dots" aria-hidden="true"><i /><i /><i /></span>
-          {characterName}가 답을 생각하고 있어요
+          {withParticle(characterName, "가", "이")} 답을 생각하고 있어요
         </div>
       )}
       {loading && <p className="muted centered">대화를 불러오는 중</p>}

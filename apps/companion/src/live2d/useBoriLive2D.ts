@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MessageAction, MessageEmotion } from "../api";
+import { playbackFailure, waitForModelReady } from "./model-status";
 import { planReaction } from "./reaction";
 
 /**
@@ -14,6 +15,8 @@ type BoriModel = {
   clearExpression(): void;
   startMotion(group: string, no: number, priority: number, onFinished?: () => void): unknown;
   setManualLipSync(value: number | null): void;
+  /** 모델 파일과 모션까지 다 읽었는지. 파일이 없으면 끝내 false로 남는다. */
+  isInitialized(): boolean;
 };
 type BoriDelegate = {
   getLoadedModel(index?: number): BoriModel | null;
@@ -21,7 +24,8 @@ type BoriDelegate = {
 };
 
 export type Live2DStatus = { state: "loading" | "ready" | "failed"; message: string };
-export type SpeechResult = "audio" | "text" | "audioBlocked";
+/** audioBlocked는 자동 재생 차단, audioFailed는 파일 없음·디코딩 실패처럼 다시 눌러도 들리지 않는 실패다. */
+export type SpeechResult = "audio" | "text" | "audioBlocked" | "audioFailed";
 
 /** 시선 설정. 화면 중앙이 (0, 0), 오른쪽이 +x, 위가 +y다. 값은 방송 화면과 같다. */
 const GAZE = {
@@ -91,13 +95,14 @@ export function useBoriLive2D() {
   // Cubism Core를 먼저 올린 뒤 렌더러를 초기화한다.
   // 렌더러는 전역 싱글톤이라 StrictMode가 effect를 두 번 실행하면 캔버스가 두 개 생기므로, 취소된 실행은 초기화하지 않는다.
   useEffect(() => {
-    let cancelled = false;
+    const signal = { cancelled: false };
     let release: (() => void) | undefined;
+    const failedStatus: Live2DStatus = { state: "failed", message: "캐릭터를 불러오지 못했어요. 대화는 그대로 할 수 있어요." };
 
     loadCore()
       .then(() => import("@sdk-sample/lappdelegate"))
-      .then(({ LAppDelegate }) => {
-        if (cancelled) return;
+      .then(async ({ LAppDelegate }) => {
+        if (signal.cancelled) return;
         const delegate = LAppDelegate.getInstance();
         if (!delegate.initialize()) throw new Error("Live2D 렌더러를 초기화하지 못했습니다.");
         delegate.run();
@@ -106,16 +111,20 @@ export function useBoriLive2D() {
         // SDK 샘플은 캔버스를 body 끝에 붙인다. 캐릭터 영역 안으로 옮겨 레이아웃을 따르게 한다.
         const canvas = document.querySelector("body > canvas");
         if (canvas && layerRef.current) layerRef.current.appendChild(canvas);
-        setStatus({ state: "ready", message: "Live2D 렌더러 초기화됨" });
         release = () => { delegateRef.current = null; LAppDelegate.releaseInstance(); };
+        // 렌더러가 떠도 모델 파일이 없으면 빈 화면이다. 모델이 실제로 준비됐는지 따로 확인한다.
+        const ready = await waitForModelReady(() => delegate.getLoadedModel()?.isInitialized() === true, { signal });
+        if (signal.cancelled) return;
+        if (!ready) console.error("[bori] Live2D 모델 파일을 불러오지 못했습니다.");
+        setStatus(ready ? { state: "ready", message: "캐릭터 준비됨" } : failedStatus);
       })
       .catch(error => {
-        if (cancelled) return;
+        if (signal.cancelled) return;
         console.error(error);
-        setStatus({ state: "failed", message: "캐릭터를 불러오지 못했어요. 대화는 그대로 할 수 있어요." });
+        setStatus(failedStatus);
       });
 
-    return () => { cancelled = true; release?.(); };
+    return () => { signal.cancelled = true; release?.(); };
   }, []);
 
   // 목표 시선을 프레임마다 조금씩 따라간다. 바로 지정하면 고개가 휙 돌아간다.
@@ -215,7 +224,7 @@ export function useBoriLive2D() {
 
   /**
    * 음성을 재생하고 파형으로 입을 움직인다.
-   * 브라우저가 재생을 막으면 텍스트 립싱크로 대신하고 audioBlocked를 돌려준다.
+   * 재생하지 못하면 텍스트 립싱크로 대신하고 실패 원인(audioBlocked·audioFailed)을 돌려준다.
    */
   const speakAudio = useCallback(async (audioId: string, text: string): Promise<SpeechResult> => {
     stopSpeechRef.current?.();
@@ -268,10 +277,13 @@ export function useBoriLive2D() {
       frame = requestAnimationFrame(step);
       if (import.meta.env.DEV) console.info(`[bori] audio=${audioId} lipsync=waveform`);
       return "audio";
-    } catch {
+    } catch (error) {
+      // 다음 답이 재생을 끊은 경우(pause로 play가 중단됨)는 실패가 아니다. 다음 답의 립싱크를 덮지 않는다.
+      if (stopped) return "text";
       stop();
       speakText(text);
-      return "audioBlocked";
+      if (import.meta.env.DEV) console.warn(`[bori] audio=${audioId} 재생 실패`, error);
+      return playbackFailure(error) === "blocked" ? "audioBlocked" : "audioFailed";
     }
   }, [speakText]);
 

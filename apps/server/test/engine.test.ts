@@ -169,9 +169,9 @@ describe("세션 분리", () => {
 
     const [broadcastCall, companionCall] = h.summaryCalls.map(call => call.request);
     assert.ok(broadcastCall.overrideSystemPrompt?.startsWith("너는 진행 중인 방송의 흐름을 정리하는 도우미다."));
-    assert.ok(broadcastCall.overrideUserPrompt?.includes("시청자: 방송 채팅 0"));
+    assert.ok(broadcastCall.overrideUserPrompt?.includes('시청자: "방송 채팅 0'));
     assert.ok(companionCall.overrideSystemPrompt?.startsWith("너는 1:1 대화의 흐름을 정리하는 도우미다."));
-    assert.ok(companionCall.overrideUserPrompt?.includes("상대: 1:1 채팅 0"));
+    assert.ok(companionCall.overrideUserPrompt?.includes('상대: "1:1 채팅 0'));
     assert.ok(!companionCall.overrideSystemPrompt?.includes("방송"));
   });
 

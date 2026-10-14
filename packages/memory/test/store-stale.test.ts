@@ -51,7 +51,7 @@ describe("isStale", () => {
     const adding = store.add([candidate("상대는 재즈를 좋아한다.")], settings, embedding.provider, { isStale: () => generation !== started });
     await embedding.entered;
     generation += 1;
-    store.removeByOwner(OWNER);
+    await store.removeByOwner(OWNER);
     embedding.release();
 
     assert.equal(await adding, 0);
@@ -67,7 +67,7 @@ describe("isStale", () => {
     const adding = store.add([candidate("상대는 재즈를 좋아한다."), candidate("상대는 고양이를 키운다.")], settings, embedding.provider, { isStale: () => stale });
     await embedding.entered;
     stale = true;
-    store.removeByOwner(OWNER);
+    await store.removeByOwner(OWNER);
     embedding.release();
 
     assert.equal(await adding, 0);

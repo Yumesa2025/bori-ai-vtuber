@@ -1,10 +1,10 @@
-import { conversationPolicies, type ConversationMode, type ConversationPolicy } from "@bori/character";
+import { boriCrisisHelpLine, boriCrisisLines, boriCrisisReplies, conversationPolicies, type ConversationMode, type ConversationPolicy } from "@bori/character";
 import { boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
 import { buildSystemPrompt, createAdapter, summarizeSessionProgress, type createLlmClient, type LlmRequest } from "@bori/llm";
 import { isAnonymousViewer, type EmbeddingProvider, type MemoryAccess, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, LlmSettings, MacroPrompt } from "@bori/shared";
 import { activateMacros, clearMacros, tickMacros } from "./macros.js";
-import { evaluateRules, fallbackResponse, refusalResponse } from "./rules.js";
+import { calmCrisisResponse, crisisResponse, crisisTurnMask, evaluateRules, fallbackResponse, isCrisisContent, isInCrisisContext, refusalResponse } from "./rules.js";
 import { createSessionState, pickReply, pushTurn, restoreTurns, type ConversationSession, type SessionTurn } from "./session.js";
 
 export type LlmClient = Pick<ReturnType<typeof createLlmClient>, "isCircuitOpen" | "respond">;
@@ -52,10 +52,11 @@ export type RespondFailure = { kind: "disabled" | "circuit" | "call" | "validati
  * blocked: 위험 입력이라 LLM에 넘기지 않았다. 방송은 무반응하고, 거절 문장이 있는 모드는 refusal로 답한다.
  * reply: 내보낼 답변. 폴백 문장을 쓴 경우 failure에 이유가 남는다.
  * 규칙 응답을 쓰는 모드(방송)는 LLM이 꺼져 있어도 규칙으로 정상 진행하므로, 그때의 폴백은 실패로 알리지 않는다.
+ * crisis: 위기 신호에 답했다. 호출하는 쪽은 이 대화를 기억·요약 후보에서 뺀다(ADR-022).
  */
 export type RespondResult =
   | { kind: "blocked"; refusal?: CharacterResponse }
-  | { kind: "reply"; response: CharacterResponse; failure?: RespondFailure };
+  | { kind: "reply"; response: CharacterResponse; failure?: RespondFailure; crisis?: true };
 
 const allowedMotions = boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] }));
 
@@ -100,7 +101,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
 
   const pick = (session: ConversationSession, values: readonly string[]) => pickReply(session, values, deps.replyCooldownMinutes());
 
-  function buildRequest(mode: ConversationMode, settings: LlmSettings, context: Pick<LlmRequest, "content" | "recentTurns" | "memories" | "sessionSummary" | "macroPrompts" | "broadcastStatus">): LlmRequest {
+  function buildRequest(mode: ConversationMode, settings: LlmSettings, context: Pick<LlmRequest, "content" | "recentTurns" | "memories" | "sessionSummary" | "macroPrompts" | "broadcastStatus" | "crisisGuidance">): LlmRequest {
     return {
       mode,
       ...context,
@@ -148,6 +149,35 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
   }
 
   /**
+   * 위기 신호에 답한다. 사용자 결정: 위기 신호에는 도움 기관을 안내한다(ADR-022).
+   * 방송은 공개 자리라 LLM 없이 고정 문장으로 짧게 걱정하고 안내한다. 상대가 한 말을 되풀이하지 않는다.
+   * 1:1은 위기 지침을 붙여 LLM이 답하고, 안내 문장이 없으면 서버가 붙인다.
+   * LLM을 못 쓰거나 실패·검증 실패면 일반 폴백("조금 있다가…") 대신 안내가 든 위기 답을 낸다(S-2).
+   * crisisInput이 false면 낱말로는 못 잡았지만 직전 위기 답 뒤에 이어진 말이다. 지침은 붙이되 안내를 반복해 붙이지는 않는다.
+   */
+  async function respondToCrisis(session: ConversationSession, input: RespondInput, crisisInput: boolean, llm: LlmClient, llmAvailable: boolean, startSettings: LlmSettings): Promise<RespondResult> {
+    const fixed = () => crisisResponse(values => pick(session, values), boriCrisisReplies[session.mode]);
+    if (session.mode === "broadcast") return { kind: "reply", response: fixed(), crisis: true };
+    if (!llmAvailable) return { kind: "reply", response: fixed(), failure: unavailableFailure(startSettings, llm), crisis: true };
+
+    // 기억과 매크로는 넘기지 않는다. 위기 답은 지금 이 사람의 상태에만 집중한다.
+    const settings = deps.llmSettings();
+    const result = await llm.respond(settings, deps.apiKey(), buildRequest(session.mode, settings, {
+      content: input.content,
+      recentTurns: [...session.recentTurns],
+      memories: [],
+      sessionSummary: session.summary,
+      macroPrompts: [],
+      broadcastStatus: input.statusLines ?? [],
+      crisisGuidance: boriCrisisLines,
+    }));
+    if (result.ok) return { kind: "reply", response: calmCrisisResponse(result.response, boriCrisisHelpLine, crisisInput), crisis: true };
+
+    console.error(`[bori-server] LLM 실패(${result.kind}, 위기 답): ${result.reason}`);
+    return { kind: "reply", response: fixed(), failure: { kind: result.kind, reason: result.reason }, crisis: true };
+  }
+
+  /**
    * 규칙 우선, 규칙에 없으면 LLM, LLM이 실패하면 폴백 문장 순서로 답을 만든다.
    * 규칙을 쓰지 않는 모드(1:1)는 위험 차단만 거치고 바로 LLM으로 간다.
    * 위험 입력은 blocked를 돌려준다. 실패를 어디에 알릴지는 호출하는 쪽이 정한다.
@@ -159,6 +189,12 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     // 키가 없거나 회로가 열려 있으면 LLM을 쓸 수 없으므로 규칙이 그대로 답한다.
     const startSettings = deps.llmSettings();
     const llmAvailable = startSettings.enabled && deps.apiKey().trim().length > 0 && !llm.isCircuitOpen();
+
+    // 위기 신호는 위험 주제 차단·규칙 문장보다 먼저 본다. 거절하거나 무반응하면 안 된다.
+    const crisisInput = isCrisisContent(input.content);
+    if (crisisInput || isInCrisisContext(session.recentTurns)) {
+      return respondToCrisis(session, input, crisisInput, llm, llmAvailable, startSettings);
+    }
 
     const outcome = evaluateRules(input.content, llmAvailable, pickForSession, policy.ruleReplies);
     if (outcome.kind === "blocked") {
@@ -222,14 +258,19 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     const pending = session.sessionTurns.slice(session.summarizedTurnCount);
     if (pending.length < settings.rollingSummaryTurns) return;
 
+    const consumed = session.summarizedTurnCount + pending.length;
+    // 위기 대화는 요약에 넣지 않는다(S-3). 남는 대화가 없으면 접은 것으로 치고 호출하지 않는다.
+    const excluded = crisisTurnMask(session.sessionTurns);
+    const material = pending.filter((_, index) => !excluded[session.summarizedTurnCount + index]);
+    if (material.length === 0) { session.summarizedTurnCount = consumed; return; }
+
     const adapter = makeAdapter(settings.provider, { apiKey, model: settings.model });
     if (!adapter) return;
 
     session.summaryInFlight = true;
-    const consumed = session.summarizedTurnCount + pending.length;
 
     // 모드별 지시문을 쓴다. 1:1 대화를 방송 기준("시청자", "방송")으로 요약하지 않는다.
-    void summarizeSessionProgress(adapter, session.summary, pending, { timeoutMs: Math.max(settings.timeoutMs, 15_000), mode: session.mode })
+    void summarizeSessionProgress(adapter, session.summary, material, { timeoutMs: Math.max(settings.timeoutMs, 15_000), mode: session.mode })
       .then(updated => {
         if (!updated) return;
         session.summary = updated;
