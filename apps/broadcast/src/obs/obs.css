@@ -1,0 +1,116 @@
+/*
+ * OBS 페이지 공통 스타일 — 메인 장면 C안.
+ * 보리는 왼쪽 1/3, 오른쪽에 큰 대시보드 패널, 그 아래 채팅 띠, 맨 아래 가운데 자막.
+ * 모든 페이지는 1920×1080 브라우저 소스 기준이다. 방송 화면이라 글씨를 크게(본문 28px 이상), 대비를 높게 둔다.
+ * 겹쳐 얹는 페이지끼리 자리가 겹치지 않도록 배치 값은 여기 한 곳에서만 정한다.
+ */
+:root {
+  --navy: #0e1733d9;
+  --navy-solid: #0b1229;
+  --navy-line: #ffd68c38;
+  --gold: #ffd68c;
+  --gold-strong: #ffc65a;
+  --text: #f5f7ff;
+  --text-dim: #c3cbe6;
+  --edge: 36px;
+  /* 보리 영역(왼쪽 1/3) 바로 오른쪽에서 패널이 시작한다. */
+  --panel-left: 700px;
+  --dashboard-top: 36px;
+  --dashboard-bottom: 666px;
+  --chat-top: 682px;
+  /* 자막(두 줄)이 이 아래 화면 끝까지 쓴다. */
+  --chat-bottom: 892px;
+  font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  color: var(--text);
+}
+* { box-sizing: border-box; }
+html.obs, html.obs body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+/* OBS 브라우저 소스는 배경이 투명이어야 다른 소스 위에 얹힌다. */
+html.obs.transparent, html.obs.transparent body { background: transparent; }
+html.obs.opaque, html.obs.opaque body { background: var(--navy-solid); }
+
+/* 반투명 남색 패널. 게임 화면 위에서도 글씨가 읽히도록 그림자를 둔다. */
+.obs-panel { border: 2px solid var(--navy-line); border-radius: 28px; background: var(--navy); box-shadow: 0 18px 50px #00000059; }
+.obs-title { margin: 0; color: var(--gold); font-weight: 800; letter-spacing: -.01em; }
+
+/* ── character ── */
+/* 왼쪽 1/3(640px)에 대시보드 시작점까지 조금 더 줘서 소매가 잘리지 않게 한다. */
+.obs-character { position: fixed; left: 0; top: 0; width: 700px; height: 1080px; pointer-events: none; }
+.obs-character canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.obs-badge { position: fixed; left: 40px; bottom: 40px; padding: 12px 20px; border-radius: 999px; background: #3a1020e6; color: #ffd0dc; font-size: 24px; }
+.obs-audio-unlock { position: fixed; left: 40px; top: 40px; padding: 12px 22px; border: 0; border-radius: 999px; background: var(--gold); color: #1d1606; font-size: 24px; font-weight: 700; cursor: pointer; }
+
+/* ── dashboard ── */
+.obs-dashboard { position: fixed; left: var(--panel-left); right: var(--edge); top: var(--dashboard-top); height: calc(var(--dashboard-bottom) - var(--dashboard-top)); display: flex; flex-direction: column; padding: 32px 48px 22px; }
+.obs-dashboard-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+.obs-dashboard-head .obs-title { font-size: 48px; }
+.obs-eyebrow { color: var(--text-dim); font-size: 28px; font-weight: 600; }
+.obs-dashboard-body { flex: 1; min-height: 0; overflow: hidden; }
+.obs-basis { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid #ffffff1f; color: var(--text-dim); font-size: 24px; }
+.obs-message { margin: 0; font-size: 40px; font-weight: 700; line-height: 1.4; }
+.obs-message.dim { color: var(--text-dim); font-size: 32px; font-weight: 600; }
+.obs-message.spaced { margin-top: 28px; }
+
+.obs-season { display: flex; flex-direction: column; justify-content: center; gap: 24px; height: 100%; }
+.obs-season-name { margin: 0; color: var(--gold-strong); font-size: 96px; font-weight: 900; letter-spacing: -.02em; }
+.obs-steps { display: flex; gap: 18px; margin: 8px 0 0; padding: 0; list-style: none; }
+.obs-steps li { padding: 12px 22px; border-radius: 999px; background: #ffffff14; font-size: 28px; font-weight: 600; }
+
+.obs-top5 { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.obs-top5-head, .obs-top5-row { display: grid; grid-template-columns: 76px 1.4fr 1fr 1fr 1fr 1.2fr; align-items: center; gap: 12px; padding: 0 22px; }
+.obs-top5-head { margin-bottom: 10px; color: var(--text-dim); font-size: 24px; font-weight: 600; }
+.obs-top5-row { height: 64px; border-radius: 18px; background: #ffffff10; font-size: 32px; font-weight: 700; animation: obs-row-in .55s cubic-bezier(.2, .8, .2, 1) both; }
+.obs-top5-row.first { background: linear-gradient(90deg, #ffd68c40, #ffd68c12); box-shadow: inset 0 0 0 2px #ffd68c80; }
+.obs-rank { color: var(--gold); font-size: 40px; font-weight: 900; }
+.obs-num { font-variant-numeric: tabular-nums; }
+@keyframes obs-row-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+
+.obs-character-card { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+.obs-stat { padding: 22px 24px; border-radius: 22px; background: #ffffff10; }
+.obs-stat-label { display: block; color: var(--text-dim); font-size: 26px; font-weight: 600; }
+.obs-stat-value { display: block; margin-top: 10px; font-size: 52px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.obs-stat-value.small { font-size: 40px; }
+.obs-suggestions { display: flex; flex-wrap: wrap; gap: 14px; margin: 24px 0 0; padding: 0; list-style: none; }
+.obs-suggestions li, .obs-chip { padding: 12px 24px; border-radius: 999px; background: #ffd68c26; color: var(--gold); font-size: 32px; font-weight: 700; }
+
+.obs-player { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+.obs-player .obs-character-card { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
+.obs-sub { margin: 0 0 12px; color: var(--text-dim); font-size: 26px; font-weight: 600; }
+.obs-ranks { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.obs-ranks li { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 14px; background: #ffffff14; font-size: 28px; font-weight: 800; }
+.obs-ranks li.top { background: var(--gold); color: #1d1606; }
+.obs-mains { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 28px; font-weight: 700; }
+.obs-mains span { color: var(--text-dim); font-weight: 600; }
+.obs-pending { display: grid; place-items: center; height: 100%; text-align: center; }
+.obs-pending .obs-message { font-size: 48px; }
+.obs-dots::after { content: ""; animation: obs-dots 1.2s steps(4) infinite; }
+@keyframes obs-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+.obs-summary { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.obs-summary li { padding: 16px 30px; border-radius: 999px; background: #ffd68c26; color: var(--gold); font-size: 40px; font-weight: 800; }
+
+/* ── chat ── */
+.obs-chat { position: fixed; left: var(--panel-left); right: var(--edge); top: var(--chat-top); height: calc(var(--chat-bottom) - var(--chat-top)); display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 12px 32px; }
+.obs-chat-line { display: flex; align-items: center; gap: 14px; margin: 0; overflow: hidden; font-size: 30px; font-weight: 600; line-height: 1.4; white-space: nowrap; text-overflow: ellipsis; animation: obs-chat-in .35s ease-out both; }
+.obs-chat-line::before { content: ""; flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: #ffffff59; }
+.obs-chat-line.command { color: var(--gold); }
+.obs-chat-line.command::before { background: var(--gold); }
+@keyframes obs-chat-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* ── caption ── */
+.obs-caption { position: fixed; left: 50%; bottom: var(--edge); transform: translateX(-50%); width: max-content; max-width: 1500px; padding: 22px 44px; border-radius: 28px; background: #fffffff2; box-shadow: 0 14px 40px #00000066; color: #141a33; font-size: 38px; font-weight: 700; line-height: 1.4; text-align: center; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
+/* ── waiting · ending ── */
+.obs-fullscreen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; overflow: hidden; text-align: center; }
+/* 은은한 배경: 금빛·보랏빛 빛무리가 천천히 움직인다. */
+.obs-glow { position: absolute; width: 1100px; height: 1100px; border-radius: 50%; filter: blur(120px); opacity: .45; animation: obs-drift 18s ease-in-out infinite alternate; }
+.obs-glow.a { left: -260px; top: -340px; background: #3d4fb3; }
+.obs-glow.b { right: -300px; bottom: -420px; background: #8a5a2b; animation-delay: -9s; }
+@keyframes obs-drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(160px, 90px) scale(1.15); } }
+.obs-fullscreen > :not(.obs-glow) { position: relative; }
+.obs-kicker { margin: 0; color: var(--text-dim); font-size: 36px; font-weight: 600; letter-spacing: .08em; }
+.obs-headline { margin: 0; color: var(--gold); font-size: 120px; font-weight: 900; letter-spacing: -.02em; }
+.obs-show-title { margin: 0; font-size: 56px; font-weight: 800; }
+.obs-season-tag { padding: 12px 30px; border: 2px solid var(--navy-line); border-radius: 999px; color: var(--gold); font-size: 32px; font-weight: 700; }
+.obs-ending-list { justify-content: center; max-width: 1400px; }
+.obs-thanks { margin: 0; font-size: 44px; font-weight: 700; }
