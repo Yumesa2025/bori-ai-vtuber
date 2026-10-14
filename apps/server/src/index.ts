@@ -14,6 +14,7 @@ import { COMPANION_LOCAL_OWNER, createCompanionHandler, createPrivateMemoryDiges
 import { createApiKeySlot } from "./secret-store.js";
 import { createConfigFile } from "./config-file.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
+import { serveStatic, type StaticRoute } from "./http/static.js";
 import { isValidVoice, pickValidSettings, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch, type PatchResult } from "./http/settings.js";
 import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
 import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
@@ -679,10 +680,23 @@ function sendSaveFailure(response: ServerResponse, label: string, error: unknown
 }
 // 브라우저가 이 서버를 부를 수 있는 Origin. 그 밖의 웹사이트는 응답을 읽지도 상태를 바꾸지도 못한다.
 const guardOptions = { allowedOrigins: allowedOriginsFrom(process.env.BORI_ALLOWED_ORIGINS) };
+// 빌드한 화면. OBS 브라우저 소스와 스튜디오가 Vite 없이 이 서버 주소로 연다.
+const broadcastDist = resolve(projectRoot, "apps/broadcast/dist");
+const staticRoutes: StaticRoute[] = [
+  { prefix: "/obs/", root: broadcastDist, build: "npm run build:broadcast" },
+  // OBS character 페이지의 Live2D 모델·Core·셰이더. 빌드가 dist 아래 같은 경로로 복사한다(tools/vite/private-assets.ts).
+  { prefix: "/private-model/", root: broadcastDist, build: "npm run build:broadcast" },
+  { prefix: "/private-core/", root: broadcastDist, build: "npm run build:broadcast" },
+  { prefix: "/private-framework/", root: broadcastDist, build: "npm run build:broadcast" },
+  { prefix: "/companion/", root: resolve(projectRoot, "apps/companion/dist"), build: "npm run build:companion", stripPrefix: true },
+  { prefix: "/studio/", root: resolve(projectRoot, "apps/admin/dist"), build: "npm run build:admin", stripPrefix: true },
+];
 function handleRequest(request: IncomingMessage, response: ServerResponse) {
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   // 보안 경계(Host·Origin·Content-Type·본문 크기). 아래의 모든 라우트가 이 검사를 거친다.
   if (!guardRequest(request, response, guardOptions)) return;
+  // 정적 화면은 API 라우트보다 먼저 본다. 응답의 Content-Type은 파일에 맞춰 덮어쓴다.
+  if ((request.method === "GET" || request.method === "HEAD") && serveStatic(request, response, staticRoutes)) return;
   if (request.method === "GET" && request.url === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
   if (request.method === "GET" && request.url === "/api/state") { sendJson(response, 200, state); return; }
   if (request.method === "GET" && request.url === "/api/settings") { sendJson(response, 200, settings); return; }
