@@ -64,6 +64,7 @@
 
 - Origin 헤더가 없는 요청은 통과한다. 같은 컴퓨터의 다른 프로그램, 다른 OS 사용자 계정은 1:1 대화 전체(`GET /api/conversations/...`), 개인 기억(`GET /api/me/memories`), 관리자 기억 목록(`GET /api/memory`, 개인 기억 원문과 `ownerId` 포함)을 읽고 지울 수 있다.
 - ~~허용 Origin 10개는 모든 라우트를 똑같이 부를 수 있다. 방송 화면 출처(4173)도 1:1 API를 부를 수 있다.~~ 고침(점검 X-1, progress 9.7): 방송 화면 출처(`127.0.0.1`·`localhost`의 4173·4174)는 `/api/conversations*`·`/api/me*`·`/api/memory*`(관리자 기억 목록도 개인 기억 원문을 섞어 돌려준다)에서 403이다. 사전 요청도 같다. 방송 화면이 쓰는 `/api/state`·`/api/chat`·`/api/tts/*`는 그대로다. 1:1 화면(4175·4176)·관리자(5174)·`BORI_ALLOWED_ORIGINS`로 더한 출처는 지금처럼 모든 라우트를 부른다. 검사: `apps/server/test/guard.test.ts` 5건, `tools/test/security.mjs` 1건.
+- **한계: 같은 Origin은 경로로 나눌 수 없다.** 서버가 `/obs/*`(OBS 페이지)·`/companion/*`(1:1)·`/studio/*`(스튜디오)를 직접 내주므로(방송 시스템 W1) 이 페이지들은 모두 서버 자신의 Origin(`http://127.0.0.1:4310`·`http://localhost:4310`)으로 API를 부른다. 그래서 그 Origin에는 X-1 경로 제한을 두지 않았고, 서버가 내준 OBS 페이지도 Origin만으로는 1:1 대화·기억 API를 부를 수 있다. 막으려면 화면마다 다른 포트로 내주거나 1:1·스튜디오 요청에 따로 표시(토큰)를 붙여야 한다. OBS 페이지가 시청자 채팅 같은 외부 입력을 그리다 XSS가 생기면 이 한계가 실제 위험이 된다(OBS 페이지의 XSS 여부는 확인하지 않았다).
 - 브라우저의 다른 웹사이트는 Origin 검사와 DNS rebinding 방지(Host 검사)로 막힌다. 상태를 바꾸는 GET 라우트는 없다.
 
 ## 2. 서버 로그 [코드]
