@@ -37,13 +37,14 @@ import * as durability from "./durability.mjs";
 import * as safety from "./safety.mjs";
 import * as obsPages from "./obs-pages.mjs";
 import * as operations from "./operations.mjs";
+import * as show from "./show.mjs";
 
 const mockPort = Number(process.env.MOCK_PORT ?? 4390);
 const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
-const allScenarios = { latency, behavior, isolation, security, companion, usage, stability, concurrency, secrets, privacy, durability, safety, obsPages, operations };
+const allScenarios = { latency, behavior, isolation, security, companion, usage, stability, concurrency, secrets, privacy, durability, safety, obsPages, operations, show };
 const only = process.argv.slice(2);
 const unknown = only.filter(name => !Object.hasOwn(allScenarios, name));
 if (unknown.length > 0) {
@@ -84,6 +85,8 @@ try {
     const data = await prepareDataDir();
     await mock.setTiming(scenario.meta.timing);
     await mock.reset();
+    // 시나리오가 가짜 외부 서비스(OBS·치지직·ER)를 더 띄우고 서버 환경 변수를 더할 수 있다. prepare가 없는 시나리오는 그대로다.
+    const prepared = scenario.prepare ? await scenario.prepare({ dataDir: data.path }) : null;
 
     const boriServer = startScript("apps/server/src/index.ts", {
       loadTypeScript: true,
@@ -96,6 +99,7 @@ try {
         BORI_ELEVENLABS_BASE_URL: `${mockUrl}/v1`,
         // 가짜 서버는 키를 보지 않는다. 값이 있어야 LLM 경로가 열린다.
         OPENAI_API_KEY: "mock-key",
+        ...(prepared?.env ?? {}),
       },
     });
 
@@ -103,7 +107,7 @@ try {
     try {
       await waitForHttp(`${boriUrl}/api/health`, { describe: "보리 서버" });
       stage = `${scenario.meta.name} 실행`;
-      await scenario.run({ bori: createBoriClient(boriUrl), mock, report, dataDir: data.path });
+      await scenario.run({ bori: createBoriClient(boriUrl), mock, report, dataDir: data.path, prepared });
     } catch (error) {
       report.check(`${scenario.meta.name} 시나리오가 끝까지 돌았다`, false, error instanceof Error ? error.message : String(error));
       const output = boriServer.output();
@@ -113,6 +117,7 @@ try {
     } finally {
       allResults = [...allResults, ...report.results];
       await boriServer.stop();
+      await prepared?.cleanup?.();
       await data.cleanup();
     }
   }
