@@ -55,6 +55,17 @@ export async function run({ bori, report }) {
     const response = await fetch(url("/api/state"));
     report.check("Origin이 없는 요청(도구·curl)은 통과하고 Allow-Origin: *를 주지 않는다", response.status === 200 && response.headers.get("access-control-allow-origin") === null);
   }
+  {
+    // 방송 화면은 OBS로 송출되므로 1:1 대화·개인 기억에 닿지 못한다(점검 X-1). 1:1 화면 Origin은 그대로 쓴다.
+    const fromBroadcast = await fetch(url("/api/me/memories"), { headers: { Origin: ALLOWED } });
+    const deleteFromBroadcast = await fetch(url("/api/me/data"), { method: "DELETE", headers: { Origin: ALLOWED } });
+    const fromCompanion = await fetch(url("/api/me/memories"), { headers: { Origin: "http://127.0.0.1:4175" } });
+    report.check(
+      "방송 화면 Origin은 1:1 기억 조회·삭제가 403이고 1:1 화면 Origin은 통과한다",
+      fromBroadcast.status === 403 && deleteFromBroadcast.status === 403 && fromCompanion.status === 200,
+      `방송 조회=${fromBroadcast.status} 방송 삭제=${deleteFromBroadcast.status} 1:1=${fromCompanion.status}`,
+    );
+  }
 
   // ── Host ───────────────────────────────────────────────────
   {
