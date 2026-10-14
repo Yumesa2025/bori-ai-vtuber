@@ -4,8 +4,9 @@
  * 관계를 점수로 저장하지 않는다(ADR-017). 저장된 대화 기록에서 사실만 계산해 문장으로 만들고,
  * 그 해석은 LLM과 1:1 정책 지침에 맡긴다. 문장은 프롬프트의 [대화 상황]에 들어가며 방송 요청에는 넣지 않는다.
  *
- * 문구는 평가 워커와 함께 쓰는 계약이라 바꾸지 않는다.
- * - 첫 대화: "이 사람과는 오늘 처음 대화한다."
+ * 문구는 평가 워커와 함께 쓰는 계약이라 바꾸지 않는다(ADR-017. 첫 대화를 이어 가는 중 문장은 ADR-025로 더했다).
+ * - 첫 대화: "이 사람과는 오늘 처음 대화한다." (그 대화의 첫 메시지일 때만)
+ * - 첫 대화를 이어 가는 중: "이 사람과는 첫 대화를 이어 가는 중이다. 인사는 이미 나눴다."
  * - 재방문: "이 사람과는 {N}번째 대화다. 처음 대화한 지 {D}일 지났다." (D가 0이면 둘째 문장은 "처음 대화한 날이 오늘이다.")
  * - 마지막 대화 간격: "마지막 대화는 {G}일 전이었다." (G가 0이면 "마지막 대화는 오늘 앞서 있었다.")
  * - 지난 대화 요약(있을 때만): "지난 대화 요약: {요약}"
@@ -65,6 +66,8 @@ function truncate(text: string, maxLength: number): string {
  * - D는 가장 이른 메시지부터 오늘까지의 일 수다.
  * - G는 이번 메시지 직전 메시지(현재 대화의 이전 메시지 포함)부터의 일 수다. 현재 대화의 첫 메시지이거나
  *   직전 메시지와 NEW_VISIT_GAP_MS 이상 떨어졌을 때만 넣는다.
+ * - 첫날 첫 대화는 그 대화의 첫 메시지에만 "오늘 처음 대화한다"를 넣는다. 둘째 메시지부터 같은 문장이 들어가면
+ *   1:1 정책의 "처음이면 인사" 지침과 겹쳐 매 턴 인사를 되풀이한다(점검 C-5).
  * - 지난 대화 요약은 현재 대화를 제외하고 마지막 메시지가 가장 최근인 대화의 요약이다. 그 대화에 요약이 없으면 넣지 않는다.
  */
 export function relationshipStatusLines(input: RelationshipInput): string[] {
@@ -80,7 +83,9 @@ export function relationshipStatusLines(input: RelationshipInput): string[] {
   const firstAt = spoken.length > 0 ? Math.min(...spoken.map(entry => entry.firstMessageAt)) : now;
   const sinceFirst = localDaysBetween(firstAt, now);
 
-  if (count === 1 && sinceFirst === 0) return ["이 사람과는 오늘 처음 대화한다."];
+  if (count === 1 && sinceFirst === 0) {
+    return [current ? "이 사람과는 첫 대화를 이어 가는 중이다. 인사는 이미 나눴다." : "이 사람과는 오늘 처음 대화한다."];
+  }
 
   const lines = [`이 사람과는 ${count}번째 대화다. ${sinceFirst === 0 ? "처음 대화한 날이 오늘이다." : `처음 대화한 지 ${sinceFirst}일 지났다.`}`];
 

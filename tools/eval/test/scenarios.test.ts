@@ -80,8 +80,9 @@ describe("문서와 데이터 대조", () => {
   test("실제 문서와 시나리오 데이터가 일치한다", () => {
     const set = loadScenarioSet();
     assert.deepEqual(checkScenarioDoc(set), []);
-    assert.equal(set.scenarios.filter(entry => entry.mode === "broadcast").length, 18);
-    assert.equal(set.scenarios.filter(entry => entry.mode === "companion").length, 20);
+    // 문서와 데이터는 checkScenarioDoc이 하나씩 대조한다. 시나리오는 여러 작업이 나란히 더하므로 개수는 고정하지 않는다.
+    assert.ok(set.scenarios.some(entry => entry.mode === "broadcast"));
+    assert.ok(set.scenarios.some(entry => entry.mode === "companion"));
   });
 });
 
@@ -116,9 +117,10 @@ describe("시나리오 데이터 형식 검사", () => {
 });
 
 describe("관계 맥락 문장 형식", () => {
-  test("계약의 네 가지 형식과 0일 대체 문장을 받는다", () => {
+  test("계약의 다섯 가지 형식과 0일 대체 문장을 받는다", () => {
     for (const line of [
       "이 사람과는 오늘 처음 대화한다.",
+      "이 사람과는 첫 대화를 이어 가는 중이다. 인사는 이미 나눴다.",
       "이 사람과는 2번째 대화다. 처음 대화한 지 3일 지났다.",
       "이 사람과는 12번째 대화다. 처음 대화한 날이 오늘이다.",
       "마지막 대화는 14일 전이었다.",
@@ -135,6 +137,7 @@ describe("관계 맥락 문장 형식", () => {
       "이 사람과는 3번째 대화다. 처음 대화한 지 0일 지났다.",
       "마지막 대화는 0일 전이었다.",
       "이 사람과는 3번째 대화다.",
+      "이 사람과는 첫 대화를 이어 가는 중이다.",
       "지난 대화 요약:",
       "친밀도: 30",
     ]) {

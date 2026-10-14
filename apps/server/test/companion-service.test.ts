@@ -248,6 +248,18 @@ describe("관계 맥락", () => {
     assert.deepEqual(lastRequest()?.broadcastStatus, ["이 사람과는 오늘 처음 대화한다."]);
   });
 
+  test("첫 대화의 첫 답에만 처음이라는 문장이 들어가고, 이어지는 메시지에는 인사를 이미 나눴다는 문장이 들어간다", async () => {
+    // 점검 C-5: 첫날 매 턴 "오늘 처음 대화한다"가 들어가 반복 인사를 불렀다.
+    const { store, service } = boot({ now: () => local(12) });
+    const conversation = store.create(OWNER, "첫 대화");
+    await service.sendMessage(OWNER, conversation.id, "안녕하세요", { tts: false });
+    assert.deepEqual(lastRequest()?.broadcastStatus, ["이 사람과는 오늘 처음 대화한다."]);
+    for (const content of ["요즘 날이 좀 춥네요", "오늘은 일찍 잘까 봐요"]) {
+      await service.sendMessage(OWNER, conversation.id, content, { tts: false });
+      assert.deepEqual(lastRequest()?.broadcastStatus, ["이 사람과는 첫 대화를 이어 가는 중이다. 인사는 이미 나눴다."]);
+    }
+  });
+
   test("며칠 뒤 새 대화에는 몇 번째 대화인지와 지난 대화 요약이 들어간다", async () => {
     let clock = local(9);
     const first = boot({ now: () => clock });
