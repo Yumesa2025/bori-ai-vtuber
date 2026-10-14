@@ -12,7 +12,7 @@
 |---|---|
 | [README](../README.md) | 프로젝트 소개, 설치·실행 |
 | [아키텍처](./architecture.md) | 워크스페이스 구성, 데이터 흐름, 모듈 경계 |
-| [아키텍처 v2](./architecture-v2.md) | 현재 구조 분석, 문서·코드 차이 표(8절), 1:1 모드 목표 구조와 Phase 계획 |
+| [아키텍처 v2](./architecture-v2.md) | 기준 커밋(`c8b2aa2`) 당시 구조 분석, 문서·코드 차이 표(8절), 1:1 모드 목표 구조와 Phase 계획 |
 | [설계 결정 기록](./decisions.md) | 저장소·검색 방식 등 설계 판단의 배경 |
 | [요구사항](./requirements.md) | 기획 요구사항 |
 | [구현 계획](./implementation-plan.md) | 단계별 구현 계획 |
@@ -30,11 +30,11 @@
 
 ### 1.1 기반 구조
 
-- npm workspaces 모노레포. `apps/server`, `apps/broadcast`, `apps/admin`, `packages/{shared,live2d,llm,memory,character}`, `tools/obs`, `tools/test`
+- npm workspaces 모노레포. `apps/server`, `apps/broadcast`, `apps/admin`, `apps/companion`, `packages/{shared,live2d,llm,memory,character}`, `tools/obs`, `tools/test`, `tools/eval`, `tools/vite`
 - 서버는 `node:http`만 사용한다. Express·ws·ORM·벡터DB·LLM SDK 등 런타임 의존성이 없다
-- `packages/*`는 빌드 없이 TS 원본을 직접 참조한다
+- `packages/*`는 빌드 없이 TS 원본을 직접 참조하고, 서버도 `tsx`로 소스를 바로 실행한다. 빌드하는 것은 화면 셋뿐이다
 - 공용 타입 전용 패키지 `packages/shared` 분리
-- 루트 `npm run typecheck`가 8개 워크스페이스 전부를 검사한다. 단위 검사는 `npm run test:unit`(`packages/*/test/*.test.ts`, `node:test` + `tsx`), 통합 검사는 `npm run test`(`tools/test`)다
+- 루트 `npm run typecheck`가 9개 워크스페이스 전부를 검사한다(각 워크스페이스의 `test/`도 포함). 단위 검사는 `npm run test:unit`(`packages/*/test/*.test.ts`와 `apps/*/test/*.test.ts`, `node:test` + `tsx`), 통합 검사는 `npm run test`(`tools/test`)다
 - 프로덕션 빌드 지원. SDK 샘플을 Vite 별칭으로 번들에 포함하고, 비공개 자산을 dev와 빌드가 동일한 URL 구조로 서빙한다
 
 ### 1.2 실시간 통신
@@ -218,8 +218,8 @@
 | 채팅 큐 고급 선별 | [요구사항](./requirements.md)이 정의한 유사 채팅 그룹화, LLM 주제 묶기와 그룹 수 전달, 주제 고착 방지가 모두 미구현이다. 서버에 그룹화·주제 추적 코드가 없다. 최근 N개 우선(`preferredRecentCount`)과 오래된 채팅 만료(`messageTtlSeconds`)도 큐 설정에 두 키 자체가 없어 적용되지 않는다. 현재 선별은 질문 우선과 중복 차단까지다 |
 | 관리자 화면 일부 미구현 | [요구사항](./requirements.md)의 1차 관리자 기능 중 규칙 기반 답변 수정, 미처리 채팅 확인, 오류 리포트 확인, LLM 연결 테스트, 효과음 설정 패널이 관리자 UI에 없다. `unprocessedCount`는 서버 상태에만 있고 화면에 표시되지 않는다. 요구사항이 말하는 단일 실행 진입점(관리자 앱 하나를 실행하면 백엔드와 방송 화면도 함께 시작)도 없다. `dev:admin`은 관리자 앱만 띄우며 셋을 함께 기동하는 경로는 루트 `npm run dev`뿐이다 |
 | 시청자 식별 | 기억 소유자는 닉네임에서 만든 `local:닉네임`이다. 인증이 없으므로 다른 사람이 같은 닉네임을 입력하면 그 시청자의 기억이 답변 문맥에 들어간다. 플랫폼 계정 ID 연동 전까지의 한계다 |
-| 1:1 대화 모드 | 없다. `packages/character`의 `companion` 정책 초안과 프롬프트 조립만 있고 1:1 대화 API·세션·앱은 없다(6절 Phase 3~5) |
-| 1:1 개인 기억 | 스토어와 검색 규칙만 있고 생성 경로는 없다(Phase 4). 방송 기억과 1:1 사용자를 잇는 계정 연동도 범위 밖이다 |
+| 1:1 대화 모드 | 로컬 단일 사용자(`companion:local`)만 있다. 1:1 대화 API·세션·앱은 Phase 3~5에서 만들었다(`apps/server/src/companion/`, `apps/companion`). 인증과 여러 사용자는 없다 |
+| 1:1 개인 기억 | 1:1 대화가 쌓이면 LLM이 사용자가 직접 말한 사실만 개인 기억으로 정리한다(Phase 6, `apps/server/src/companion/memory-digest.ts`). 방송 기억과 1:1 사용자를 잇는 계정 연동은 범위 밖이다 |
 | 효과음·시청자용 오류 알림 | 요구사항에 표시 시간·알림 큐 최대치·우선순위까지 정의되어 있으나 코드가 없다 |
 | 배경 일러스트 교체 | 미구현. 보라색 그라데이션을 하드코딩한다. Live2D 캔버스만 투명하고 화면 전체는 불투명하므로, OBS 오버레이로 쓰려면 `.broadcast-shell` 배경을 투명하게 바꿔야 한다 |
 | 기억 기반 혼잣말 | 미연결. 혼잣말은 여전히 하드코딩된 7문장 기반이다 |
@@ -232,22 +232,22 @@
 | 목소리 적합성 | 이 프로젝트에서 시험해 본 범위에서는 OpenAI 목소리 6종이 모두 실제 사람 톤에 가깝게 들렸고, 한국어 대사에서도 원하는 애니메이션풍 인상이 나오지 않았다. 캐릭터 콘셉트와 맞지 않는다고 판단해 사용하지 않는다 |
 | 립싱크 정밀도 | 파형 크기로 입을 벌리므로 소리 크기에는 맞지만 모음별 입 모양은 구분하지 않는다. 이 모델은 `ParamMouthOpenY` 하나만 립싱크 대상으로 등록되어 있다 |
 | API 키 암호화 한계 | OS 키체인을 쓰려면 Electron `safeStorage`가 필요한데 서버가 별도 프로세스라 직접 사용할 수 없다. 관리자 앱이 키를 대신 관리하고 서버에 전달하는 구조로 바꿔야 한다 |
-| 채팅 화면 LAN 접속 | 불가. API 서버·방송 화면 dev·preview가 모두 `127.0.0.1`에 바인딩되고 바꾸는 옵션도 없다. 바인딩만 넓히면 Vite 프록시가 `/api` 전체를 넘기므로 인증 없는 관리 API까지 LAN에 열린다. 채팅 화면만 열려면 `/api/chat`·`/api/state`만 통과시키는 경로와 API 보안 강화(6절 Phase 4 선행 조건)가 먼저 필요하다 |
-| `.env` 파일 | 서버가 읽지 않는다(dotenv·`--env-file` 없음). 환경변수는 셸에서 넣는다. `.env.example`의 `ANTHROPIC_API_KEY`는 어떤 코드도 읽지 않는다 |
+| 채팅 화면 LAN 접속 | 불가. API 서버·방송 화면 dev·preview가 모두 `127.0.0.1`에 바인딩되고 바꾸는 옵션도 없다. 바인딩만 넓히면 Vite 프록시가 `/api` 전체를 넘기므로 인증 없는 관리 API까지 LAN에 열린다. 채팅 화면만 열려면 `/api/chat`·`/api/state`만 통과시키는 경로와 인증이 먼저 필요하다. 지금 요청 가드는 루프백이 아닌 Host를 421로 막는다 |
+| `.env` 파일 | 서버만 시작할 때 루트 `.env`를 읽는다(9.7절). 이미 설정된 환경변수가 이기고, OBS 도구·관리자 창은 셸 환경변수만 본다 |
 
 ### 3.2 품질·유지보수 부채
 
 | 항목 | 내용 |
 |---|---|
-| 자동 검사 범위와 CI | 해소. 단위 333건(`npm run test:unit`), 통합 205건(`npm run test`), 평가기 84건(`npm run eval:test`), 정적 평가 38건(`npm run eval:static`)을 GitHub Actions CI(`.github/workflows/ci.yml`)가 push·PR마다 돈다(방송·1:1 화면 빌드는 비공개 자산이 필요해 로컬에서만). 출력 검증기(`packages/llm/src/validate.ts`)와 서버 규칙 응답·위험 주제 차단에는 전용 단위 검사가 없고, 자동 검사는 실제 LLM·TTS와 화면을 다루지 않는다 |
+| 자동 검사 범위와 CI | 해소. 단위 333건(`npm run test:unit`), 통합 205건(`npm run test`), 평가기 84건(`npm run eval:test`), 정적 평가 38건(`npm run eval:static`)을 GitHub Actions CI(`.github/workflows/ci.yml`)가 PR과 main push마다 돈다(방송·1:1 화면 빌드는 비공개 자산이 필요해 로컬에서만). 출력 검증기(`packages/llm/src/validate.ts`)와 서버 규칙 응답·위험 주제 차단에는 전용 단위 검사가 없고, 자동 검사는 실제 LLM·TTS와 화면을 다루지 않는다 |
 | typecheck 범위 | 해소. 루트 `typecheck`가 shared·server·broadcast·admin·live2d·llm·memory·character·companion 9개를 검사한다. 개별 `typecheck:<이름>` 스크립트도 남아 있다 |
 | 목소리 이름 검증 | 해소. `PATCH /api/tts`가 업체별 목소리 허용 목록(OpenAI 고정 목록, ElevenLabs voice id 형식)을 검사하고 틀리면 400이다(`apps/server/src/http/settings.ts`) |
 | 설정값 검증 | 해소. `PATCH /api/settings`·`/api/memory`·`/api/tts`·`/api/llm`이 모든 값을 타입·범위 검사한 뒤에만 반영하고 하나라도 틀리면 400이다(ADR-015, ADR-018). 큐 설정은 여전히 메모리에만 반영되어 서버를 재시작하면 기본값으로 돌아간다 |
-| API 경계 | CORS `Access-Control-Allow-Origin: *`, 관리 API 인증 없음, 요청 본문 크기 제한 없음. 1:1 대화 API(Phase 4)를 열기 전에 해결해야 하는 선행 조건이다 |
+| API 경계 | 해소. `apps/server/src/http/guard.ts`가 모든 API 요청의 Host·Origin·Content-Type·본문 크기(64KB)를 검사하고, 방송 화면 Origin은 1:1 대화·기억 API를 부를 수 없다(9.7절). 관리 API 인증은 없다(로컬 단일 사용자) |
 | TTS 자격 증명 | OpenAI TTS가 LLM 업체와 무관하게 `llmApiKey`를 OpenAI 키로 쓴다. LLM 업체를 Anthropic으로 두면 Anthropic 키가 OpenAI TTS로 간다 |
-| 죽은 코드 | `apps/admin/src/placeholder.ts`(어디서도 import되지 않는 스텁), `packages/live2d`의 `createUnavailableLive2DPort()`와 `Live2DModelPort` 인터페이스(구현체 없음, broadcast는 SDK 타입을 직접 사용), `physicsFile`·`Live2DModelManifest` |
+| 죽은 코드 | 해소(9.7절). `apps/admin/src/placeholder.ts`, `packages/live2d`의 `boriLocalManifest`·`Live2DModelManifest`·`Live2DModelPort`·`createUnavailableLive2DPort()`·`expressionLabel`·`motionLabel`을 지웠다 |
 | 죽은 타입 필드 | `packages/shared`의 `topAlert`(서버가 설정한 적 없음), `layout`(항상 `"chat"` 고정. 레이아웃 전환 기능 자체가 미구현인 결과다. 3.1절 참조), `emotion.decayStyle`. `emotion.secondary`는 검증기가 검사하고 결과에 싣지만 출력 스키마에 없어 모델이 낼 수 없다 |
-| 선언만 된 의존성 | `packages/llm/package.json`의 `@bori/live2d`, `packages/memory/package.json`의 `@bori/shared`는 선언만 있고 소스에 import가 없다 |
+| 선언만 된 의존성 | 해소(9.7절). `packages/memory`의 `@bori/shared` 선언을 뺐다. `packages/llm`은 지금 `@bori/live2d`를 import한다 |
 | 낡은 주석 | `apps/broadcast/src/main.tsx`에 "아직 음성이 없으므로"라는 주석이 TTS 구현 후에도 남아 있다. `apps/server/src/index.ts`의 `isDuplicateChat` 위 주석이 다른 함수(`pick`)의 설명이다 |
 
 TODO/FIXME/HACK 주석은 0건이다.
@@ -291,7 +291,7 @@ TODO/FIXME/HACK 주석은 0건이다.
 | 안전성 | allowlist 밖 이름·경로 조작 400 거부, 위험 주제 LLM 호출 전 차단, API 키 응답 미포함, 키 암호화 저장과 평문 자동 마이그레이션 | 통과 |
 | LLM | 출력 검증 11개 경우(정상 1 통과 / 거부 10), 실 API 환경 응답 생성과 말투 유지, 회로 차단기 개방·복귀, 키 없이도 방송 지속, 모션 선택률 0/6 → 6/6 | 통과 |
 | 기억 | 기억 저장과 1536차원 임베딩 생성, 개인정보 미저장, 다음 방송에서 이전 취향·경험 회수, 기억 질문의 LLM 라우팅, 방송 요약 저장. 시청자별 검색 필터는 당시 없었고 지금은 자동 검사로만 확인한다 | 통과 |
-| 음성 | mp3 생성과 `audio/mpeg` 전달, 허용 외 목소리 400 거부(당시 기록. 현재 코드는 목소리 이름을 검사하지 않는다, 3.2절), 파형 기반 립싱크 동작과 종료 시 폐구, 업체 교체 구조 후 동작 유지 | 통과 |
+| 음성 | mp3 생성과 `audio/mpeg` 전달, 허용 외 목소리 400 거부(당시 기록. 지금은 `PATCH /api/tts`가 목소리 허용 목록을 검사한다, 3.2절), 파형 기반 립싱크 동작과 종료 시 폐구, 업체 교체 구조 후 동작 유지 | 통과 |
 | 송출 | OBS 브라우저 소스 표시, 캔버스 1920x1080 적용, 송출 화면에서 표정 이펙트와 LLM 응답 표시 | 통과 |
 
 ---
@@ -398,7 +398,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 ### Phase 8 — 방송 연동과 안정화
 
-계획. 세부 범위는 아직 정하지 않았다. 지금 남아 있는 과제 중 안정화에 해당하는 것은 다음이다.
+8.1~8.3을 마쳤다(아래). 시작할 때 적은 안정화 과제는 다음 둘이었다. 1은 가짜 API 장시간 검사로만 확인했고(8.2), 2는 아직 하지 않았다(2절).
 
 1. 30분 이상 장시간 송출 안정성 검증
 2. 1.15절 기능과 프롬프트 계층화 이후 동작의 실 API 수동 검증
@@ -451,7 +451,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 미검증과 남은 것
 
 - 실제 OpenAI·ElevenLabs의 지연·오류, 실제 TTS 재생, 방송 화면·Live2D의 장시간 동작은 확인하지 않았다(가짜 API 기준)
-- 임베딩 fetch(`packages/memory`)에는 여전히 타임아웃이 없다. 방송은 엔진 상한으로 막았지만 끊지 못한 요청은 남는다. 1:1은 개인 기억 저장(`memoryStore.add`)을 기다린 뒤 응답하므로 임베딩이 멈추면 그 대화가 응답하지 않는다(이번 범위 밖, 후속)
+- 당시 임베딩 fetch(`packages/memory`)에는 타임아웃이 없었다. 8.3 후속 수정에서 10초 상한(`EMBEDDING_TIMEOUT_MS`)을 더했다
 - 30분보다 긴 방송(수 시간)에서 `sessionTurns`·1:1 대화 파일 증가가 문제가 되는지는 확인하지 않았다
 
 #### 8.3 보안·CI·외부 연동 검토
@@ -460,7 +460,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
   - 고친 것 2건: 깨진 퍼센트 인코딩 경로(`/api/tts/%E0%A4%A`) 하나로 서버 프로세스가 종료되던 문제를 가드에서 400으로 막았다. 비밀값 복호화가 잘린 GCM 인증 태그를 받아 주던 문제를 16바이트 강제로 고쳤다. 단위 검사 12건(가드 4, 비밀값 8)과 통합 보안 검사 1건을 더했다.
   - 범위 밖 제안: 환경변수 API 키가 설정 저장 때 `data/`에 쓰이는 문제, `/api/me/memories` 전체 삭제가 대화·요약·진행 중인 기억 정리를 남기는 점, 지울 경로가 없는 백업·로그 파일, Vite dev 비공개 자산 경로 검사, 업체 오류 본문 노출, `npm audit` 11건(서버 런타임 해당 없음). 초기 커밋의 개인 이메일은 사용자 결정 대기다.
   - 후속 수정(`feature/security-hardening`, 병합 전, 점검 문서 8절): 위 제안 6건을 재현 검사로 확인한 뒤 고쳤다. 화면에서 넣은 API 키만 암호화해 저장하고 환경변수 키는 파일에 쓰지 않는다(LLM·ElevenLabs). `DELETE /api/me/data`와 Companion "1:1 기록 모두 지우기"로 1:1 대화·메시지·요약·세션·개인 기억을 한 번에 지우고, 기억 삭제 뒤에 끝난 기억 저장·LLM 정리 결과는 소유자별 세대 번호로 버린다(방송 기억은 남는다). 서버 시작 시 30일 지난 백업과 이전 관리자 로그를 지우고, 관리자 로그는 실행마다 바로 전 것만 남긴다. Vite dev 자산 경로를 `relative`로 검사하고 dev에서도 Core `include`를 적용한다. 업체 오류 본문의 키 모양 문자열을 가린다. `npm audit fix`와 Electron 44 업그레이드로 `npm audit` 11건 → 0건이고, Electron 44 관리자 창을 실제로 띄워 화면 로드를 확인했다. 방송 안정화 작업이 넘긴 임베딩 요청 상한(10초)도 더했다. 단위 검사 333건(#16까지 합친 `integration/wave5` 기준 286 + 47), 통합 검사 205건(같은 기준 189 + 16). 실제 업체 오류 본문 형식은 미검증이다.
-- **CI**: `.github/workflows/ci.yml`. push·PR에서 Node 24로 `npm ci` → typecheck → test:unit → eval:test → eval:typecheck → eval:static → `npm run test`(mock 통합) → `build:shared`·`build:server`·`build:admin`. 비밀값과 실모델 평가는 쓰지 않는다. 방송·1:1 화면 빌드는 비공개 Live2D 자산을 `dist/`로 복사하는 단계에서 실패하므로(자산 없는 worktree에서 확인) 제외했다.
+- **CI**: `.github/workflows/ci.yml`. push·PR에서 Node 24로 `npm ci` → typecheck → test:unit → eval:test → eval:typecheck → eval:static → `npm run test`(mock 통합) → `build:shared`·`build:server`·`build:admin`. 비밀값과 실모델 평가는 쓰지 않는다. 방송·1:1 화면 빌드는 비공개 Live2D 자산을 `dist/`로 복사하는 단계에서 실패하므로(자산 없는 worktree에서 확인) 제외했다. 9.7에서 바뀌었다: 산출물이 없던 `build:shared`·`build:server`를 빼고, PR과 main push에만 돌고, Windows 러너를 더했다.
 - **치지직 실제 채팅 연동 검토**: [치지직 연동 검토](./chzzk-integration-review.md), ADR-020(제안). 공식 문서 기준으로 세션·Socket.IO 수신, OAuth 토큰 수명과 갱신, Scope·심사, 기존 `/api/chat` 파이프라인에 붙이는 설계, 개인정보, 장애 동작, 남은 결정 11건을 정리했다. 구현은 하지 않았고, 호출 제한 수치 등 문서에 없는 것은 확인 필요로 남겼다.
 - **의미가 같은 기억 병합**: `packages/memory/src/similar.ts`. ADR-017 결과에 남아 있던 후속 과제다. 같은 scope·소유자·종류 안에서만, 문자열 규칙(정규화 후 같음, 또는 길이 비율 0.8 이상의 포함 관계)과 임베딩 코사인 유사도 0.92 이상(임베딩이 있을 때)으로 같은 뜻을 판정하고, 새로 저장하지 않고 기존 기록의 반복 횟수·중요도·수명과 `lastSeenAt`만 올린다. 부정 표현·숫자·영문 낱말(고유명사)이 다르면 어떤 규칙으로도 합치지 않는다. 0.92는 실제 임베딩 모델과 기억 데이터로 재서 정한 값이 아니다(미검증). 저장소 API와 서버 호출 방식은 그대로다. 통합 검사의 가짜 임베딩이 모든 문장에 같은 벡터를 주어 서로 다른 기억이 모두 합쳐졌으므로, 문장 해시로 만든 결정적 33차원 벡터(다른 문장끼리 유사도 대략 0.6)로 바꾸고 고정 자료 `memories.json`의 벡터 4건을 같은 차원으로 맞췄다(코디네이터 승인). 단위 검사 31건, 통합 보안 검사 1건을 더했다.
 
@@ -472,7 +472,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 - 표정 표시 이름 실제 동작 확인 후 확정
 - 캐릭터에 맞는 한국어 목소리 확보. CLOVA Voice, Typecast, Supertone, 음성 클로닝을 검토한다
 - 효과음 출력과 시청자용 오류 알림 표시. 요구사항에 있으나 미구현 상태다
-- 출력 검증기·규칙 응답 단위 검사, CI 도입
+- 출력 검증기·규칙 응답 단위 검사(CI는 8.3에서 도입했다)
 - 원문 채팅 로그 저장과 수동 삭제. 요구사항 정책 적용의 선행 조건이다
 - TTS 스트리밍 합성으로 응답 지연 단축
 - 치지직 실제 채팅 연동. MVP 범위 밖이다
@@ -602,3 +602,28 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 - C-18(힘든 상황)의 `calm`, B-16(놀림)의 `curious`·`calm`을 기대값에 넣을지는 사용자 결정이 필요하다.
 - 실제 서버(다회차 대화)에서 반복 인사가 사라졌는지는 실모델로 확인하지 않았다(미검증). 평가는 시나리오 C-28 한 턴으로만 봤다.
 - 현재 날짜·시각을 서버 값으로 프롬프트에 넣는 일, 위기 신호 대응은 다른 작업 범위다.
+
+### 9.7 빌드·테스트·문서 정리
+
+고친 항목: Q-1, Q-2, Q-3, Q-5, Q-6 일부, X-1, a7 F05~F09·F17~F19·F22·F24, D01~D12. 결정 사항은 ADR 없이 여기 적는다.
+
+- **빌드(Q-1, F05·F06).** `build:server`·`build:shared`는 `noEmit`이라 아무것도 만들지 않았다. 서버는 `tsx`로 소스를 실행하고(`dev`의 `tsx watch`, 방송 시스템 계획의 `node --import tsx`), `packages/*`는 `main: ./src/index.ts`라 빌드 산출물을 쓰는 곳이 없다. 그래서 두 스크립트와 CI 단계를 지우고 검사는 `typecheck`에 맡겼다. 루트 `build`는 자산이 필요 없는 관리자 화면을 먼저 빌드한다. 방송·1:1 화면은 번들 자체가 SDK 샘플 소스를 import하므로 자산 없이 번들만 만드는 방법은 없다. 그래서 자산이 없으면 `buildStart`에서 없는 폴더와 README 위치를 알려 주고 멈추게 했다(예전에는 번들을 다 만든 뒤 `ENOENT realpath` 스택). 자산을 연결한 상태에서 `npm run build` 세 화면 모두 통과했다.
+- **Node 버전(Q-2, F08).** 루트 `engines`를 `>=22`로 두었다. `--test` 글롭은 Node 21+, `process.loadEnvFile`은 20.12+/21.7+이고 Node 20은 지원이 끝났다. CI와 개발은 Node 24다. Node 22에서 직접 실행해 보지는 않았다(미검증).
+- **테스트 인프라(Q-3, F07·F09·F19).**
+  - `packages/llm`·`packages/character`의 `test/`를 tsconfig `include`에 넣어 타입 검사를 받게 했다(`apps/admin`은 9.5에서 이미 넣었다). 새 타입 오류는 없었다.
+  - 통합 검사 실행기(`tools/test/run.mjs`)가 시작할 때 포트·Node 버전·시나리오 수를 찍고, 비정상 종료하면 종료 코드와 마지막 단계를, 시나리오가 예외로 멈추면 서버 종료 코드를 남긴다. Ctrl+C·SIGTERM이면 띄운 서버를 정리하고 끝낸다(예전에는 자식 프로세스가 남았다). 인자로 시나리오 일부만 돌릴 수 있다(`npm run test -- security secrets`).
+  - F07 무출력 rc=1: 단독 환경에서 전체 통합 검사를 3회 돌려 3회 모두 254/254 통과했고(각 약 385초) 재현되지 않았다. 대신 `npm run test`가 돌던 중 npm 프로세스 트리를 `taskkill /F`로 끊으면 종료 코드 1에 npm 오류 줄도 실행기 요약도 없이 끝나, 점검 때 기록과 같은 모양이 된다. 점검 당시 다른 워커가 node 프로세스를 정리하던 것과 맞으므로 외부 강제 종료로 본다(추정). 강제 종료는 프로세스가 잡을 수 없어서, 이제는 시작 줄과 시나리오 머리가 어디까지 찍혔는지로 멈춘 위치를 안다. Ctrl+C·SIGTERM 처리기는 Windows에서 신호를 보내 확인하지 못했다(미검증).
+  - `test:unit`·`eval:test`에 검사당 30초 상한(`--test-timeout=30000`)을 두고, `embedding-timeout.test.ts`에는 묶음 상한 10초를 두었다. 상한이 회귀해도 CI 20분까지 멈추지 않는다.
+  - 고정 대기는 대부분 "일어나지 않음"을 보는 대기나 시간 창 측정이라 폴링으로 바꿀 수 없다. `usage.mjs`의 재시작 전 800ms 대기만 "값이 두 번 같을 때까지"로 바꿨다. `concurrency.mjs`의 12초 대기는 방송 답변이 계속 나오는 동안의 격리를 보는 것이라 그대로 두었다.
+- **.env와 보안 설정(Q-5, X-1).**
+  - 서버가 시작할 때 루트 `.env`를 `process.loadEnvFile`로 읽는다(`apps/server/src/load-env.ts`, `index.ts`의 첫 import). 다른 모듈이 import 시점에 `BORI_OPENAI_BASE_URL` 등을 읽으므로 첫 import여야 한다. 파일이 없으면 넘어가고, 이미 설정된 환경변수가 이기며, `.env.example`을 그대로 복사한 빈 값(`BORI_SERVER_PORT=`)은 설정하지 않은 것으로 둔다(그대로 두면 포트 0·빈 API 주소가 된다). `BORI_ENV_FILE`로 다른 파일을 가리키고, 통합 검사 하네스는 이를 비워 실제 `.env`를 읽지 않는다. `.env`에서 읽은 키도 `data/`에 저장하지 않는 것을 통합 검사로 확인한다(`secrets.mjs`).
+  - `.env.example`: 읽는 방식 설명, 미사용 `ANTHROPIC_API_KEY` 삭제, `BORI_ALLOWED_ORIGINS` 추가, 방송 시스템이 쓸 `ER_API_KEY`·`CHZZK_CLIENT_ID`·`CHZZK_CLIENT_SECRET`·`OBS_WEBSOCKET_URL`·`OBS_WEBSOCKET_PASSWORD`(값 비움, 해당 기능 병합 전에는 쓰이지 않음).
+  - X-1: 방송 화면 Origin(4173·4174)은 `/api/conversations*`·`/api/me*`·`/api/memory*`에서 403이다(`apps/server/src/http/guard.ts`). 관리자 기억 목록(`/api/memory`)도 1:1 개인 기억 원문을 섞어 돌려주므로 함께 막았다. 방송 화면이 쓰는 `/api/state`·`/api/chat`·`/api/tts/*`는 그대로다. [보안 점검](./security-review.md) 12번. 서버가 직접 내주는 화면(W1의 `/obs/`·`/companion/`·`/studio/`)은 모두 서버 자신의 Origin(4310)을 쓰므로 그 Origin은 막지 않는다. 같은 Origin은 경로로 나눌 수 없다는 한계는 보안 점검 1.5절에 적었다.
+- **문서(Q-5, D01~D12).** README의 모델 경로 안내(죽은 `boriLocalManifest` 대신 `tools/vite/private-assets.ts`), 재배포·복사 파일 목록, Node 버전, 빌드·CI 설명, `.env` 설명. 이 문서의 1.1·3.1·3.2·4.2·Phase 8 절에 남아 있던 옛 현재형 서술. [아키텍처 v2](./architecture-v2.md) 머리에 "기준 커밋 당시 분석"과 지금 다른 점. `tools/test/README.md`의 건수 서술·구성 표(빠진 시나리오 7개)·실행기 출력 설명. D12(`companionStatus` 주석)는 서버 소스라 이 작업 범위 밖이다.
+- **죽은 코드·의존성(Q-6, F17·F18).** `apps/admin/src/placeholder.ts`, `@bori/live2d`의 `boriLocalManifest`·`Live2DModelManifest`·`Live2DModelPort`·`createUnavailableLive2DPort`·`expressionLabel`·`motionLabel`을 지웠다(다른 worktree까지 grep으로 사용처 0 확인). `@bori/memory`의 쓰지 않는 `@bori/shared` 선언을 빼고, `@vitejs/plugin-react`를 방송·1:1 화면의 `devDependencies`로 옮기고, 루트와 관리자 앱에 중복된 `electron`을 관리자 앱에만 남겼다. `package-lock.json`은 이 선언 변경만 반영했다(버전 변화 없음).
+- **CI(F24).** `actions/checkout`·`setup-node`를 v7로 올렸다(Node 20 경고). `push`는 main만 받아 PR 브랜치가 두 번 돌지 않는다. Windows 러너에서 `test:unit`·`test`를 한 번 더 돈다. soak는 넣지 않았다.
+- **저장소 위생(F22).** `soak*.json`을 `.gitignore`에 넣었다.
+
+검사: 단위 `apps/server/test/guard.test.ts`(방송 Origin 경로 제한 5건), `apps/server/test/load-env.test.ts` 4건, `apps/broadcast/test/private-assets.test.ts` 7건. 통합 `security.mjs` 1건, `secrets.mjs` 3건(.env 없음·읽기와 우선순위·키 미저장).
+
+**`index.ts` 분리 계획(F23, 이번에는 하지 않음).** 다른 작업이 같은 파일을 고치고 있어 계획만 둔다. 효과가 큰 순서로 (1) 방송 스케줄러(큐·발화권·세대·혼잣말·`persistSessionMemories`)를 `broadcast/scheduler.ts`로 옮겨 모듈 전역 상태를 객체 안에 가두고 단위 검사를 붙인다. (2) 라우트를 method·pathname 표와 공통 디스패치로 바꿔 pathname 파싱(쿼리·끝 슬래시, F16)과 JSON 파싱을 한곳에 둔다. (3) LLM·TTS·기억 설정의 로드·저장·응답 만들기(GET·PATCH 응답 차이, F15)를 설정 모듈로 모은다. 방송 시스템(W1~W6)이 정적 경로와 새 라우트를 더한 뒤에 하는 편이 충돌이 적다.

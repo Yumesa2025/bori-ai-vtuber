@@ -1,9 +1,11 @@
 # 공개 저장소에서 돌릴 수 있는 검사만 모은다.
-# 비밀값(secrets)을 쓰지 않고, 실모델 평가(eval:model)는 넣지 않는다. 외부 API는 tools/test의 mock 서버가 대신한다.
+# 비밀값(secrets)을 쓰지 않고, 실모델 평가(eval:model)와 장시간 검사(test:soak)는 넣지 않는다. 외부 API는 tools/test의 mock 서버가 대신한다.
 name: CI
 
 on:
+  # PR 브랜치는 pull_request로 한 번만 돈다. push는 main에 들어간 커밋만 본다.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -21,10 +23,10 @@ jobs:
       # 관리자 앱 빌드는 Vite 렌더러만 만든다. Electron 실행 파일은 받지 않아도 된다.
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      # package.json에 engines가 없어 개발에 쓰는 Node 24를 따른다.
-      - uses: actions/setup-node@v4
+      # package.json engines는 Node 22 이상이다. 개발에 쓰는 Node 24로 돈다.
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -38,10 +40,25 @@ jobs:
       # mock OpenAI와 보리 서버를 띄우는 통합 검사. 포트는 기본값(4390/4391)을 쓴다.
       - run: npm run test
 
-      # 비공개 자산 없이 되는 빌드만 돈다.
-      # 방송 화면(build:broadcast)과 1:1 화면(build:companion)은 빌드 마지막에 구매 Live2D 모델(maolili/)과
-      # Cubism SDK(private-assets/)를 dist로 복사한다(tools/vite/private-assets.ts). 두 폴더는 재배포 금지라
-      # 저장소에 없으므로 CI에서는 빌드가 실패한다. 두 화면의 타입 검사는 위 typecheck가 맡는다.
-      - run: npm run build:shared
-      - run: npm run build:server
+      # 비공개 자산 없이 되는 빌드는 관리자 화면뿐이다.
+      # 방송 화면(build:broadcast)과 1:1 화면(build:companion)은 Cubism SDK 소스(private-assets/)를 번들에 넣고
+      # 구매 Live2D 모델(maolili/)을 dist로 복사한다(tools/vite/private-assets.ts). 두 폴더는 재배포 금지라
+      # 저장소에 없으므로 CI에서는 빌드하지 않는다. 두 화면의 타입 검사는 위 typecheck가 맡는다.
+      # 서버와 packages/*는 tsx로 소스를 바로 실행하므로 빌드 산출물이 없다(검사는 typecheck).
       - run: npm run build:admin
+
+  # 앱은 Windows에서 운영한다. 파일 rename·잠금·경로 동작을 Windows에서도 본다.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run test

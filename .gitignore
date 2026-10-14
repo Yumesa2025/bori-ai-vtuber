@@ -60,3 +60,6 @@ desktop.ini
 
 # 대화 품질 평가 결과 (실행마다 새로 생긴다)
 tools/eval/results/
+
+# 장시간 검사 기록 (npm run test:soak -- --out soak.json)
+soak*.json

@@ -1,18 +1,3 @@
-export type Live2DModelManifest = {
-  modelFile: string;
-  physicsFile?: string;
-  expressions: Record<string, string>;
-  motions: Record<string, string>;
-};
-
-export type Live2DModelPort = {
-  load(manifest: Live2DModelManifest): Promise<void>;
-  playExpression(name: string): void;
-  playMotion(name: string, priority: number): void;
-  setMouthOpen(value: number): void;
-  reset(): void;
-};
-
 /** model3.json의 Expressions Name 값. 표정 8개 전부를 등록한다. */
 export const boriExpressionNames = [
   "xingxingyan",
@@ -35,27 +20,6 @@ export const boriMotionGroupNames = [
 
 export type BoriExpressionName = (typeof boriExpressionNames)[number];
 export type BoriMotionGroupName = (typeof boriMotionGroupNames)[number];
-
-export const boriLocalManifest: Live2DModelManifest = {
-  modelFile: "maolili/maolili.model3.json",
-  physicsFile: "maolili/maolili.physics3.json",
-  expressions: {
-    xingxingyan: "maolili/biaoqing/xingxingyan.exp3.json",
-    kuqi: "maolili/biaoqing/kuqi.exp3.json",
-    shangxin: "maolili/biaoqing/shangxin.exp3.json",
-    shengqi: "maolili/biaoqing/shengqi.exp3.json",
-    shoushi: "maolili/biaoqing/shoushi.exp3.json",
-    wuyu: "maolili/biaoqing/wuyu.exp3.json",
-    chidai: "maolili/biaoqing/chidai.exp3.json",
-    changfa: "maolili/biaoqing/changfa.exp3.json",
-  },
-  motions: {
-    xingxingyan: "maolili/xingxingyan.motion3.json",
-    kuqi: "maolili/kuqi.motion3.json",
-    shengqi: "maolili/shengqi.motion3.json",
-    shoushi: "maolili/shoushi.motion3.json",
-  },
-};
 
 /**
  * 화면 표시용 한국어 이름. 파일 이름은 모델이 정한 중국어 병음이라 그대로 두고
@@ -92,12 +56,6 @@ export const boriMotionDescriptions: Record<BoriMotionGroupName, string> = {
   shengqi: "머리에서 김이 나며 화내는 표현. 삐침, 발끈, 장난스러운 투정에만 쓴다. 걱정하거나 주의를 줄 때, 상대의 질문에 답할 때는 쓰지 않는다.",
   shoushi: "게임패드를 들고 조작하는 표현. 게임 이야기를 할 때만 쓴다. 게임과 관계없는 이야기에는 쓰지 않는다.",
 };
-
-export const expressionLabel = (name: string): string =>
-  isBoriExpression(name) ? boriExpressionLabels[name] : name;
-
-export const motionLabel = (name: string): string =>
-  isBoriMotionGroup(name) ? boriMotionLabels[name] : name;
 
 /**
  * 모션이 실제로 보이려면 짝이 되는 표정이 함께 켜져 있어야 한다.
@@ -175,11 +133,4 @@ export function resolveMotion(
   }
 
   return null;
-}
-
-export function createUnavailableLive2DPort(): Live2DModelPort {
-  return {
-    async load() { throw new Error("Cubism SDK for Web is not connected yet."); },
-    playExpression() {}, playMotion() {}, setMouthOpen() {}, reset() {},
-  };
 }

@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Local AI VTuber broadcast screen and admin app for Bori",
+  "engines": { "node": ">=22" },
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:broadcast\" \"npm:dev:admin\" \"npm:dev:companion\"",
@@ -10,15 +11,13 @@
     "dev:broadcast": "npm --workspace apps/broadcast run dev",
     "dev:admin": "npm --workspace apps/admin run dev",
     "dev:companion": "npm --workspace apps/companion run dev",
-    "build": "npm run build:shared && npm run build:server && npm run build:broadcast && npm run build:admin && npm run build:companion",
-    "build:shared": "npm --workspace packages/shared run build",
-    "build:server": "npm --workspace apps/server run build",
+    "build": "npm run build:admin && npm run build:broadcast && npm run build:companion",
     "build:broadcast": "npm --workspace apps/broadcast run build",
     "build:admin": "npm --workspace apps/admin run build",
     "build:companion": "npm --workspace apps/companion run build",
     "test": "node tools/test/run.mjs",
     "test:soak": "node tools/test/soak.mjs",
-    "test:unit": "node --import tsx --test \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
+    "test:unit": "node --import tsx --test --test-timeout=30000 \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
     "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character && npm run typecheck:companion && npm run typecheck:er",
     "typecheck:shared": "npm --workspace packages/shared run typecheck",
     "typecheck:server": "npm --workspace apps/server run typecheck",
@@ -34,7 +33,7 @@
     ,"eval:static": "node --import tsx tools/eval/run.ts --only static"
     ,"eval:model": "node --import tsx tools/eval/run.ts --only model"
     ,"eval:compare": "node --import tsx tools/eval/compare.ts"
-    ,"eval:test": "node --import tsx --test \"tools/eval/test/*.test.ts\""
+    ,"eval:test": "node --import tsx --test --test-timeout=30000 \"tools/eval/test/*.test.ts\""
     ,"eval:typecheck": "tsc -p tools/eval/tsconfig.json --noEmit"
   },
   "devDependencies": {
@@ -43,7 +42,6 @@
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
-    "electron": "^44.7.0",
     "socket.io": "2.5.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

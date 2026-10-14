@@ -19,10 +19,9 @@ Live2D 캐릭터가 시청자 채팅에 LLM으로 답하고, 음성·표정·모
 | Cubism SDK for Web 5-r.5 | `private-assets/cubism-sdk/CubismSdkForWeb-5-r.5/` | Live2D 공식 배포본을 내려받아 압축 해제한다 |
 | 구매한 상용 Live2D 모델 | 저장소 루트의 모델 디렉터리 | `.model3.json`, `.moc3`, 텍스처, `biaoqing/` 표정 파일이 포함된 원본 구조 그대로 둔다 |
 
-모델 디렉터리 이름은 세 곳에서 참조된다. 다른 모델을 쓰거나 디렉터리 이름이 다르면 아래 세 지점을 실제 이름에 맞춘다.
+모델 디렉터리 이름은 두 곳에서 참조된다. 다른 모델을 쓰거나 디렉터리 이름이 다르면 아래 두 지점을 실제 이름에 맞춘다.
 
-- `apps/broadcast/vite.config.ts` — `privateModelRoot`, `assetRoutes`의 `/private-model/...` 접두사
-- `packages/live2d/src/index.ts` — 모델·표정·모션 파일 경로
+- `tools/vite/private-assets.ts` — `assetRoutesFor`의 `maolili` 폴더 경로와 `/private-model/maolili/` 접두사(방송·1:1 화면 공용)
 - `<Cubism SDK 샘플>/src/lappdefine.ts` — `ResourcesPath`와 모델 디렉터리 목록
 
 표정·모션 식별자와 파라미터 번호는 `packages/live2d`에 allowlist로 하드코딩되어 있다. 다른 모델을 붙이려면 이 매핑을 교체해야 한다.
@@ -66,7 +65,7 @@ LLM(8초)과 TTS(15초)는 비동기라 응답이 도착하기 전에 방송이 
 동일한 JSON Schema 하나를 OpenAI는 `response_format.json_schema(strict)`로, Anthropic은 `tool_choice` 강제 도구 호출로 감싼다. 어댑터가 달라도 검증 코드는 하나다. 모델이 무엇을 반환하든 감정·모션 이름은 `packages/live2d`가 소유한 allowlist를 통과해야만 실행되고, 실패하면 규칙 문장이 나간다. 서버는 같은 allowlist를 API 경계에서도 강제한다.
 
 **Vite 커스텀 플러그인으로 라이선스 문제를 빌드 파이프라인에서 해결**
-구매 모델과 Cubism SDK를 저장소 밖에 두고, dev에서는 미들웨어로 URL 서빙하며(상위 경로 탈출 요청 차단 포함), 빌드 시에는 `closeBundle`에서 동일한 URL 구조로 복사한다. Cubism Core는 재배포가 허용된 파일만 화이트리스트로 내보낸다.
+구매 모델과 Cubism SDK를 저장소 밖에 두고, dev에서는 미들웨어로 URL 서빙하며(상위 경로 탈출 요청 차단 포함), 빌드 시에는 `closeBundle`에서 동일한 URL 구조로 복사한다. Cubism Core는 런타임에 쓰는 `live2dcubismcore.js`와 `LICENSE.md`만 화이트리스트로 내보낸다. 자산이 없으면 번들을 만들기 전에 없는 폴더를 알려 주고 멈춘다.
 
 ## 기술 스택
 
@@ -83,7 +82,7 @@ LLM(8초)과 TTS(15초)는 비동기라 응답이 도착하기 전에 방송이 
 | 패키지 관리 | npm workspaces 모노레포 |
 | 검사 | `node:test` + `tsx`, 가짜 OpenAI 서버 통합 검사, GitHub Actions CI |
 
-**외부 런타임 의존성이 사실상 없다.** Express도 `ws`도 Prisma도 벡터DB도 LLM SDK도 쓰지 않는다. 서버는 `node:http`의 `createServer` 하나에 if 체인 수동 라우팅이고, 모든 외부 API 호출은 Node 내장 `fetch`와 `AbortController`다. OBS WebSocket v5의 salt/challenge SHA256 인증 핸드셰이크도 직접 구현했다. 워크스페이스 `dependencies`에 든 서드파티 패키지는 React, Electron, 그리고 방송·1:1 화면의 `@vitejs/plugin-react`뿐이며, 이 중 `@vitejs/plugin-react`는 실제로는 빌드 도구로만 쓰인다.
+**외부 런타임 의존성이 사실상 없다.** Express도 `ws`도 Prisma도 벡터DB도 LLM SDK도 쓰지 않는다. 서버는 `node:http`의 `createServer` 하나에 if 체인 수동 라우팅이고, 모든 외부 API 호출은 Node 내장 `fetch`와 `AbortController`다. OBS WebSocket v5의 salt/challenge SHA256 인증 핸드셰이크도 직접 구현했다. 워크스페이스 `dependencies`에 든 서드파티 패키지는 React와 Electron뿐이다. Vite·`@vitejs/plugin-react`·TypeScript·`tsx`는 개발 도구(`devDependencies`)다.
 
 ## 저장소 구조
 
@@ -113,20 +112,20 @@ LLM(8초)과 TTS(15초)는 비동기라 응답이 도착하기 전에 방송이 
 └── .env.example
 ```
 
-`packages/*`는 빌드 산출물 없이 `main: "./src/index.ts"`로 TypeScript 원본을 직접 참조한다. `packages/shared`의 `build` 스크립트가 실제로는 `tsc --noEmit`인 것도 이 구조에서 의도된 것이다.
+`packages/*`는 빌드 산출물 없이 `main: "./src/index.ts"`로 TypeScript 원본을 직접 참조하고, 서버도 `tsx`로 소스를 바로 실행한다. 그래서 서버와 패키지에는 빌드 단계가 없고 검사는 `npm run typecheck`가 맡는다. 빌드하는 것은 화면 셋(관리자·방송·1:1)뿐이다.
 
 다음 디렉터리는 저장소에 포함되지 않는다.
 
 | 디렉터리 | 제외 이유 |
 |---|---|
 | 구매 모델 디렉터리 | 구매한 상용 Live2D 모델. 재배포 금지 |
-| `private-assets/cubism-sdk/` | Live2D Proprietary Software License. 재배포가 허용된 파일은 `live2dcubismcore.{d.ts,js,min.js}` 3개뿐이다 |
+| `private-assets/cubism-sdk/` | Live2D Proprietary Software License. 재배포가 허용된 파일은 `live2dcubismcore.{d.ts,js,min.js}` 3개뿐이다. 빌드는 이 중 `live2dcubismcore.js`와 `LICENSE.md`만 `dist`에 복사한다 |
 | `data/` | 기억 JSON, 암호화된 API 키를 포함한 LLM/TTS 설정, 렌더러 로그 |
 | `_local/` | 공개하지 않는 사전 조사 자료 |
 
 ## 설치와 실행
 
-Node 20 이상과 npm이 필요하다.
+Node 22 이상과 npm이 필요하다(`package.json`의 `engines`). 개발과 CI는 Node 24를 쓴다. 단위 검사 명령의 `--test` 글롭은 Node 21부터, 서버의 `.env` 읽기(`process.loadEnvFile`)는 Node 20.12·21.7부터 된다.
 
 ```bash
 npm install
@@ -151,6 +150,8 @@ npm run test
 npm run build
 ```
 
+`npm run build`는 관리자 → 방송 → 1:1 화면 순서로 빌드한다. 방송·1:1 화면은 Cubism SDK 소스를 번들에 넣고 구매 모델을 복사하므로 비공개 자산이 있어야 한다. 없으면 없는 폴더와 놓을 위치를 알려 주고 멈춘다. 자산 없이 되는 빌드는 `npm run build:admin`뿐이다.
+
 루트 `typecheck`는 9개 워크스페이스(`shared`, `server`, `broadcast`, `admin`, `live2d`, `llm`, `memory`, `character`, `companion`)를 차례로 검사한다. 하나만 검사하려면 `npm run typecheck:<이름>`을 쓴다.
 
 `npm run test:unit`은 `packages/*/test/*.test.ts`와 `apps/*/test/*.test.ts`를 `node:test` + `tsx`로 돌린다. 2026-10-12 기준 333건이며, 기억 접근 규칙표 전 칸·검색 필터·마이그레이션·의미 중복 병합, 프롬프트 계층 구성, 캐릭터 정책 데이터, 공통 대화 엔진(세션 간 상태 분리, 모드별 기억 접근), 1:1 관계 문장 계산, 요청 가드·설정 검증, 사용량 기록, 비밀값 저장, 방송 경합 처리를 확인한다.
@@ -161,7 +162,7 @@ npm run build
 
 단위·통합 검사는 실제 LLM·TTS 응답과 화면을 다루지 않는다. 이 부분은 [docs/verification-log.md](docs/verification-log.md)의 수동 검증 기록과 실모델 평가가 뒷받침한다.
 
-GitHub Actions CI(`.github/workflows/ci.yml`)가 push·PR마다 타입 검사, 단위 검사, 평가기 검사·정적 평가, 통합 검사, 비공개 자산이 필요 없는 빌드(shared·server·admin)를 돈다. 비밀값과 실모델 평가는 쓰지 않는다. 방송·1:1 화면 빌드는 비공개 Live2D 자산이 있어야 해서 로컬에서만 확인한다. 보안 점검 결과는 [docs/security-review.md](docs/security-review.md)에 있다.
+GitHub Actions CI(`.github/workflows/ci.yml`)가 PR마다, 그리고 main에 들어간 커밋마다 돈다. Ubuntu에서 타입 검사, 단위 검사, 평가기 검사·정적 평가, 통합 검사, 관리자 화면 빌드를 돌고, Windows에서 단위·통합 검사를 한 번 더 돈다. 비밀값과 실모델 평가, 장시간 검사는 넣지 않는다. 방송·1:1 화면 빌드는 비공개 Live2D 자산이 있어야 해서 로컬에서만 확인한다. 보안 점검 결과는 [docs/security-review.md](docs/security-review.md)에 있다.
 
 빌드 산출물로 방송 화면을 확인하려면 다음과 같이 실행한다.
 
@@ -176,7 +177,7 @@ npm --workspace apps/broadcast run preview   # 127.0.0.1:4174
 
 1:1 대화 화면의 "내 기억"에서 기억만 지우면 대화 기록은 남는다. "1:1 기록 모두 지우기"(`DELETE /api/me/data`)는 1:1 대화·메시지·대화 요약·개인 기억을 한 번에 지우고 방송 기억은 남긴다. `data/`의 30일 지난 백업(`*.v1-backup-*`, `*.unreadable-*`)과 이전 관리자 로그는 서버를 시작할 때 지운다.
 
-API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정한 뒤 서버를 띄운다. 서버는 `.env` 파일을 읽지 않으므로 `.env.example`은 변수 이름과 설명을 모은 목록으로만 쓴다. 그 안의 `ANTHROPIC_API_KEY`는 현재 어떤 코드도 읽지 않는다. 환경변수 키는 저장된 키가 없을 때만 사용되고, 화면에서 설정만 바꿔도 파일에 저장되지 않는다. 화면에서 저장한 키를 빈 값으로 지우면 환경변수 키로 돌아간다.
+API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정하거나, `.env.example`을 저장소 루트의 `.env`로 복사해 채운다. 서버는 시작할 때 루트 `.env`를 읽되 이미 설정된 환경변수를 덮지 않고, 빈 값은 설정하지 않은 것으로 본다. `.env`를 읽는 것은 서버뿐이다(OBS 도구와 관리자 창은 셸 환경변수만 본다). 환경변수(`.env` 포함) 키는 저장된 키가 없을 때만 사용되고, 화면에서 설정만 바꿔도 파일에 저장되지 않는다. 화면에서 저장한 키를 빈 값으로 지우면 환경변수 키로 돌아간다.
 
 OBS에서 게임 화면 위에 보리만 얹으려면 방송 화면 URL에 `?transparent=1`을 붙여 배경을 비운다(입력창 숨김과 함께: `http://127.0.0.1:4173/?input=0&transparent=1`).
 
@@ -202,7 +203,7 @@ OBS에서 게임 화면 위에 보리만 얹으려면 방송 화면 URL에 `?tra
 | 문서 | 내용 |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | 시스템 구조, 데이터 흐름, 설계 근거 |
-| [docs/architecture-v2.md](docs/architecture-v2.md) | 현재 구조 분석(코드 위치·실행 결과), 1:1 모드 목표 구조와 Phase 계획 |
+| [docs/architecture-v2.md](docs/architecture-v2.md) | 1:1 모드 설계 전(기준 커밋 `c8b2aa2`) 구조 분석과 목표 구조·Phase 계획. 현재 상태는 progress.md |
 | [docs/operations.md](docs/operations.md) | 실행·설정·송출·튜닝 파라미터 레퍼런스 |
 | [docs/requirements.md](docs/requirements.md) | 기능 요구사항 |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | 구현 계획 |
@@ -222,7 +223,7 @@ OBS에서 게임 화면 위에 보리만 얹으려면 방송 화면 URL에 `?tra
 방송 모드와 1:1 대화 모드가 모두 동작하는 상태이며 다음 한계가 있다.
 
 - **실제 방송 플랫폼과 연동하지 않는다.** 치지직 등 플랫폼 연동 코드는 없고, 로컬 입력(관리자 앱, 방송 화면 입력창, 별도 채팅 화면)으로 실험한다. 치지직 연동 방식은 검토 문서로만 남겼다.
-- **사용자 인증이 없다.** 1:1은 로컬 단일 사용자(`companion:local`)를 가정하고, 관리 API에도 로그인이 없다. 대신 서버는 `127.0.0.1`에만 바인딩되고, 모든 API 요청은 Host가 루프백이 아니면 421, 허용 목록 밖 Origin이면 403, 본문이 JSON이 아니면 415, 본문이 64KB를 넘으면 413으로 막는다. 설정 변경(큐·기억·TTS·LLM)은 모든 값을 검증한 뒤에만 반영한다. 외부에 공개하는 서버로는 쓸 수 없다.
+- **사용자 인증이 없다.** 1:1은 로컬 단일 사용자(`companion:local`)를 가정하고, 관리 API에도 로그인이 없다. 대신 서버는 `127.0.0.1`에만 바인딩되고, 모든 API 요청은 Host가 루프백이 아니면 421, 허용 목록 밖 Origin이면 403(OBS로 송출되는 방송 화면 Origin도 1:1 대화·기억 API에는 403), 본문이 JSON이 아니면 415, 본문이 64KB를 넘으면 413으로 막는다. 설정 변경(큐·기억·TTS·LLM)은 모든 값을 검증한 뒤에만 반영한다. 외부에 공개하는 서버로는 쓸 수 없다.
 - **시청자 식별은 인증이 아니다.** 방송 기억 소유자는 닉네임에서 만든 `local:<닉네임>`이라 같은 닉네임을 쓰면 같은 시청자로 본다. 방송 상태(`/api/state`)에는 닉네임과 이 ID를 싣지 않는다.
 - **최근 기능은 서버를 실 API에 붙여 확인하지 않았다.** 방송 중 누적 요약, 키워드 매크로, 대기·생성 병렬화, 프롬프트 7계층, 1:1 API·앱, 관계 문장, 사용량 기록은 가짜 API 통합 검사와 단위 검사로 확인했다. 실제 모델의 답변 품질은 실모델 평가(gpt-4o-mini, 시나리오별 3회 반복)로만 확인했고, 기억에 없는 일을 기억한다고 답하는 경우가 일부 남아 있다.
 - **장시간 운영은 가짜 API 기준으로만 확인했다.** 30분 장시간 검사에서 방송 답변 227건·1:1 메시지 87건 동안 오류 0건, 메모리 증가 추세 없음을 확인했다. 실제 LLM·TTS·Live2D 화면을 붙인 장시간 송출은 검증하지 않았다.
