@@ -27,7 +27,7 @@ export function ConversationList({ conversations, activeId, loading, locked, onC
               <span className="conversation-title">{conversation.title || "제목 없는 대화"}</span>
               <span className="conversation-meta">{formatDate(conversation.updatedAt)} · 메시지 {conversation.messageCount}개</span>
             </button>
-            <button type="button" className="icon-button" aria-label={`${conversation.title || "제목 없는 대화"} 삭제`} title="대화 삭제" disabled={locked} onClick={() => onRequestDelete(conversation)}>×</button>
+            <button type="button" className="icon-button" aria-label={`${conversation.title || "제목 없는 대화"} 지우기`} title="대화 지우기" disabled={locked} onClick={() => onRequestDelete(conversation)}>×</button>
           </li>
         ))}
       </ul>

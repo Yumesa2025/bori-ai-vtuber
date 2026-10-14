@@ -2,6 +2,8 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { BroadcastState } from "@bori/shared";
 import { boriMotionPriority, motionPairedExpression, resolveExpression, resolveMotion } from "@bori/live2d";
+import { chatSendError, isSubmitEnter, readServerError, readStored, writeStored } from "./chat-input";
+import { playbackFailure, waitForModelReady, type ModelStatus } from "./live2d-status";
 import "./styles.css";
 
 const emptyState: BroadcastState = { status: "idle", layout: "chat", currentEmotion: "calm", queueSize: 0, visibleChatCount: 0, lastError: null, visibleChats: [], unprocessedCount: 0 };
@@ -12,6 +14,8 @@ type BoriModel = {
   clearExpression(): void;
   startMotion(group: string, no: number, priority: number, onFinished?: () => void): unknown;
   setManualLipSync(value: number | null): void;
+  /** 모델 파일과 모션까지 다 읽었는지. 파일이 없으면 끝내 false로 남는다. */
+  isInitialized(): boolean;
 };
 type BoriDelegate = {
   getLoadedModel(index?: number): BoriModel | null;
@@ -85,16 +89,37 @@ const LIP_SYNC = {
 const GAZE_SPEED = 2.5;
 
 const NICKNAME_KEY = "bori-chat-nickname";
+const query = new URLSearchParams(location.search);
 // OBS 송출용 화면에서는 입력창을 숨긴다. 소스 URL에 ?input=0 을 붙인다.
-const showChatInput = new URLSearchParams(location.search).get("input") !== "0";
+const showChatInput = query.get("input") !== "0";
+// OBS에서 게임 화면 위에 보리만 얹을 때는 배경을 비운다. 소스 URL에 ?transparent=1 을 붙인다.
+if (query.get("transparent") === "1") document.documentElement.classList.add("transparent");
+
+// Core 스크립트는 한 번만 올린다. StrictMode에서 effect가 두 번 돌아도 태그가 중복되지 않는다.
+let corePromise: Promise<void> | null = null;
+function loadCore(): Promise<void> {
+  corePromise ??= new Promise<void>((resolvePromise, rejectPromise) => {
+    const script = document.createElement("script");
+    script.src = "/private-core/live2dcubismcore.js";
+    script.async = true;
+    script.onload = () => resolvePromise();
+    script.onerror = () => { corePromise = null; rejectPromise(new Error("Cubism Core를 불러오지 못했습니다.")); };
+    document.head.appendChild(script);
+  });
+  return corePromise;
+}
 
 function BroadcastApp() {
   const [state, setState] = useState(emptyState);
-  const [modelStatus, setModelStatus] = useState("모델 확인 중");
+  const [modelStatus, setModelStatus] = useState<ModelStatus>({ state: "loading", message: "모델 확인 중" });
   const [message, setMessage] = useState("");
-  const [nickname, setNickname] = useState(() => localStorage.getItem(NICKNAME_KEY) ?? "");
+  const [nickname, setNickname] = useState(() => readStored(NICKNAME_KEY));
   const [chatNotice, setChatNotice] = useState("");
   const [audioBlocked, setAudioBlocked] = useState(false);
+  /** 재생하지 못한 음성. 이 답은 소리 대신 글자 길이로 입을 움직인다. */
+  const [failedAudioId, setFailedAudioId] = useState<string | null>(null);
+  /** 자동 재생이 막힌 음성을 "소리 켜기"로 다시 틀 때 부른다. */
+  const retryAudioRef = useRef<(() => void) | null>(null);
   const live2dLayer = useRef<HTMLDivElement>(null);
   const chatListRef = useRef<HTMLDivElement>(null);
   const delegateRef = useRef<BoriDelegate | null>(null);
@@ -113,39 +138,35 @@ function BroadcastApp() {
   // 렌더러는 전역 싱글톤이라 StrictMode가 effect를 두 번 실행하면 캔버스가 두 개 생기므로,
   // 취소된 실행은 초기화하지 않는다.
   useEffect(() => {
-    let cancelled = false;
+    const signal = { cancelled: false };
     let release: (() => void) | undefined;
-
-    const loadCore = () => new Promise<void>((resolvePromise, rejectPromise) => {
-      const script = document.createElement("script");
-      script.src = "/private-core/live2dcubismcore.js";
-      script.async = true;
-      script.onload = () => resolvePromise();
-      script.onerror = () => rejectPromise(new Error("Cubism Core를 불러오지 못했습니다."));
-      document.head.appendChild(script);
-    });
 
     loadCore()
       .then(() => import("@sdk-sample/lappdelegate"))
-      .then(({ LAppDelegate }) => {
-        if (cancelled) return;
+      .then(async ({ LAppDelegate }) => {
+        if (signal.cancelled) return;
         const delegate = LAppDelegate.getInstance();
-        if (!delegate.initialize()) throw new Error("Cubism initialize failed");
+        if (!delegate.initialize()) throw new Error("Live2D 렌더러를 초기화하지 못했습니다.");
         delegate.run();
         delegateRef.current = delegate;
         if (import.meta.env.DEV) (window as unknown as { __boriDelegate?: unknown }).__boriDelegate = delegate;
         const canvas = document.querySelector("body > canvas");
         if (canvas && live2dLayer.current) live2dLayer.current.appendChild(canvas);
-        setModelStatus("Live2D 렌더러 초기화됨");
         release = () => { delegateRef.current = null; LAppDelegate.releaseInstance(); };
+        // 렌더러가 떠도 모델 파일이 없으면 빈 화면이다. 모델이 실제로 준비됐는지 따로 확인한다.
+        const ready = await waitForModelReady(() => delegate.getLoadedModel()?.isInitialized() === true, { signal });
+        if (signal.cancelled) return;
+        setModelStatus(ready
+          ? { state: "ready", message: "Live2D 모델 준비됨" }
+          : { state: "failed", message: "모델 파일을 불러오지 못했습니다. maolili 폴더를 확인해 주세요." });
       })
       .catch(error => {
-        if (cancelled) return;
+        if (signal.cancelled) return;
         console.error(error);
-        setModelStatus(error instanceof Error ? error.message : "Live2D 초기화 실패");
+        setModelStatus({ state: "failed", message: error instanceof Error ? error.message : "Live2D를 초기화하지 못했습니다." });
       });
 
-    return () => { cancelled = true; release?.(); };
+    return () => { signal.cancelled = true; release?.(); };
   }, []);
 
   // 응답의 감정과 actions를 모델 표정·모션으로 실행한다.
@@ -291,25 +312,42 @@ function BroadcastApp() {
       delegateRef.current?.getLoadedModel()?.setManualLipSync(null);
     };
 
-    audio.addEventListener("ended", finish);
-    // 브라우저가 자동 재생을 막으면 소리 없이 진행한다. OBS 브라우저 소스에서는 막히지 않는다.
-    void context.resume()
+    // 브라우저가 자동 재생을 막으면 소리 없이 진행하고 "소리 켜기"로 다시 틀 수 있게 남긴다.
+    // OBS 브라우저 소스에서는 막히지 않는다.
+    const start = () => context.resume()
       .then(() => audio.play())
-      .then(() => { setAudioBlocked(false); frame = requestAnimationFrame(step); })
-      .catch(() => { setAudioBlocked(true); finish(); });
+      .then(() => {
+        stopped = false;
+        retryAudioRef.current = null;
+        setAudioBlocked(false);
+        frame = requestAnimationFrame(step);
+      })
+      .catch(error => {
+        finish();
+        if (playbackFailure(error) === "blocked") { retryAudioRef.current = () => void start(); setAudioBlocked(true); return; }
+        // 파일이 없거나(만료·404) 깨진 음성은 화면을 눌러도 들리지 않는다. 글자 길이 립싱크로 대신한다.
+        console.warn(`[bori] 음성을 재생하지 못했습니다: ${audioId}`, error);
+        retryAudioRef.current = null;
+        setAudioBlocked(false);
+        setFailedAudioId(audioId);
+      });
+
+    audio.addEventListener("ended", finish);
+    void start();
 
     return () => {
       finish();
+      retryAudioRef.current = null;
       audio.pause();
       audio.removeEventListener("ended", finish);
       void context.close();
     };
   }, [state.currentAudioId]);
 
-  // 음성이 없을 때만 답변 길이에 맞춰 말하는 시늉을 한다.
+  // 음성이 없거나 재생하지 못했을 때만 답변 길이에 맞춰 말하는 시늉을 한다.
   useEffect(() => {
     const reply = state.currentResponse?.reply;
-    if (!reply || state.currentAudioId) return;
+    if (!reply || (state.currentAudioId && state.currentAudioId !== failedAudioId)) return;
 
     const durationMs = Math.min(LIP_SYNC.maxMs, Math.max(LIP_SYNC.minMs, reply.length * LIP_SYNC.msPerChar));
     const startedAt = performance.now();
@@ -337,7 +375,7 @@ function BroadcastApp() {
       cancelAnimationFrame(frame);
       delegateRef.current?.getLoadedModel()?.setManualLipSync(null);
     };
-  }, [state.currentResponse]);
+  }, [state.currentResponse, state.currentAudioId, failedAudioId]);
 
   useEffect(() => { chatListRef.current?.scrollTo({ top: chatListRef.current.scrollHeight, behavior: "smooth" }); }, [state.visibleChats]);
 
@@ -347,19 +385,21 @@ function BroadcastApp() {
     if (state.status !== "live") { setChatNotice("방송을 먼저 시작해 주세요."); return; }
 
     const name = nickname.trim();
-    if (name) localStorage.setItem(NICKNAME_KEY, name);
+    if (name) writeStored(NICKNAME_KEY, name);
     setMessage("");
     setChatNotice("");
 
+    // 보내지 못했으면 입력을 되돌려 다시 보낼 수 있게 한다. 그사이 새로 입력한 것이 있으면 그대로 둔다.
+    const restore = (notice: string) => { setMessage(current => current || content); setChatNotice(notice); };
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, nickname: name }),
       });
-      if (!response.ok) setChatNotice("같은 채팅이 이미 들어갔거나 지금은 보낼 수 없어요.");
+      if (!response.ok) restore(chatSendError(response.status, await readServerError(response)));
     } catch {
-      setChatNotice("서버에 연결할 수 없어요.");
+      restore(chatSendError(null, null));
     }
   }
 
@@ -399,33 +439,45 @@ function BroadcastApp() {
   // 다만 같은 내용이라도 setState를 부르면 객체 참조가 바뀌어,
   // state.currentResponse에 의존하는 시선 이펙트가 폴링마다 다시 돌아 눈이 떨린다.
   // 원문을 그대로 비교해서 바뀐 것이 없으면 넘긴다.
+  // 서버가 느리면 요청이 겹쳐 쌓이므로 앞 요청이 끝나기 전에는 다음 요청을 보내지 않는다.
   useEffect(() => {
-    const refresh = () => fetch("/api/state")
-      .then(response => response.ok ? response.text() : null)
-      .then(text => {
-        if (text === null || text === lastStateJsonRef.current) return;
-        lastStateJsonRef.current = text;
-        setState(JSON.parse(text) as typeof emptyState);
-      })
-      .catch(() => undefined);
+    let inFlight = false;
+    const refresh = () => {
+      if (inFlight) return;
+      inFlight = true;
+      fetch("/api/state")
+        .then(response => response.ok ? response.text() : null)
+        .then(text => {
+          if (text === null || text === lastStateJsonRef.current) return;
+          lastStateJsonRef.current = text;
+          setState(JSON.parse(text) as typeof emptyState);
+        })
+        .catch(() => undefined)
+        .finally(() => { inFlight = false; });
+    };
 
     refresh();
     const timer = window.setInterval(refresh, 250);
     return () => window.clearInterval(timer);
   }, []);
   // 모델이 뜨지 않을 때만 진단 배지를 노출한다. 정상 렌더링 중에는 화면에 아무것도 덧그리지 않는다.
-  const modelFailed = modelStatus.includes("실패") || modelStatus.includes("못했습니다") || modelStatus.includes("failed");
-  return <main className="broadcast-shell"><div className="live2d-layer" ref={live2dLayer} /><header className="stream-header"><span>보리의 소통 방송</span><div className="header-right">{audioBlocked && <button className="audio-unlock" onClick={() => { void new AudioContext().resume(); setAudioBlocked(false); }}>소리 켜기</button>}<span className="live-dot">● LIVE</span></div></header><section className="stage"><div className="character-stage">{modelFailed && <div className="character-badge">{modelStatus}</div>}</div><aside className="chat-panel">
+  const live = state.status === "live";
+  // 막힌 음성이 남아 있으면 지금 답을 다시 틀고, 없으면 버튼만 내린다. 누른 순간부터 다음 답은 자동 재생된다.
+  const unlockAudio = () => {
+    const retry = retryAudioRef.current;
+    if (retry) retry(); else setAudioBlocked(false);
+  };
+  return <main className="broadcast-shell"><div className="live2d-layer" ref={live2dLayer} /><header className="stream-header"><span>보리의 소통 방송</span><div className="header-right">{audioBlocked && <button className="audio-unlock" onClick={unlockAudio}>소리 켜기</button>}{live && <span className="live-dot">● LIVE</span>}</div></header><section className="stage"><div className="character-stage">{modelStatus.state === "failed" && <div className="character-badge" role="status">{modelStatus.message}</div>}</div><aside className="chat-panel">
       <div className="chat-scroll" ref={chatListRef}>{state.visibleChats.map(chat => <p className="chat-line" key={chat.id}>{chat.content}</p>)}</div>
       {showChatInput && <div className="chat-compose">
-        {chatNotice && <p className="chat-warn">{chatNotice}</p>}
-        <input className="chat-nickname" value={nickname} onChange={event => setNickname(event.target.value)} placeholder="이름" maxLength={20} />
+        {chatNotice && <p className="chat-warn" role="status">{chatNotice}</p>}
+        <input className="chat-nickname" value={nickname} onChange={event => setNickname(event.target.value)} placeholder="이름" aria-label="이름" maxLength={20} />
         <div className="chat-send-row">
-          <input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => event.key === "Enter" && void sendChat()} placeholder={state.status === "live" ? "채팅을 입력하세요" : "방송 대기 중"} maxLength={200} />
-          <button onClick={() => void sendChat()} disabled={!message.trim() || state.status !== "live"}>전송</button>
+          <input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (isSubmitEnter(event)) void sendChat(); }} placeholder={live ? "채팅을 입력하세요" : "방송 대기 중"} aria-label="채팅" maxLength={200} />
+          <button onClick={() => void sendChat()} disabled={!message.trim() || !live}>전송</button>
         </div>
       </div>}
-    </aside></section>{state.currentResponse && <div className="speech-bubble">{state.currentResponse.reply}</div>}<footer className="status-bar"><span>AI 버추얼 스트리머 보리</span><span>{state.status === "live" ? "소통 방송 중" : "방송 대기 중"}</span></footer></main>;
+    </aside></section>{state.currentResponse && <div className="speech-bubble">{state.currentResponse.reply}</div>}<footer className="status-bar"><span>AI 버추얼 스트리머 보리</span><span>{live ? "소통 방송 중" : "방송 대기 중"}</span></footer></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><BroadcastApp /></StrictMode>);
