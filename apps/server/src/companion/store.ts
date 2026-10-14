@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { readFileSync, renameSync } from "node:fs";
+import { basename } from "node:path";
+import { backupFile, isMissingFileError, removeLeftoverFiles, writeFileAtomically } from "@bori/memory";
 import type { Conversation, ConversationMessage } from "@bori/shared";
 import type { ConversationActivity } from "./relationship.js";
 
@@ -60,18 +61,26 @@ export function createConversationStore(filePath: string, options: ConversationS
 
   let conversations: StoredConversation[] = [];
   let messages: StoredMessage[] = [];
+  /** 파일에 써도 되는지. 파일이 있는데 읽지 못했거나 원본을 남기지 못했으면 false다. 덮어쓰면 대화가 사라진다. */
+  let writable = true;
 
   /**
    * 파일을 읽는다. 읽을 수 없는 파일은 지우지 않고 옆에 백업한 뒤 빈 상태로 시작한다.
    * 소유자가 없는 레코드는 누구에게도 보여 줄 수 없으므로 버린다.
    */
   function load() {
+    conversations = [];
+    messages = [];
+    writable = true;
+
     let raw: string;
     try {
       raw = readFileSync(filePath, "utf8");
-    } catch {
-      conversations = [];
-      messages = [];
+    } catch (error) {
+      if (isMissingFileError(error)) return;
+      // 있는데 못 읽었다(잠김·권한). 파일은 멀쩡할 수 있으므로 덮어쓰지 않는다.
+      writable = false;
+      log(`대화 파일을 읽지 못했습니다. 이번 실행에서는 대화를 저장하지 않습니다. (${(error as NodeJS.ErrnoException).code ?? "오류"})`);
       return;
     }
 
@@ -83,10 +92,12 @@ export function createConversationStore(filePath: string, options: ConversationS
     }
 
     if (!parsed || typeof parsed.version !== "number" || !READABLE_VERSIONS.includes(parsed.version) || !Array.isArray(parsed.conversations) || !Array.isArray(parsed.messages)) {
-      const backupPath = writeBackup(raw);
-      log(`대화 파일을 읽지 못해 빈 상태로 시작합니다. 원본: ${basename(backupPath)}`);
-      conversations = [];
-      messages = [];
+      try {
+        log(`대화 파일을 읽지 못해 빈 상태로 시작합니다. 원본: ${basename(backupFile(filePath, "unreadable", now()))}`);
+      } catch (error) {
+        writable = false;
+        log(`대화 파일을 읽지 못했고 원본도 남기지 못해 이번 실행에서는 대화를 저장하지 않습니다. (${(error as NodeJS.ErrnoException).code ?? "오류"})`);
+      }
       return;
     }
 
@@ -107,44 +118,15 @@ export function createConversationStore(filePath: string, options: ConversationS
     if (parsed.version !== CONVERSATION_FILE_VERSION) log(`대화 파일 버전 ${parsed.version}을 읽었습니다. 다음 저장 때 버전 ${CONVERSATION_FILE_VERSION}으로 씁니다.`);
   }
 
-  /** 읽지 못한 원본을 같은 디렉터리에 남긴다. 파일 이름에 콜론을 쓰지 않는다. */
-  function writeBackup(raw: string): string {
-    const stem = basename(filePath, extname(filePath));
-    const stamp = new Date(now()).toISOString().replace(/[:.]/g, "-");
-    let backupPath = join(dirname(filePath), `${stem}.unreadable-${stamp}.json`);
-    for (let suffix = 1; existsSync(backupPath); suffix += 1) {
-      backupPath = join(dirname(filePath), `${stem}.unreadable-${stamp}-${suffix}.json`);
-    }
-    writeFileSync(backupPath, raw, "utf8");
-    return backupPath;
-  }
-
-  /** 임시 파일에 다 쓰고 디스크에 내린 뒤 제자리로 옮긴다. 실패하면 임시 파일을 지우고 예외를 그대로 던진다. */
-  function writeAtomically(content: string) {
-    mkdirSync(dirname(filePath), { recursive: true });
-    const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
-    try {
-      const fd = openSync(tempPath, "w");
-      try {
-        writeFileSync(fd, content, "utf8");
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
-      }
-      rename(tempPath, filePath);
-    } catch (error) {
-      rmSync(tempPath, { force: true });
-      throw error;
-    }
-  }
-
   /**
    * 바뀐 상태를 파일에 쓰고, 성공했을 때만 메모리에 반영한다.
    * 쓰기에 실패했는데 메모리만 바뀌면 재시작 뒤에 사라질 내용을 사용자에게 보여 주게 된다.
    */
   function commit(nextConversations: StoredConversation[], nextMessages: StoredMessage[]) {
+    if (!writable) throw new Error("대화 파일을 읽지 못해 이번 실행에서는 저장하지 않습니다.");
     const file: ConversationFile = { version: CONVERSATION_FILE_VERSION, conversations: nextConversations, messages: nextMessages };
-    writeAtomically(JSON.stringify(file, null, 2));
+    // 들여쓰기 없이 쓴다. 메시지마다 파일 전체를 다시 쓰므로 작게 둔다(메시지 2만 건에서 약 10% 작다).
+    writeFileAtomically(filePath, JSON.stringify(file), { rename });
     conversations = nextConversations;
     messages = nextMessages;
   }
@@ -269,6 +251,9 @@ export function createConversationStore(filePath: string, options: ConversationS
       );
       return removed;
     },
+
+    /** 읽지 못해 남겨 둔 원본 백업과 이전 실행의 임시 파일을 지운다. 1:1 기록 전체 삭제 때 부른다. */
+    removeLeftovers: () => removeLeftoverFiles(filePath, { unreadable: true }),
   };
 }
 

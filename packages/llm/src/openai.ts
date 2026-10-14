@@ -1,5 +1,5 @@
 import { buildSystemPrompt, buildUserPrompt, responseJsonSchema } from "./prompt.js";
-import { redactSecrets } from "./redact.js";
+import { redactError, redactSecrets } from "./redact.js";
 import type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest } from "./types.js";
 import { tokenUsageFrom } from "./usage.js";
 
@@ -63,7 +63,8 @@ export function createOpenAiAdapter(config: LlmAdapterConfig): LlmAdapter {
         if (error instanceof Error && error.name === "AbortError") {
           throw new Error(`OpenAI 응답이 ${request.timeoutMs}ms 안에 오지 않았습니다.`);
         }
-        throw error;
+        // 이 메시지는 lastError와 로그로 나간다. 헤더 오류처럼 키가 담긴 메시지도 있다.
+        throw redactError(error, [config.apiKey]);
       } finally {
         clearTimeout(timer);
       }

@@ -8,6 +8,7 @@
 import type { LlmSettings, QueueSettings } from "@bori/shared";
 import { openAiVoices, supportedProviders, type TtsProvider, type TtsSettings } from "@bori/llm";
 import type { MemorySettings } from "@bori/memory";
+import { normalizeApiKey } from "../secret-store.js";
 
 type FieldRule =
   | { kind: "boolean" }
@@ -21,7 +22,7 @@ export type PatchResult<T> = { ok: true; patch: Partial<T> } | { ok: false; erro
 const MODEL_NAME = /^[A-Za-z0-9._:-]{1,100}$/;
 /** ElevenLabs voice id. 계정마다 달라 목록 대신 형식만 본다. 경로에 들어가므로 영숫자만 받는다. */
 const ELEVENLABS_VOICE_ID = /^[A-Za-z0-9]{1,64}$/;
-/** API 키는 형식이 업체마다 달라 길이만 제한한다. */
+/** API 키는 형식이 업체마다 달라 길이만 제한한다. 공백을 지운 뒤 보이는 ASCII만 남는지는 checkApiKey가 본다. */
 const API_KEY_MAX_LENGTH = 512;
 const apiKeyRule: FieldRule = { kind: "string", pattern: new RegExp(`^[\\s\\S]{0,${API_KEY_MAX_LENGTH}}$`), description: `${API_KEY_MAX_LENGTH}자 이하 문자열` };
 
@@ -57,6 +58,33 @@ function checkFields<T>(input: unknown, rules: { readonly [K in keyof T]?: Field
     patch[key] = value;
   }
   return { ok: true, patch: patch as Partial<T> };
+}
+
+/**
+ * 키에 섞인 공백·개행은 지우고, 그 밖의 보이지 않는 문자나 ASCII 밖 문자가 있으면 거부한다.
+ * 오류 문장에 키를 넣지 않는다.
+ */
+function checkApiKey<T extends Record<string, unknown>>(result: PatchResult<T>, field: keyof T & string): PatchResult<T> {
+  if (!result.ok || typeof result.patch[field] !== "string") return result;
+  const normalized = normalizeApiKey(result.patch[field] as string);
+  if (normalized === null) return { ok: false, error: `${field}에는 영문·숫자·기호만 쓸 수 있습니다.` };
+  return { ok: true, patch: { ...result.patch, [field]: normalized } };
+}
+
+/**
+ * 파일에서 읽은 설정을 키 하나씩 PATCH 검증기로 본다(점검 D-5).
+ * PATCH와 달리 하나가 틀려도 나머지는 쓴다. 통과한 키만 patch에 담고, 틀린 키 이름은 rejected로 돌려준다. 틀린 키는 기본값으로 남는다.
+ * validate의 두 번째 인자는 앞에서 통과한 값이다. 목소리처럼 다른 키(업체)에 따라 달라지는 검사에 쓴다.
+ */
+export function pickValidSettings<T>(input: Record<string, unknown>, validate: (patch: Record<string, unknown>, accepted: Partial<T>) => PatchResult<T>): { patch: Partial<T>; rejected: string[] } {
+  const patch: Record<string, unknown> = {};
+  const rejected: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    const checked = validate({ [key]: value }, patch as Partial<T>);
+    if (checked.ok) Object.assign(patch, checked.patch);
+    else rejected.push(key);
+  }
+  return { patch: patch as Partial<T>, rejected };
 }
 
 // ── 채팅 큐 ──────────────────────────────────────────────────
@@ -130,7 +158,7 @@ const ttsRules: { readonly [K in keyof TtsSettings]: FieldRule } = {
 
 /** 목소리는 바뀐 뒤의 업체 기준으로 검사한다. 업체만 바꾸는 요청은 목소리를 보지 않는다. */
 export function validateTtsSettingsPatch(input: unknown, current: TtsSettings): PatchResult<TtsSettingsPatch> {
-  const result = checkFields<TtsSettingsPatch>(input, { ...ttsRules, elevenLabsApiKey: apiKeyRule });
+  const result = checkApiKey(checkFields<TtsSettingsPatch>(input, { ...ttsRules, elevenLabsApiKey: apiKeyRule }), "elevenLabsApiKey");
   if (!result.ok) return result;
 
   const { voice, provider } = result.patch;
@@ -160,7 +188,7 @@ export type LlmSettingsPatch = Partial<LlmSettings> & { apiKey?: string };
  * | rollingSummaryEnabled | true 또는 false                                                        |
  * | rollingSummaryTurns   | 0~1000 정수. 4 미만은 거부하지 않고 라우트가 4로 올린다(기존 동작)     |
  * | macroEnabled          | true 또는 false                                                        |
- * | apiKey                | 512자 이하 문자열                                                      |
+ * | apiKey                | 512자 이하 문자열. 공백·개행은 지우고, 보이는 ASCII 밖 문자는 거부한다 |
  */
 const llmRules: { readonly [K in keyof LlmSettingsPatch]-?: FieldRule } = {
   enabled: { kind: "boolean" },
@@ -178,5 +206,5 @@ const llmRules: { readonly [K in keyof LlmSettingsPatch]-?: FieldRule } = {
 
 /** TTS와 같이 모두 검사한 뒤 하나라도 틀리면 아무것도 바꾸지 않는다. */
 export function validateLlmSettingsPatch(input: unknown): PatchResult<LlmSettingsPatch> {
-  return checkFields<LlmSettingsPatch>(input, llmRules);
+  return checkApiKey(checkFields<LlmSettingsPatch>(input, llmRules), "apiKey");
 }

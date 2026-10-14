@@ -3,7 +3,7 @@ import { boriName, boriPersonaLines, conversationPolicies } from "@bori/characte
 import { boriEmotionNames, boriExpressionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
 import type { CharacterCatalog, CharacterProfile } from "@bori/shared";
 import { readBodyText } from "./body.js";
-import type { CompanionService } from "./service.js";
+import { PartialDeletionError, type CompanionService } from "./service.js";
 import type { ConversationStore } from "./store.js";
 
 /** 메시지 최대 길이(글자). */
@@ -145,18 +145,25 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
       // /api/me/data: 1:1 대화·요약·세션·개인 기억을 한 번에 지운다. 방송 기억은 남는다.
       if (id === "data") {
         if (method !== "DELETE") throw new HttpError(405, "지원하지 않는 메서드입니다.");
-        sendJson(response, 200, { deleted: service.clearAll(ownerId) });
+        try {
+          sendJson(response, 200, { deleted: await service.clearAll(ownerId) });
+        } catch (error) {
+          if (!(error instanceof PartialDeletionError)) throw error;
+          // 일부만 지웠다. 무엇이 남았는지 함께 알려 다시 시도하게 한다.
+          console.error("[bori-companion] 1:1 기록 일부 삭제 실패:", error.failed.join(", "), error.cause ?? "");
+          sendJson(response, 500, { error: "일부만 지웠습니다. 다시 시도해 주세요.", deleted: error.deleted, failed: error.failed });
+        }
         return;
       }
       // /api/me/memories
       if (segments.length === 3) {
         if (method === "GET") { sendJson(response, 200, { memories: service.listMemories(ownerId) }); return; }
-        if (method === "DELETE") { sendJson(response, 200, { deleted: service.clearMemories(ownerId) }); return; }
+        if (method === "DELETE") { sendJson(response, 200, { deleted: await service.clearMemories(ownerId) }); return; }
         throw new HttpError(405, "지원하지 않는 메서드입니다.");
       }
       // /api/me/memories/:id
       if (method !== "DELETE") throw new HttpError(405, "지원하지 않는 메서드입니다.");
-      if (!service.deleteMemory(ownerId, decodeId(sub))) throw new HttpError(404, "기억을 찾을 수 없습니다.");
+      if (!(await service.deleteMemory(ownerId, decodeId(sub)))) throw new HttpError(404, "기억을 찾을 수 없습니다.");
       sendJson(response, 200, { deleted: true });
       return;
     }

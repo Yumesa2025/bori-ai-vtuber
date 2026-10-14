@@ -274,10 +274,10 @@ describe("저장과 삭제", () => {
       { ...base, text: "방송 요약", kind: "broadcast", scope: "broadcast" },
     ], settings, null);
 
-    assert.equal(store.removeByOwner("local:a"), 2);
+    assert.equal(await store.removeByOwner("local:a"), 2);
     assert.deepEqual(store.all().map(entry => entry.text).sort(), ["B의 기억", "방송 요약"]);
-    assert.equal(store.removeByOwner(""), 0);
-    assert.equal(store.removeByOwner("local:없음"), 0);
+    assert.equal(await store.removeByOwner(""), 0);
+    assert.equal(await store.removeByOwner("local:없음"), 0);
 
     // 지운 결과가 파일에도 남는다.
     const reopened = open();
