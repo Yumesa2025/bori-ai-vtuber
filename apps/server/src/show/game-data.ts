@@ -1,4 +1,5 @@
-import type { ErCharacterStat, ErMetaBasis, ShowStage } from "@bori/shared";
+import { findCharacter, type ErDictionary } from "@bori/er";
+import type { DashboardView, ErCharacterStat, ErMetaBasis, ShowStage } from "@bori/shared";
 import type { StageContext } from "./stages.js";
 
 /**
@@ -42,4 +43,38 @@ export function characterLines(stat: ErCharacterStat, basis: ErMetaBasis | null)
     ...(stat.mainWeapon ? [`주 무기: ${stat.mainWeapon}`] : []),
     ...(basis ? [basisLine(basis)] : []),
   ];
+}
+
+export type CharacterView = Extract<DashboardView, { kind: "character" }>;
+export type GameDataContext = { dictionary: ErDictionary | null; stats: readonly ErCharacterStat[]; basis: ErMetaBasis | null };
+
+/** 캐릭터를 못 찾았을 때 캐릭터 질문으로 볼 말. "세"는 "세상"과 겹쳐 물음 꼴만 본다. */
+const CHARACTER_QUESTION = /어때|좋아|추천|쎄|센가|세\?|세냐|세요\?|강해/;
+/** 대시보드 카드에 보일 질문 글 길이(글자). */
+const QUERY_MAX_LENGTH = 40;
+
+/**
+ * 채팅에서 캐릭터를 찾아 [게임 데이터] 줄과 대시보드 캐릭터 카드를 만든다.
+ * - 찾으면 집계 수치 줄과 카드. 표본에 없는 캐릭터는 없다고 적는다(수치를 지어내지 않게).
+ * - 못 찾았는데 캐릭터 질문처럼 보이고 비슷한 이름이 있으면 그 이름을 담은 카드.
+ * - 나머지와 사전이 없을 때는 null.
+ */
+export function buildGameData(chatContent: string, ctx: GameDataContext): { lines: string[]; view: CharacterView } | null {
+  if (!ctx.dictionary) return null;
+  const { match, suggestions } = findCharacter(chatContent, ctx.dictionary);
+  const query = Array.from(chatContent.trim()).slice(0, QUERY_MAX_LENGTH).join("");
+
+  if (match) {
+    const stat = ctx.stats.find(entry => entry.code === match.code) ?? null;
+    const lines = stat
+      ? characterLines(stat, ctx.basis)
+      : [`캐릭터: ${match.name}`, `이번 집계 표본에 ${match.name} 경기가 없다.`, ...(ctx.basis ? [basisLine(ctx.basis)] : [])];
+    return { lines, view: { kind: "character", query, stat, suggestions: [], basis: ctx.basis } };
+  }
+
+  if (!CHARACTER_QUESTION.test(chatContent) || suggestions.length === 0) return null;
+  return {
+    lines: ["채팅에서 말한 캐릭터를 데이터에서 찾지 못했다.", `비슷한 이름: ${suggestions.join(", ")}`],
+    view: { kind: "character", query, stat: null, suggestions, basis: ctx.basis },
+  };
 }
