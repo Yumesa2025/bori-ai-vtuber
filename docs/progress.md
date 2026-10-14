@@ -637,7 +637,7 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 
 **검증**
 
-- 자동 검사(2026-10-15, `fix/memory-quality`): typecheck 9개 워크스페이스 통과, `test:unit` 564/564(통합 브랜치 기준 488, `packages/memory/test/store-recall.test.ts` 새 파일 포함), `test` 255/255(기준 250. 1:1·개인정보·내구성 검사를 새 정리 경로에 맞추고 날짜·관리자 삭제 경합·`hasEmbedding` 검사를 더했다), `eval:test` 89/89, `eval:typecheck` 통과, `eval:static` 통과.
+- 자동 검사(2026-10-15, `fix/memory-quality`, 통합 브랜치 `67b3c3e` 위): typecheck 10개 워크스페이스 통과, `test:unit` 652/652(기준 593, `packages/memory/test/store-recall.test.ts` 새 파일 포함), `test` 260/260(기준 255. 1:1·개인정보·내구성 검사를 새 정리 경로에 맞추고 날짜·관리자 삭제 경합·`hasEmbedding` 검사를 더했다), `eval:test` 90/90(기준 90), `eval:typecheck` 통과, `eval:static` 통과 50·실패 0·범위 밖 4(기준과 같음). 화면은 고치지 않아 build는 돌리지 않았다.
 
 **남은 것**
 
