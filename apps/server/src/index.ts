@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
+import type { BroadcastState, ChatMessage, ChatSource, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
 import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { createAdapter as createProviderAdapter, createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
@@ -803,8 +803,9 @@ type ChatRejection = { code: "invalid" | "too_long" | "nickname_too_long" | "emp
 /**
  * 방송 채팅 하나를 검사해 큐에 넣는다. 받지 않으면 이유를 돌려준다.
  * 검사·중복·시청자별 상한·만료·큐 상한을 이 함수 한곳에서 처리한다. 받은 뒤 큐에서 밀려난 채팅은 droppedChats에 센다.
+ * 관리자 테스트 채팅(/api/chat)과 치지직 채팅이 같은 함수를 쓴다. source는 서버가 정하고 요청 본문에서 받지 않는다.
  */
-function ingestChat(input: { content?: unknown; nickname?: unknown }): ChatRejection | null {
+function ingestChat(input: { content?: unknown; nickname?: unknown }, source: ChatSource = "manual"): ChatRejection | null {
   if (typeof input.content !== "string" || (input.nickname !== undefined && typeof input.nickname !== "string")) {
     return { code: "invalid", error: "content와 nickname은 문자열이어야 합니다." };
   }
@@ -832,7 +833,7 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }): ChatRejec
     ...(nickname ? { viewerNickname: nickname } : {}),
     content,
     receivedAt: new Date().toISOString(),
-    source: "manual",
+    source,
     category: isQuestion(content) ? "question" : "normal",
   };
 
@@ -1152,7 +1153,8 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     readBody(request, response, body => {
       try {
         const parsed: unknown = JSON.parse(body);
-        const rejected = ingestChat(isPlainObject(parsed) ? parsed : {});
+        // 본문의 다른 키(source 등)는 넘기지 않는다.
+        const rejected = ingestChat(isPlainObject(parsed) ? { content: parsed.content, nickname: parsed.nickname } : {});
         if (rejected) { sendJson(response, 400, rejected); return; }
         sendJson(response, 200, state);
       } catch (error) { sendBodyError(response, error); }
