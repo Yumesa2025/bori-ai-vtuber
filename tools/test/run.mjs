@@ -36,13 +36,14 @@ import * as privacy from "./privacy.mjs";
 import * as durability from "./durability.mjs";
 import * as safety from "./safety.mjs";
 import * as obsPages from "./obs-pages.mjs";
+import * as operations from "./operations.mjs";
 
 const mockPort = Number(process.env.MOCK_PORT ?? 4390);
 const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
-const allScenarios = { latency, behavior, isolation, security, companion, usage, stability, concurrency, secrets, privacy, durability, safety, obsPages };
+const allScenarios = { latency, behavior, isolation, security, companion, usage, stability, concurrency, secrets, privacy, durability, safety, obsPages, operations };
 const only = process.argv.slice(2);
 const unknown = only.filter(name => !Object.hasOwn(allScenarios, name));
 if (unknown.length > 0) {
@@ -91,6 +92,8 @@ try {
         BORI_SERVER_PORT: String(boriPort),
         BORI_DATA_DIR: data.path,
         BORI_OPENAI_BASE_URL: `${mockUrl}/v1`,
+        // ElevenLabs 목소리 목록도 가짜 API로 받는다. 음성 합성은 OpenAI 경로만 쓴다.
+        BORI_ELEVENLABS_BASE_URL: `${mockUrl}/v1`,
         // 가짜 서버는 키를 보지 않는다. 값이 있어야 LLM 경로가 열린다.
         OPENAI_API_KEY: "mock-key",
       },

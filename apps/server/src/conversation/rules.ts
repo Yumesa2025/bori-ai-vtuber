@@ -177,6 +177,8 @@ const rules: readonly Rule[] = [
       "좋은 노래 있으면 추천해 주세요. 같이 들어요.",
     ],
     emotion: "happy", intensity: 0.55, durationSeconds: 8, motion: "xingxingyan",
+    // 주제 낱말만 보고 되묻는 문장이라 "아이유 노래 자주 들어요"에도 "어떤 노래를 듣냐"고 되묻는다. 게임 규칙과 같이 LLM에 양보한다.
+    llmPreferred: true,
   },
   {
     // 게임 이야기에는 게임패드를 드는 shoushi 모션을 쓴다.
@@ -187,6 +189,9 @@ const rules: readonly Rule[] = [
       "요즘 어떤 게임 하고 계세요? 저도 궁금해요.",
     ],
     emotion: "gaming", intensity: 0.55, durationSeconds: 8, motion: "shoushi",
+    // "나 요즘 리듬 게임에 완전 빠졌어"에 "요즘 어떤 게임 하세요?"로 되물었다(a4 A4-14, O-3). 낱말 하나로는 무슨 말인지 모르므로
+    // LLM이 켜져 있으면 LLM이 방금 말한 게임에 맞춰 답하고, 이 문장은 LLM을 못 쓸 때만 쓴다.
+    llmPreferred: true,
   },
   {
     match: isQuestion,
