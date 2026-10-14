@@ -585,7 +585,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 - 단위(51건 추가): `packages/llm/test/validate.test.ts`(보정·실패·스키마 enum·출력 토큰), `retry.test.ts`(Retry-After, 재시도, 429·보정이 회로를 열지 않음, 요청 본문의 `max_completion_tokens`), `tts.test.ts`(mp3 길이, 0바이트·깨진 음성, 크기 상한, 목소리 목록 상한·캐시), `summarize.test.ts`에 입력 상한 4건, `apps/server/test/broadcast-ops.test.ts`(누적 요약 백오프 5건, 게임·음악 규칙 3건).
 - 통합: 새 시나리오 `tools/test/operations.mjs`(29건). 경로·HEAD, 방송 중 재시작 기억 저장, 두 번 종료(repeatCount·요약 호출), 생성 중 종료 기억, 게임 규칙, lastError 지움, 빈·깨진 음성, 음성 길이 말풍선, 방송 음성 6초 상한, 캐시 50MB, 목소리 목록 캐시, 거절 코드, 시청자별 중복·상한, 만료(60초), 집계. 가짜 API에 음성 `empty`·`garbage`·`long` 주입과 `/v1/voices`를 더했다.
-- 결과(2026-10-15, `fix/broadcast-ops`, `fix/audit-followup` d60760b 위): typecheck 10개 워크스페이스 통과, `test:unit` 597/597(기준 546), `test` 280/280(기준 251, 새 `operations.mjs` 29건), `eval:test` 90/90, `eval:typecheck` 통과, `eval:static` 통과 50·실패 0·범위 밖 4.
+- 결과(2026-10-15, `fix/broadcast-ops`, `fix/audit-followup` 67b3c3e 위): typecheck 10개 워크스페이스 통과, `test:unit` 644/644(기준 593), `test` 284/284(기준 255, 새 `operations.mjs` 29건), `eval:test` 90/90, `eval:typecheck` 통과, `eval:static` 통과 50·실패 0·범위 밖 4.
 - 장시간(가짜 API, 포트 4745/4746):
 
 | 검사 | 기준 코드(c98ff53) | 이번 |
