@@ -68,6 +68,8 @@ export function buildScenarioRequest(scenario: Scenario, options: { timeoutMs?: 
     allowedMotions: evalAllowedMotions,
     maxReplyLength: evalReplyLimit,
     timeoutMs: options.timeoutMs ?? 8000,
+    // 게임 데이터 시나리오는 서버 방송 진행기처럼 수치 줄을 넘긴다.
+    ...(scenario.gameData ? { gameData: scenario.gameData } : {}),
     // 위기 시나리오는 서버와 같이 위기 지침을 붙인다. 기억도 서버처럼 넘기지 않는다.
     ...(scenario.crisis ? { crisisGuidance: boriCrisisLines, memories: [] } : {}),
   };

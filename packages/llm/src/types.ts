@@ -39,6 +39,16 @@ export type LlmRequest = {
    * 서버가 위기를 감지했을 때만 넣으므로 매 턴 시스템 프롬프트가 커지지 않는다.
    */
   crisisGuidance?: readonly string[];
+  /**
+   * 방송 진행기가 단계에 들어갈 때 주는 지시([방송 단계]). 서버가 넣는 지침이라 system 메시지에 둔다.
+   * 지시만 있고 content가 비어 있으면 채팅 없이 지시대로 말하는 턴이다.
+   */
+  stageDirective?: string;
+  /**
+   * 서버가 집계한 게임 수치 줄([게임 데이터]). 보리는 이 수치만 말한다. 없으면 섹션을 넣지 않는다.
+   * 서버가 만든 줄이지만 외부 API 이름이 섞이므로 사람이 쓴 글처럼 다듬어 넣는다.
+   */
+  gameData?: readonly string[];
   /** 허용된 감정 이름. 이 밖의 값은 검증에서 걸러진다. */
   allowedEmotions: readonly string[];
   /**
