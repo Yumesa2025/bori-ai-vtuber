@@ -79,7 +79,7 @@ describe("1:1 기록 모두 지우기", () => {
     assert.ok(ownedPrivate().length > 0, "개인 기억이 생겨 있어야 검사가 의미 있다");
 
     const privateCount = ownedPrivate().length;
-    const result = service.clearAll(OWNER);
+    const result = await service.clearAll(OWNER);
 
     assert.deepEqual(result, { conversations: 2, messages: 4, memories: privateCount });
     assert.deepEqual(store.list(OWNER), []);
@@ -98,16 +98,16 @@ describe("1:1 기록 모두 지우기", () => {
     const first = boot();
     const conversation = first.store.create(OWNER, "제목");
     await first.service.sendMessage(OWNER, conversation.id, "첫 메시지", { tts: false });
-    first.service.clearAll(OWNER);
+    await first.service.clearAll(OWNER);
 
     const second = boot();
     assert.deepEqual(second.store.list(OWNER), []);
     assert.equal(second.store.messages(OWNER, conversation.id), null);
   });
 
-  test("지울 것이 없으면 0을 돌려준다", () => {
+  test("지울 것이 없으면 0을 돌려준다", async () => {
     const { service } = boot();
-    assert.deepEqual(service.clearAll(OWNER), { conversations: 0, messages: 0, memories: 0 });
+    assert.deepEqual(await service.clearAll(OWNER), { conversations: 0, messages: 0, memories: 0 });
   });
 
   test("지운 뒤 새 대화의 최근 대화에 이전 대화가 들어가지 않는다", async () => {
@@ -115,7 +115,7 @@ describe("1:1 기록 모두 지우기", () => {
     const old = store.create(OWNER, "옛 대화");
     await service.sendMessage(OWNER, old.id, "옛 대화 메시지", { tts: false });
     store.setSummary(OWNER, old.id, "옛 대화에서 고양이 이야기를 했다.");
-    service.clearAll(OWNER);
+    await service.clearAll(OWNER);
 
     const fresh = store.create(OWNER, "새 대화");
     await service.sendMessage(OWNER, fresh.id, "새 메시지", { tts: false });
@@ -133,7 +133,7 @@ describe("삭제 전에 시작한 작업", () => {
     const conversation = store.create(OWNER, "제목");
     for (const content of numbered(testMemorySettings.privateDigestEveryMessages)) await service.sendMessage(OWNER, conversation.id, content, { tts: false });
 
-    service.clearAll(OWNER);
+    await service.clearAll(OWNER);
     pending.resolve(["상대는 재즈 피아노를 좋아한다."]);
     await service.settle();
     assert.deepEqual(ownedPrivate(), []);
@@ -145,7 +145,7 @@ describe("삭제 전에 시작한 작업", () => {
     const conversation = store.create(OWNER, "제목");
     for (const content of numbered(testMemorySettings.privateDigestEveryMessages)) await service.sendMessage(OWNER, conversation.id, content, { tts: false });
 
-    service.clearMemories(OWNER);
+    await service.clearMemories(OWNER);
     pending.resolve(["상대는 재즈 피아노를 좋아한다."]);
     await service.settle();
     assert.deepEqual(ownedPrivate(), []);
@@ -155,7 +155,7 @@ describe("삭제 전에 시작한 작업", () => {
 
   test("지운 뒤 다시 시작한 정리는 정상으로 저장한다", async () => {
     const { store, service } = boot({ digestMemories: async () => ["상대는 고양이를 키운다."] });
-    service.clearAll(OWNER);
+    await service.clearAll(OWNER);
     const conversation = store.create(OWNER, "제목");
     for (const content of numbered(testMemorySettings.privateDigestEveryMessages)) await service.sendMessage(OWNER, conversation.id, content, { tts: false });
     await service.settle();
@@ -175,10 +175,11 @@ describe("삭제 전에 시작한 작업", () => {
 
     const sending = service.sendMessage(OWNER, conversation.id, "저는 퇴근하고 재즈 피아노 듣는 걸 좋아해요", { tts: false });
     await entered.promise;
-    service.clearAll(OWNER);
+    const clearing = service.clearAll(OWNER);
     gate.resolve();
     // 답변이 삭제 전에 저장됐는지는 타이밍에 달렸다. 어느 쪽이든 삭제 뒤에 남는 것은 없어야 한다.
     await sending;
+    await clearing;
 
     assert.deepEqual(ownedPrivate(), []);
     assert.deepEqual(store.list(OWNER), []);

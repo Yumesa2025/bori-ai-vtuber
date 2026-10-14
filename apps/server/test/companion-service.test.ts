@@ -231,8 +231,8 @@ describe("개인 기억", () => {
     const others = memoryStore.all().filter(record => record.ownerId !== OWNER);
 
     assert.deepEqual(service.listMemories(OWNER).map(memory => memory.text), ["내 취향"]);
-    for (const record of others) assert.equal(service.deleteMemory(OWNER, record.id), false);
-    assert.equal(service.clearMemories(OWNER), 1);
+    for (const record of others) assert.equal(await service.deleteMemory(OWNER, record.id), false);
+    assert.equal(await service.clearMemories(OWNER), 1);
     assert.deepEqual(memoryStore.all().map(record => record.text).sort(), ["다른 사용자의 취향", "방송 시청자의 취향"]);
   });
 });

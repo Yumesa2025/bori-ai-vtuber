@@ -9,6 +9,18 @@ const DEFAULT_BASE_URL = process.env.BORI_OPENAI_BASE_URL ?? "https://api.openai
 export const EMBEDDING_TIMEOUT_MS = 10_000;
 
 /**
+ * 메시지에서 호출한 키를 가린다. 기억 패키지는 llm 패키지에 의존하지 않아 redactSecrets를 쓰지 않고 키 값만 가린다.
+ * 개행이 섞인 키는 fetch 헤더 오류 메시지에 그대로 담기므로 공백으로 나눈 조각도 가린다(점검 L-4).
+ */
+function hideKey(message: string, apiKey: string): string {
+  let result = message;
+  for (const piece of [apiKey.trim(), ...apiKey.split(/\s+/)]) {
+    if (piece.length >= 8) result = result.split(piece).join("[가림]");
+  }
+  return result;
+}
+
+/**
  * OpenAI 임베딩 제공자.
  * 기억 저장 시 한 번, 검색 시 질문마다 한 번 호출한다.
  */
@@ -39,14 +51,16 @@ export function createOpenAiEmbedding(config: { apiKey: string; model: string; b
         });
 
         if (!response.ok) {
-          const detail = (await response.text()).slice(0, 200);
+          const detail = hideKey(await response.text(), config.apiKey).slice(0, 200);
           throw new Error(`임베딩 ${response.status}: ${detail}`);
         }
 
         payload = await response.json() as typeof payload;
       } catch (error) {
         if (signal.aborted) throw new Error(`임베딩 응답이 ${timeoutMs}ms 안에 오지 않았습니다.`);
-        throw error;
+        if (!(error instanceof Error)) throw new Error(hideKey(String(error), config.apiKey));
+        const message = hideKey(error.message, config.apiKey);
+        throw message === error.message ? error : Object.assign(new Error(message), { name: error.name });
       }
       const rows = payload.data ?? [];
       if (rows.length !== texts.length) throw new Error("임베딩 개수가 입력과 다릅니다.");

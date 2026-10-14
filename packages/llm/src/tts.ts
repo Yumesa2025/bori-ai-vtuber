@@ -1,4 +1,4 @@
-import { redactSecrets } from "./redact.js";
+import { redactError, redactSecrets } from "./redact.js";
 
 /** 프록시나 호환 엔드포인트로 돌릴 때 환경변수로 바꾼다. */
 const OPENAI_BASE_URL = process.env.BORI_OPENAI_BASE_URL ?? "https://api.openai.com/v1";
@@ -109,7 +109,8 @@ export async function synthesizeSpeech(credentials: TtsCredentials, settings: Tt
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(`음성 합성이 ${settings.timeoutMs}ms 안에 끝나지 않았습니다.`);
     }
-    throw error;
+    // 이 메시지는 음성 lastError와 로그로 나간다. 헤더 오류처럼 키가 담긴 메시지도 있다.
+    throw redactError(error, [apiKey]);
   }
 }
 
@@ -124,7 +125,12 @@ export async function listVoices(credentials: TtsCredentials, provider: TtsProvi
 
   if (credentials.elevenLabsApiKey.trim().length === 0) return [];
 
-  const response = await fetch(`${ELEVENLABS_BASE_URL}/voices`, { headers: { "xi-api-key": credentials.elevenLabsApiKey } });
+  let response: Response;
+  try {
+    response = await fetch(`${ELEVENLABS_BASE_URL}/voices`, { headers: { "xi-api-key": credentials.elevenLabsApiKey } });
+  } catch (error) {
+    throw redactError(error, [credentials.elevenLabsApiKey]);
+  }
   if (!response.ok) throw new Error(`ElevenLabs 목소리 목록 ${response.status}`);
 
   const payload = await response.json() as { voices?: { voice_id?: string; name?: string; labels?: Record<string, string> }[] };

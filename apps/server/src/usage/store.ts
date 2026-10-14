@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, renameSync } from "node:fs";
+import { basename } from "node:path";
 import type { ConversationMode } from "@bori/character";
 import type { LlmTokenUsage } from "@bori/llm";
+import { backupFile, isMissingFileError, writeFileAtomically } from "@bori/memory";
 import type { UsageFeature, UsageMode } from "@bori/shared";
 
 /** 파일 형식 버전. 형식을 바꾸면 올리고 읽을 때 옮기는 경로를 만든다. */
@@ -103,6 +103,8 @@ export function createUsageStore(filePath: string, options: UsageStoreOptions = 
   const rename = options.rename ?? renameSync;
 
   let days: UsageDays = {};
+  /** 파일에 써도 되는지. 있는데 읽지 못했거나 원본을 남기지 못했으면 false다. */
+  let writable = true;
 
   /** 보관 기간 밖의 날을 지운다. 지운 것이 있으면 true. */
   function prune(): boolean {
@@ -114,13 +116,20 @@ export function createUsageStore(filePath: string, options: UsageStoreOptions = 
     return removed;
   }
 
-  /** 읽을 수 없는 파일은 빈 상태로 시작한다. 다음 기록 때 새 형식으로 덮어쓴다. */
+  /**
+   * 읽을 수 없는 파일은 원본을 unreadable 백업으로 남기고 빈 상태로 시작한다. 다음 기록 때 새 형식으로 쓴다.
+   * 있는데 읽지 못한 파일(잠김·권한)은 이번 실행 동안 덮어쓰지 않는다.
+   */
   function load() {
+    days = {};
+    writable = true;
     let raw: string;
     try {
       raw = readFileSync(filePath, "utf8");
-    } catch {
-      days = {};
+    } catch (error) {
+      if (isMissingFileError(error)) return;
+      writable = false;
+      log(`사용량 파일을 읽지 못했습니다. 이번 실행에서는 사용량 파일에 쓰지 않습니다. (${(error as NodeJS.ErrnoException).code ?? "오류"})`);
       return;
     }
 
@@ -133,34 +142,22 @@ export function createUsageStore(filePath: string, options: UsageStoreOptions = 
         days[key] = counters.map(parseCounter).filter((entry): entry is UsageCounter => entry !== null);
       }
     } catch {
-      log("사용량 파일을 읽지 못해 빈 상태로 시작합니다.");
       days = {};
+      try {
+        log(`사용량 파일을 읽지 못해 빈 상태로 시작합니다. 원본: ${basename(backupFile(filePath, "unreadable", now()))}`);
+      } catch (error) {
+        writable = false;
+        log(`사용량 파일을 읽지 못했고 원본도 남기지 못해 이번 실행에서는 사용량 파일에 쓰지 않습니다. (${(error as NodeJS.ErrnoException).code ?? "오류"})`);
+      }
     }
     prune();
   }
 
-  function writeAtomically(content: string) {
-    mkdirSync(dirname(filePath), { recursive: true });
-    const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
-    try {
-      const fd = openSync(tempPath, "w");
-      try {
-        writeFileSync(fd, content, "utf8");
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
-      }
-      rename(tempPath, filePath);
-    } catch (error) {
-      rmSync(tempPath, { force: true });
-      throw error;
-    }
-  }
-
   function save() {
+    if (!writable) return;
     try {
       const file: UsageFile = { version: USAGE_FILE_VERSION, days };
-      writeAtomically(JSON.stringify(file, null, 2));
+      writeFileAtomically(filePath, JSON.stringify(file, null, 2), { rename });
     } catch (error) {
       log(`사용량을 저장하지 못했습니다: ${error instanceof Error ? error.message : String(error)}`);
     }
