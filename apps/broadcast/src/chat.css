@@ -15,9 +15,11 @@ button, input { font: inherit; }
 .chat-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 4px; }
 .empty { margin: auto; color: #8e8194; font-size: 14px; }
 
-.bubble { max-width: 78%; padding: 11px 15px; border-radius: 16px; line-height: 1.5; font-size: 15px; word-break: break-word; }
+.bubble { max-width: 78%; padding: 11px 15px; border-radius: 16px; line-height: 1.5; font-size: 15px; overflow-wrap: anywhere; }
 .bubble.me { align-self: flex-end; background: #d66596; color: #fff; border-bottom-right-radius: 5px; }
 .bubble.bori { align-self: flex-start; background: #2b2330; border: 1px solid #40334380; border-bottom-left-radius: 5px; }
+.bubble.failed { opacity: .6; }
+.failed-note { display: block; margin-top: 3px; font-size: 11px; }
 .from { display: block; margin-bottom: 3px; color: #f3a7bd; font-size: 12px; }
 
 .chat-notice { padding: 9px 14px; border-radius: 10px; background: #3a1e20; color: #ffd4d4; font-size: 13px; }

@@ -3,24 +3,28 @@
 :root { font-family: "Pretendard", "Noto Sans KR", sans-serif; color: #fff6f2; background: #251d27; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 960px; background: #251d27; }
-.broadcast-shell { position: relative; width: 100vw; min-height: 100vh; overflow: hidden; background: radial-gradient(circle at 50% 20%, #76516a, #251d27 66%); }
+/* 화면 높이 안에 모두 들어가게 세로로 쌓는다. 1280×720(OBS 기본)에서도 스크롤이 생기지 않는다. 100vw는 스크롤바 폭을 포함해 가로로 넘치므로 100%를 쓴다. */
+.broadcast-shell { position: relative; display: flex; flex-direction: column; width: 100%; height: 100vh; overflow: hidden; background: radial-gradient(circle at 50% 20%, #76516a, #251d27 66%); }
+/* ?transparent=1: OBS에서 다른 화면 위에 얹을 수 있게 배경을 비운다. */
+.transparent, .transparent body, .transparent .broadcast-shell { background: transparent; }
 .live2d-layer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .live2d-layer canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
 .stream-header, .stage, .speech-bubble, .status-bar { position: relative; z-index: 2; }
+.stream-header, .status-bar { flex: 0 0 auto; }
 .stream-header, .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 18px 30px; background: #17131b99; letter-spacing: .02em; }
 .stream-header { font-size: 24px; font-weight: 700; }
 .live-dot { color: #ff8c9d; font-size: 15px; }
 .header-right { display: flex; align-items: center; gap: 14px; }
 .audio-unlock { padding: 7px 14px; border: 1px solid #d66596; border-radius: 999px; background: #d66596; color: #fff; font-size: 13px; cursor: pointer; }
-.stage { min-height: calc(100vh - 136px); display: grid; grid-template-columns: 1fr var(--chat-panel-width); gap: var(--stage-gap); padding: var(--stage-padding); }
+.stage { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr var(--chat-panel-width); grid-template-rows: minmax(0, 1fr); gap: var(--stage-gap); padding: var(--stage-padding); }
 /* 모델이 그려지는 영역. Live2D 캔버스가 뒤에 깔리므로 자리만 잡고 비워 둔다. */
-.character-stage { display: grid; place-content: center; min-height: 650px; }
+.character-stage { display: grid; place-content: center; min-height: 0; }
 .character-badge { padding: 8px 14px; border-radius: 999px; background: #f3a7bd33; color: #ffd3df; }
-.chat-panel { align-self: end; display: flex; flex-direction: column; max-height: 660px; padding: 18px; border: 1px solid #ffffff1c; border-radius: 20px; background: #160f18b8; box-shadow: 0 20px 60px #0004; }
+.chat-panel { align-self: end; display: flex; flex-direction: column; max-height: min(660px, 100%); padding: 18px; border: 1px solid #ffffff1c; border-radius: 20px; background: #160f18b8; box-shadow: 0 20px 60px #0004; }
 .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #ffffff26 transparent; }
 .chat-scroll::-webkit-scrollbar { width: 6px; }
 .chat-scroll::-webkit-scrollbar-thumb { border-radius: 3px; background: #ffffff26; }
-.chat-line { margin: 0; padding: 11px 8px; border-bottom: 1px solid #ffffff0d; color: #f5e7ee; }
+.chat-line { margin: 0; padding: 11px 8px; border-bottom: 1px solid #ffffff0d; color: #f5e7ee; overflow-wrap: anywhere; }
 .chat-line:last-child { border: 0; }
 
 /* 치지직처럼 채팅 목록 아래에서 바로 입력한다. OBS 소스에는 ?input=0 으로 숨긴다. */
@@ -33,5 +37,6 @@ body { margin: 0; min-width: 960px; background: #251d27; }
 .chat-send-row button { flex: 0 0 auto; padding: 10px 15px; border: 1px solid #d66596; border-radius: 9px; background: #d66596; color: #fff; font-size: 14px; cursor: pointer; }
 .chat-send-row button:disabled { opacity: .4; cursor: not-allowed; }
 /* 모델이 화면 정중앙에 서므로 말풍선도 화면 중앙에 맞춘다. */
-.speech-bubble { position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); max-width: 560px; padding: 15px 24px; border: 1px solid #ffd5df66; border-radius: 18px; background: #381f35ee; box-shadow: 0 10px 30px #0005; font-size: 20px; }
+/* 공백 없는 긴 문자열(ㅋㅋㅋ, URL)도 안에서 줄을 바꾸고, 길어도 얼굴을 덮지 않게 높이를 묶는다. */
+.speech-bubble { position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); max-width: 560px; max-height: 30vh; overflow: hidden; overflow-wrap: anywhere; padding: 15px 24px; border: 1px solid #ffd5df66; border-radius: 18px; background: #381f35ee; box-shadow: 0 10px 30px #0005; font-size: 20px; }
 .status-bar { color: #d4b8c7; font-size: 14px; }
