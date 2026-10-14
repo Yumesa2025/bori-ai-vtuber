@@ -1,0 +1,118 @@
+{
+  "code": 200,
+  "message": "Success",
+  "userGames": [
+    {
+      "gameId": 5000,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 3
+    },
+    {
+      "gameId": 4999,
+      "matchingMode": 2,
+      "matchingTeamMode": 3,
+      "seasonId": 0,
+      "characterNum": 1,
+      "gameRank": 10
+    },
+    {
+      "gameId": 4998,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 1
+    },
+    {
+      "gameId": 4997,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 5
+    },
+    {
+      "gameId": 4996,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 2
+    },
+    {
+      "gameId": 4995,
+      "matchingMode": 2,
+      "matchingTeamMode": 3,
+      "seasonId": 0,
+      "characterNum": 1,
+      "gameRank": 11
+    },
+    {
+      "gameId": 4994,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 8
+    },
+    {
+      "gameId": 4993,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 4
+    },
+    {
+      "gameId": 4992,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 1
+    },
+    {
+      "gameId": 4991,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 6
+    },
+    {
+      "gameId": 4990,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 2
+    },
+    {
+      "gameId": 4989,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 7
+    },
+    {
+      "gameId": 4988,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 3
+    },
+    {
+      "gameId": 4987,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "seasonId": 41,
+      "characterNum": 2,
+      "gameRank": 9
+    }
+  ]
+}

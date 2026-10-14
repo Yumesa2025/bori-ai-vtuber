@@ -49,6 +49,30 @@ export async function run({ bori, mock, report, dataDir }) {
     return { status: response.status, body: await response.json().catch(() => null) };
   };
   const alive = async () => (await fetch(`${bori.baseUrl}/api/health`).then(response => response.status).catch(() => 0)) === 200;
+  /**
+   * 방금 보낸 1:1 메시지를 개인 기억으로 만든다. LLM을 쓸 수 있으면 기억은 LLM 정리가 만들고(ADR-023),
+   * 새 대화를 열 때 앞 대화의 남은 메시지를 정리한다. 정리가 끝날 때까지 기다려 개인 기억 목록을 돌려준다.
+   */
+  async function makePrivateMemory() {
+    await send("POST", "/api/conversations", { title: "정리용" });
+    let memories = [];
+    for (let tries = 0; tries < 50 && memories.length === 0; tries += 1) {
+      memories = (await send("GET", "/api/me/memories")).body?.memories ?? [];
+      if (memories.length === 0) await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return memories;
+  }
+
+  /** 기억 파일에 개인 기억이 count건 이상 쓰일 때까지 기다린다(최대 5초). */
+  async function waitForSavedPrivate(count) {
+    for (let tries = 0; tries < 50; tries += 1) {
+      try {
+        const saved = JSON.parse(await readFile(path("memories.json"), "utf8"));
+        if ((saved.records ?? []).filter(entry => entry?.scope === "private").length >= count) return;
+      } catch { /* 쓰는 중이면 다시 본다. */ }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
 
   /** 파일 자리를 비어 있지 않은 디렉터리로 바꿔 다음 쓰기를 실패하게 한다. 되돌릴 함수를 돌려준다. */
   async function blockWrites(name) {
@@ -110,7 +134,7 @@ export async function run({ bori, mock, report, dataDir }) {
 
       const conversation = (await send("POST", "/api/conversations", { title: "내구성" })).body.conversation;
       await send("POST", `/api/conversations/${conversation.id}/messages`, { content: PRIVATE_MEMORY });
-      const mine = (await send("GET", "/api/me/memories")).body?.memories ?? [];
+      const mine = await makePrivateMemory();
       report.check("기억 설정 값을 고친 뒤 1:1 개인 기억이 저장된다", mine.length > 0, `개인 기억 ${mine.length}건`);
 
       const llm = await bori.llm();
@@ -148,7 +172,10 @@ export async function run({ bori, mock, report, dataDir }) {
       await boot();
       const conversation = (await send("POST", "/api/conversations", { title: "삭제 실패" })).body.conversation;
       await send("POST", `/api/conversations/${conversation.id}/messages`, { content: PRIVATE_MEMORY });
-      const privateBefore = (await send("GET", "/api/me/memories")).body?.memories?.length ?? 0;
+      const privateBefore = (await makePrivateMemory()).length;
+      // 기억 저장은 답보다 늦게 비동기로 끝난다(ADR-021·023). 파일에 실제로 쓰인 뒤에 쓰기를 막아야
+      // "재시작 뒤에도 같다"를 비교할 수 있다. 막기 전에 쓰이지 못한 저장은 저장소의 다시 시도가 맡는다(단위 검사).
+      await waitForSavedPrivate(privateBefore);
       const conversationsBefore = (await send("GET", "/api/conversations")).body?.conversations?.length ?? 0;
 
       const unblock = await blockWrites("memories.json");

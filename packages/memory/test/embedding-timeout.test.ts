@@ -37,7 +37,8 @@ function hangingFetch() {
   return seen;
 }
 
-describe("임베딩 요청 상한", () => {
+// 상한이 회귀하면 가짜 fetch가 영원히 기다린다. 멈추지 않고 실패하도록 묶음 전체에 시간 제한을 둔다.
+describe("임베딩 요청 상한", { timeout: 10_000 }, () => {
   test("기본 상한은 10초다", () => {
     assert.equal(EMBEDDING_TIMEOUT_MS, 10_000);
   });

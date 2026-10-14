@@ -12,6 +12,15 @@ export const BODY_LIMIT_BYTES = 64 * 1024;
 
 /** 방송 화면 dev·preview, 1:1 화면 dev·preview, 관리자 렌더러. */
 const CLIENT_PORTS = [4173, 4174, 4175, 4176, 5174] as const;
+/**
+ * 방송 화면 dev·preview Origin. OBS로 송출되는 화면이라 1:1 대화와 개인 기억 API에는 닿지 못하게 한다(점검 X-1).
+ * 방송 화면이 쓰는 API는 /api/state·/api/chat·/api/tts/*뿐이다.
+ */
+const BROADCAST_SCREEN_ORIGINS = new Set(
+  [4173, 4174].flatMap(port => [`http://127.0.0.1:${port}`, `http://localhost:${port}`]),
+);
+/** 1:1 대화 기록과 기억 원문을 다루는 경로. `/api/memory`(관리자)도 1:1 private 기억을 섞어 돌려준다. */
+const PRIVATE_PATH_PREFIXES = ["/api/conversations", "/api/me", "/api/memory"] as const;
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const BODY_METHODS = new Set(["POST", "PATCH", "PUT"]);
 /**
@@ -87,6 +96,12 @@ function hasValidPathEncoding(url: string): boolean {
   }
 }
 
+/** 방송 화면 Origin이 부를 수 없는 경로인지. 접두사 뒤가 끝이거나 `/`일 때만 같은 경로로 본다. */
+export function isPrivatePathForBroadcast(url: string): boolean {
+  const path = url.split("?")[0];
+  return PRIVATE_PATH_PREFIXES.some(prefix => path === prefix || path.startsWith(`${prefix}/`));
+}
+
 function isJsonContentType(value: string | undefined): boolean {
   // charset 같은 매개변수는 허용한다.
   return (value ?? "").split(";")[0].trim().toLowerCase() === "application/json";
@@ -110,6 +125,7 @@ function rejectTooLarge(request: IncomingMessage, response: ServerResponse) {
  *
  * - Host 호스트명이 루프백이 아니면 421 (DNS rebinding 방지). Vite 프록시가 포트를 바꾸므로 호스트명만 본다.
  * - Origin이 있으면 허용 목록만 통과, 아니면 403. Origin이 없는 요청(curl, 테스트 도구)은 통과한다.
+ * - 방송 화면 Origin은 1:1 대화·기억 경로에서 403. 사전 요청(OPTIONS)도 같다.
  * - 허용된 Origin에는 `*` 대신 그 Origin을 되돌려 준다. 사전 요청(OPTIONS)은 여기서 끝낸다.
  * - 경로의 퍼센트 인코딩이 깨져 있으면 400. 라우트의 decodeURIComponent 예외로 서버가 죽지 않게 한다.
  * - 본문이 있는 POST·PATCH·PUT은 application/json만 받는다(415). 본문 없는 POST는 Content-Type 없이 통과한다.
@@ -128,6 +144,10 @@ export function guardRequest(request: IncomingMessage, response: ServerResponse,
   if (origin !== undefined) {
     if (!options.allowedOrigins.has(origin.toLowerCase())) {
       sendError(response, 403, "허용되지 않은 Origin입니다.");
+      return false;
+    }
+    if (BROADCAST_SCREEN_ORIGINS.has(origin.toLowerCase()) && isPrivatePathForBroadcast(request.url ?? "/")) {
+      sendError(response, 403, "방송 화면에서는 1:1 대화와 기억에 접근할 수 없습니다.");
       return false;
     }
     response.setHeader("Access-Control-Allow-Origin", origin);

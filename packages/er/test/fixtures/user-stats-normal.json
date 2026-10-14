@@ -1,0 +1,13 @@
+{
+  "code": 200,
+  "message": "Success",
+  "userStats": [
+    {
+      "seasonId": 0, "matchingMode": 2, "matchingTeamMode": 3, "nickname": "보리팬클럽",
+      "totalGames": 8, "totalWins": 2, "averageRank": 4,
+      "characterStats": [
+        { "characterCode": 1, "totalGames": 8, "usages": 8, "wins": 2, "averageRank": 4 }
+      ]
+    }
+  ]
+}

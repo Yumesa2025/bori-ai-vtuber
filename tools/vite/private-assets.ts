@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -58,10 +59,51 @@ function allowedFilePath(route: ReturnType<typeof assetRoutesFor>[number], url: 
   return filePath;
 }
 
+/**
+ * 빌드에 필요한 비공개 폴더 중 없는 것. 상위 폴더가 없으면 그 아래 폴더는 따로 적지 않는다.
+ * 번들 자체가 SDK 샘플 소스(@sdk-sample)를 import하므로 SDK가 없으면 dist를 만들 수 없다.
+ */
+export function missingPrivateFolders(projectRoot: string): string[] {
+  const sdkRoot = resolve(projectRoot, sdkDir);
+  const required = [
+    resolve(projectRoot, "maolili"),
+    sdkRoot,
+    ...Object.values(privateAssetAliases(projectRoot)),
+    ...assetRoutesFor(projectRoot).map(route => route.root),
+  ];
+  const missing = [...new Set(required)].filter(path => !existsSync(path));
+  return missing.filter(path => !missing.some(parent => path.startsWith(`${parent}${sep}`)));
+}
+
+/** 비공개 자산이 없을 때 빌드가 보여 줄 안내. ENOENT 스택 대신 없는 폴더와 할 일을 적는다. */
+export function missingAssetsMessage(projectRoot: string, missing: readonly string[]): string {
+  const folders = missing.map(path => `  - ${relative(projectRoot, path).split(sep).join("/")}`).join("\n");
+  return [
+    "비공개 자산이 없어 이 화면을 빌드할 수 없습니다.",
+    `없는 폴더:\n${folders}`,
+    "구매 모델(maolili/)과 Cubism SDK for Web(private-assets/cubism-sdk/)을 README '실행 전 반드시 알아둘 것'대로 놓은 뒤 다시 빌드하세요.",
+    "자산 없이 되는 빌드는 관리자 화면(npm run build:admin)뿐입니다.",
+  ].join("\n");
+}
+
 export function privateAssets({ projectRoot, outDir }: { projectRoot: string; outDir: string }) {
   const assetRoutes = assetRoutesFor(projectRoot);
+  let building = false;
   return {
     name: "bori-private-assets",
+    configResolved(config: { command: string }) {
+      building = config.command === "build";
+    },
+    // 자산이 없으면 번들을 만들기 전에 멈춘다. 예전에는 SDK import 실패나 realpath ENOENT 스택으로 끝났다.
+    buildStart() {
+      if (!building) return;
+      const missing = missingPrivateFolders(projectRoot);
+      if (missing.length === 0) return;
+      // 스택은 node 내부 위치뿐이라 지운다. vite가 플러그인 이름을 붙여 메시지만 찍는다.
+      const error = new Error(missingAssetsMessage(projectRoot, missing));
+      error.stack = "";
+      throw error;
+    },
     // dev 서버에서는 비공개 폴더를 URL로 열어 준다. 파일을 프로젝트 안으로 복사하지 않는다.
     configureServer(server: { middlewares: { use: (handler: (request: any, response: any, next: () => void) => void) => void } }) {
       server.middlewares.use(async (request, response, next) => {
@@ -85,6 +127,8 @@ export function privateAssets({ projectRoot, outDir }: { projectRoot: string; ou
     },
     // 빌드 산출물에도 같은 구조로 복사한다. 구매 모델과 SDK가 들어가므로 dist는 공개하지 않는다.
     async closeBundle() {
+      // 빌드가 실패해도 이 훅은 불린다. 자산이 없어 buildStart가 멈춘 경우 그 안내를 덮지 않게 그냥 끝낸다.
+      if (assetRoutes.some(route => !existsSync(route.root))) return;
       for (const route of assetRoutes) {
         const target = resolve(outDir, route.prefix.slice(1));
         await mkdir(target, { recursive: true });

@@ -181,6 +181,20 @@ describe("쓰기 실패와 삭제 되돌리기", () => {
     assert.deepEqual(savedRecords().map(entry => entry.id).sort(), ["b", "other"]);
   });
 
+  test("저장이 실패하면 잠시 뒤 지금 상태를 다시 쓴다", async () => {
+    let fail = true;
+    const store = await seeded({ rename: (from, to) => (fail ? failingRename() : renameSync(from, to)), retryDelaysMs: [20] });
+    await assert.rejects(store.add([candidate("상대는 비 오는 날을 좋아한다.")], settings, null));
+    assert.ok(!savedRecords().some(entry => entry.text.includes("비 오는 날")), "실패한 저장은 파일에 없다");
+
+    fail = false;
+    // 다음 저장 요청이 없어도 예약된 다시 시도가 메모리 상태를 파일에 쓴다.
+    for (let tries = 0; tries < 50 && !savedRecords().some(entry => entry.text.includes("비 오는 날")); tries += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.ok(savedRecords().some(entry => entry.text.includes("비 오는 날")), "다시 시도로 저장됐다");
+  });
+
   test("removeByOwner와 clear도 실패하면 되돌린다", async () => {
     const store = await seeded({ rename: failingRename });
     await assert.rejects(store.removeByOwner("companion:local"));

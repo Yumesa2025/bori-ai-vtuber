@@ -1,6 +1,6 @@
 import { boriCrisisHelpLine, boriCrisisLines, boriCrisisReplies, conversationPolicies, type ConversationMode, type ConversationPolicy } from "@bori/character";
 import { boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
-import { buildSystemPrompt, createAdapter, summarizeSessionProgress, type createLlmClient, type LlmRequest } from "@bori/llm";
+import { buildSystemPrompt, createAdapter, currentDateLine, summarizeSessionProgress, type createLlmClient, type LlmRequest } from "@bori/llm";
 import { isAnonymousViewer, type EmbeddingProvider, type MemoryAccess, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, LlmSettings, MacroPrompt } from "@bori/shared";
 import { activateMacros, clearMacros, tickMacros } from "./macros.js";
@@ -66,6 +66,13 @@ const allowedMotions = boriMotionGroupNames.map(name => ({ name, description: bo
  */
 export const MEMORY_SEARCH_TIMEOUT_MS = 5000;
 
+/**
+ * 누적 요약이 연달아 실패하면 이 횟수에서 그 세션의 누적 요약을 멈춘다.
+ * 실패 뒤에는 다음 시도까지 rollingSummaryTurns × 2^실패수 발언을 기다린다(10턴 주기면 20·40·80·160턴 뒤).
+ * 전에는 실패하면 매 턴 다시 불러 300턴에 296회, 요청이 3만 자까지 커졌다(a3 F5). 이제 같은 300턴에 4회, 그 뒤로 1회다.
+ */
+export const ROLLING_SUMMARY_MAX_FAILURES = 5;
+
 /** 정해진 시간 안에 끝나지 않으면 실패로 본다. 원래 작업은 취소하지 못하고 결과만 버린다. */
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -88,6 +95,8 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
   const policies = deps.policies ?? conversationPolicies;
   const makeAdapter = deps.createAdapter ?? createAdapter;
   const memorySearchTimeoutMs = deps.memorySearchTimeoutMs ?? MEMORY_SEARCH_TIMEOUT_MS;
+  /** 세션별 누적 요약 연속 실패와 다음 시도 시점(sessionTurns 개수). 세션이 버려지면 같이 사라진다. */
+  const summaryBackoff = new WeakMap<ConversationSession, { failures: number; retryAtTurn: number }>();
 
   /** onSummary를 주면 누적 요약이 갱신될 때마다 부른다. 1:1은 대화 레코드에 요약을 저장한다. */
   function createSession(mode: ConversationMode, options: { onSummary?: (summary: string) => void } = {}): ConversationSession {
@@ -105,6 +114,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     return {
       mode,
       ...context,
+      currentDate: currentDateLine(Date.now()),
       allowedEmotions: boriEmotionNames,
       allowedMotions,
       maxReplyLength: settings.maxReplyLength,
@@ -254,6 +264,9 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     // 답변용 호출이 연달아 실패하는 중이라면 요약도 시도하지 않는다.
     if (deps.llmFor(session.mode).isCircuitOpen()) return;
     if (session.summaryInFlight) return;
+    // 실패 뒤에는 정한 만큼 대화가 더 쌓일 때까지 기다리고, 최대 횟수를 넘기면 이 세션에서는 더 부르지 않는다.
+    const backoff = summaryBackoff.get(session);
+    if (backoff && (backoff.failures >= ROLLING_SUMMARY_MAX_FAILURES || session.sessionTurns.length < backoff.retryAtTurn)) return;
 
     const pending = session.sessionTurns.slice(session.summarizedTurnCount);
     if (pending.length < settings.rollingSummaryTurns) return;
@@ -268,11 +281,19 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     if (!adapter) return;
 
     session.summaryInFlight = true;
+    const attemptedAt = session.sessionTurns.length;
+    const recordFailure = () => {
+      const failures = (summaryBackoff.get(session)?.failures ?? 0) + 1;
+      summaryBackoff.set(session, { failures, retryAtTurn: attemptedAt + settings.rollingSummaryTurns * 2 ** failures });
+      if (failures >= ROLLING_SUMMARY_MAX_FAILURES) console.error(`[bori-server] 누적 요약이 ${failures}번 연달아 실패해 이 대화에서는 멈춥니다.`);
+    };
 
     // 모드별 지시문을 쓴다. 1:1 대화를 방송 기준("시청자", "방송")으로 요약하지 않는다.
+    // 쌓인 대화가 많으면 summarizeSessionProgress가 최근 것만 넘긴다(PROGRESS_SUMMARY_LIMITS).
     void summarizeSessionProgress(adapter, session.summary, material, { timeoutMs: Math.max(settings.timeoutMs, 15_000), mode: session.mode })
       .then(updated => {
-        if (!updated) return;
+        if (!updated) { recordFailure(); return; }
+        summaryBackoff.delete(session);
         session.summary = updated;
         // 실패했을 때는 개수를 올리지 않는다. 접지 못한 대화가 다음 시도에 다시 넘어간다.
         session.summarizedTurnCount = consumed;
@@ -284,7 +305,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
           console.error("[bori-server] 누적 요약 저장 실패:", error);
         }
       })
-      .catch(error => { console.error("[bori-server] 누적 요약 실패:", error); })
+      .catch(error => { recordFailure(); console.error("[bori-server] 누적 요약 실패:", error); })
       .finally(() => { session.summaryInFlight = false; });
   }
 

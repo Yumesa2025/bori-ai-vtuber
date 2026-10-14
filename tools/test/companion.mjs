@@ -103,10 +103,12 @@ export async function run({ bori, mock, report, dataDir }) {
 
     const call = (await companionCalls()).at(-1);
     report.check("1:1 LLM 요청은 1:1 대화 정책으로 간다", call?.system.includes("[대화 정책: 1:1 대화]") === true);
+    // 첫 줄은 서버가 넣는 오늘 날짜(한국 시간)다(점검 M-7).
+    const statusLines = section(call?.user ?? "", "대화 상황").split("\n");
     report.check(
-      "첫 대화의 1:1 요청 [대화 상황]에 '이 사람과는 오늘 처음 대화한다.'가 들어간다",
-      section(call?.user ?? "", "대화 상황") === "[대화 상황]\n- 이 사람과는 오늘 처음 대화한다.",
-      section(call?.user ?? "", "대화 상황").replace(/\n/g, " / "),
+      "첫 대화의 1:1 요청 [대화 상황]에 오늘 날짜와 '이 사람과는 오늘 처음 대화한다.'가 들어간다",
+      statusLines.length === 3 && statusLines[0] === "[대화 상황]" && /^- 지금은 한국 시간으로 \d{4}년 \d{1,2}월 \d{1,2}일 .요일 /.test(statusLines[1]) && statusLines[2] === "- 이 사람과는 오늘 처음 대화한다.",
+      statusLines.join(" / "),
     );
     report.check(
       "방송 시청자 기억(broadcast scope)이 1:1 LLM 요청에 들어가지 않는다",
@@ -191,13 +193,20 @@ export async function run({ bori, mock, report, dataDir }) {
   // ── 1:1 개인 기억 ───────────────────────────────────────────
   {
     await sendMessage(first.id, PRIVATE_MEMORY);
-    const mine = (await send("GET", "/api/me/memories")).body?.memories ?? [];
-    report.check("1:1 취향 메시지가 본인 개인 기억이 된다", mine.some(memory => memory.text === PRIVATE_MEMORY), `memories=${mine.length}`);
+    // LLM을 쓸 수 있으면 1:1 기억은 LLM 정리가 만든다(ADR-023). 새 대화를 열면 앞 대화의 남은 메시지를 정리한다(점검 M-6).
+    report.check("LLM을 쓸 수 있으면 규칙 추출로 원문을 바로 기억하지 않는다", ((await send("GET", "/api/me/memories")).body?.memories ?? []).every(memory => !memory.text.includes(PRIVATE_MEMORY)));
+    await createConversation("정리 확인");
+    const mine = await waitUntil(async () => {
+      const memories = (await send("GET", "/api/me/memories")).body?.memories ?? [];
+      return memories.some(memory => memory.text.includes(PRIVATE_MEMORY)) ? memories : null;
+    }) ?? [];
+    report.check("새 대화를 열면 앞 대화의 1:1 취향 메시지가 본인 개인 기억이 된다", mine.some(memory => memory.text.includes(PRIVATE_MEMORY)), `memories=${mine.length}`);
     report.check("개인 기억 목록에는 id·text·createdAt·expiresAt만 있다", mine.every(memory => Object.keys(memory).sort().join(",") === "createdAt,expiresAt,id,text"));
 
     const all = (await bori.memory()).records;
-    const record = all.find(entry => entry.text === PRIVATE_MEMORY);
+    const record = all.find(entry => entry.text.includes(PRIVATE_MEMORY));
     report.check("저장된 기억은 private scope, companion:local 소유다", record?.scope === "private" && record?.ownerId === OWNER, `${record?.scope}/${record?.ownerId}`);
+    report.check("관리자 기억 목록은 임베딩 배열을 보내지 않고 hasEmbedding만 보낸다(점검 M-13)", all.length > 0 && all.every(entry => !("embedding" in entry) && typeof entry.hasEmbedding === "boolean"));
     report.check("개인 기억 목록에 방송 기억이 나오지 않는다", !mine.some(memory => BROADCAST_MEMORIES.some(text => memory.text.includes(text))));
 
     await sendMessage(first.id, "오늘 저녁에 뭐 하면 좋을까요");
@@ -230,7 +239,7 @@ export async function run({ bori, mock, report, dataDir }) {
     const status = section(await lastCompanionUser(), "대화 상황");
     report.check("두 번째 대화 요청에 '이 사람과는 2번째 대화다.'가 들어간다", status.includes("- 이 사람과는 2번째 대화다. 처음 대화한 날이 오늘이다."), status.replace(/\n/g, " / "));
     report.check("새 대화의 첫 메시지라 마지막 대화 간격이 들어간다", status.includes("- 마지막 대화는 오늘 앞서 있었다."));
-    report.check("두 번째 대화 요청에 첫 대화의 요약이 '지난 대화 요약:'으로 들어간다", status.includes(`- 지난 대화 요약: ${COMPANION_SUMMARY}`));
+    report.check("두 번째 대화 요청에 첫 대화의 요약이 '지난 대화 요약: (오늘)'으로 들어간다", status.includes(`- 지난 대화 요약: (오늘) ${COMPANION_SUMMARY}`), status.replace(/\n/g, " / "));
 
     await sendMessage(third.id, "바로 이어서 보내요");
     const continuing = section(await lastCompanionUser(), "대화 상황");
@@ -239,12 +248,18 @@ export async function run({ bori, mock, report, dataDir }) {
 
   // ── LLM 개인 기억 정리 ──────────────────────────────────────
   {
-    // 첫 대화에 차단되지 않은 사용자 메시지가 6개 쌓였을 때 정리가 돈다(기본 privateDigestEveryMessages=6).
+    // 사용자 메시지가 6개 쌓이거나(기본 privateDigestEveryMessages=6) 새 대화를 열면 정리가 돈다.
     const digestCall = await waitUntil(async () => (await mock.digestCalls()).at(0));
+    const digestCalls = await mock.digestCalls();
     report.check(
-      "사용자 메시지 6개마다 LLM 기억 정리를 요청하고, 막은 입력은 넘기지 않는다",
-      digestCall !== null && digestCall.user.includes("상대: ") && !digestCall.user.includes("비밀번호"),
-      digestCall ? `user 줄 ${digestCall.user.split("\n").length}` : "정리 호출 없음",
+      "LLM 기억 정리를 요청하고, 막은 입력은 넘기지 않는다",
+      digestCall !== null && digestCall.user.includes("상대: ") && digestCalls.every(entry => !entry.user.includes("비밀번호")),
+      digestCall ? `정리 ${digestCalls.length}회, 첫 요청 user 줄 ${digestCall.user.split("\n").length}` : "정리 호출 없음",
+    );
+    report.check(
+      "정리 요청에 오늘 날짜와 이미 저장된 기억을 함께 넘긴다(점검 M-4·M-7)",
+      digestCalls.some(entry => entry.user.includes("[오늘 날짜]\n지금은 한국 시간으로") && entry.user.includes(`[이미 저장된 기억]\n- m1: "`)),
+      digestCalls.map(entry => entry.user.split("\n").slice(0, 4).join(" / ")).join(" || "),
     );
 
     const mine = await waitUntil(async () => {
@@ -294,6 +309,11 @@ export async function run({ bori, mock, report, dataDir }) {
       section(broadcastCalls.at(-1)?.user ?? "", "방송 상황").replace(/\n/g, " / "),
     );
     report.check("LLM 정리로 생긴 개인 기억이 방송 LLM 요청에 나오지 않는다", broadcastCalls.every(entry => !entry.user.includes(DIGEST_KEY)));
+    report.check(
+      "방송 LLM 요청의 [방송 상황] 첫 줄에도 오늘 날짜가 들어간다(점검 M-7)",
+      broadcastCalls.every(entry => section(entry.user, "방송 상황").split("\n")[1]?.startsWith("- 지금은 한국 시간으로 ")),
+      section(broadcastCalls.at(-1)?.user ?? "", "방송 상황").replace(/\n/g, " / "),
+    );
 
     // 방송 대화 4턴이 쌓이면 누적 요약이 돈다(고정 자료 rollingSummaryTurns=4). 늦게 올 수 있어 기다린다.
     let summaries = [];
@@ -385,7 +405,7 @@ export async function run({ bori, mock, report, dataDir }) {
 
     await send("DELETE", `/api/conversations/${first.id}`);
     const mine = (await send("GET", "/api/me/memories")).body?.memories ?? [];
-    report.check("대화를 지워도 그 대화에서 생긴 개인 기억은 남는다", mine.some(memory => memory.text === PRIVATE_MEMORY));
+    report.check("대화를 지워도 그 대화에서 생긴 개인 기억은 남는다", mine.some(memory => memory.text.includes(PRIVATE_MEMORY)));
 
     const broadcastRecord = (await bori.memory()).records.find(record => record.scope === "broadcast");
     const foreign = broadcastRecord ? await send("DELETE", `/api/me/memories/${broadcastRecord.id}`) : { status: -1 };

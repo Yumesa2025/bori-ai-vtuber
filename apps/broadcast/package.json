@@ -12,9 +12,10 @@
   "dependencies": {
     "@bori/live2d": "0.1.0",
     "@bori/shared": "0.1.0",
-    "@vitejs/plugin-react": "^4.3.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4"
+  }
 }

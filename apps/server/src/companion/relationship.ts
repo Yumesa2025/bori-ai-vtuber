@@ -9,11 +9,17 @@
  * - 첫 대화를 이어 가는 중: "이 사람과는 첫 대화를 이어 가는 중이다. 인사는 이미 나눴다."
  * - 재방문: "이 사람과는 {N}번째 대화다. 처음 대화한 지 {D}일 지났다." (D가 0이면 둘째 문장은 "처음 대화한 날이 오늘이다.")
  * - 마지막 대화 간격: "마지막 대화는 {G}일 전이었다." (G가 0이면 "마지막 대화는 오늘 앞서 있었다.")
- * - 지난 대화 요약(있을 때만): "지난 대화 요약: {요약}"
+ * - 지난 대화 요약(있을 때만): "지난 대화 요약: ({때}) {요약} / ({때}) {요약}" ({때}는 "오늘" 또는 "N일 전", 오래된 것부터)
+ *   예전에는 "지난 대화 요약: {요약}" 하나였다. 평가 워커는 "지난 대화 요약:" 머리만 본다.
  */
 
-/** 지난 대화 요약을 넣을 때의 최대 글자 수. 넘으면 잘라서 말줄임표를 붙인다. */
+/** 지난 대화 요약 하나를 넣을 때의 최대 글자 수. 넘으면 잘라서 말줄임표를 붙인다. */
 export const PREVIOUS_SUMMARY_MAX_LENGTH = 200;
+/**
+ * 지난 대화 요약에 넣는 대화 수. 요약이 있는 대화 중 최근 것부터 고른다.
+ * 예전에는 직전 대화 하나만 봐서, 직전 대화가 짧아(누적 요약 전) 요약이 없으면 그 전 요약까지 사라졌다(점검 M-10).
+ */
+export const PREVIOUS_SUMMARY_COUNT = 3;
 
 /**
  * 이 시간보다 짧게 이어진 메시지는 같은 방문으로 본다.
@@ -68,7 +74,8 @@ function truncate(text: string, maxLength: number): string {
  *   직전 메시지와 NEW_VISIT_GAP_MS 이상 떨어졌을 때만 넣는다.
  * - 첫날 첫 대화는 그 대화의 첫 메시지에만 "오늘 처음 대화한다"를 넣는다. 둘째 메시지부터 같은 문장이 들어가면
  *   1:1 정책의 "처음이면 인사" 지침과 겹쳐 매 턴 인사를 되풀이한다(점검 C-5).
- * - 지난 대화 요약은 현재 대화를 제외하고 마지막 메시지가 가장 최근인 대화의 요약이다. 그 대화에 요약이 없으면 넣지 않는다.
+ * - 지난 대화 요약은 현재 대화를 제외하고 요약이 있는 대화 중 마지막 메시지가 최근인 PREVIOUS_SUMMARY_COUNT개다.
+ *   오래된 것부터 늘어놓고 언제 대화인지 붙인다. 요약이 있는 대화가 없으면 넣지 않는다.
  */
 export function relationshipStatusLines(input: RelationshipInput): string[] {
   const { now, currentId } = input;
@@ -96,9 +103,18 @@ export function relationshipStatusLines(input: RelationshipInput): string[] {
     lines.push(gap === 0 ? "마지막 대화는 오늘 앞서 있었다." : `마지막 대화는 ${gap}일 전이었다.`);
   }
 
-  const previous = [...others].sort((a, b) => b.lastMessageAt - a.lastMessageAt)[0];
-  const summary = previous?.summary.trim() ?? "";
-  if (summary.length > 0) lines.push(`지난 대화 요약: ${truncate(summary, maxLength)}`);
+  const previous = others
+    .filter(entry => entry.summary.trim().length > 0)
+    .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
+    .slice(0, PREVIOUS_SUMMARY_COUNT)
+    .reverse();
+  if (previous.length > 0) {
+    const parts = previous.map(entry => {
+      const days = localDaysBetween(entry.lastMessageAt, now);
+      return `(${days === 0 ? "오늘" : `${days}일 전`}) ${truncate(entry.summary.trim(), maxLength)}`;
+    });
+    lines.push(`지난 대화 요약: ${parts.join(" / ")}`);
+  }
 
   return lines;
 }

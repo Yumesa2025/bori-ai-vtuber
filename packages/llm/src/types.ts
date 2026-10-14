@@ -30,6 +30,11 @@ export type LlmRequest = {
    */
   broadcastStatus: readonly string[];
   /**
+   * 오늘 날짜 문장(currentDateLine). 상황 섹션 맨 앞에 들어간다. 없으면 넣지 않는다.
+   * 서버가 매 요청 시각으로 만든다. 요약·정리처럼 프롬프트를 갈아 끼우는 작업에서는 쓰이지 않는다.
+   */
+  currentDate?: string;
+  /**
    * 위기 신호에 답할 때 모드 정책 뒤에 붙이는 지침([위기 대응]). 평소에는 비우거나 넘기지 않는다.
    * 서버가 위기를 감지했을 때만 넣으므로 매 턴 시스템 프롬프트가 커지지 않는다.
    */
@@ -78,7 +83,10 @@ export type LlmAdapterConfig = {
   baseUrl?: string;
 };
 
-/** 검증 결과. 실패 이유를 남겨 관리자 화면에 보여준다. */
+/**
+ * 검증 결과. 실패 이유를 남겨 관리자 화면에 보여준다.
+ * corrections는 답은 살리고 기본값으로 바꾼 곁가지 값(감정·모션·기호)의 설명이다. 실패로 세지 않는다.
+ */
 export type LlmValidation =
-  | { ok: true; response: CharacterResponse }
+  | { ok: true; response: CharacterResponse; corrections: string[] }
   | { ok: false; reason: string };

@@ -1,0 +1,16 @@
+{
+  "code": 200,
+  "message": "Success",
+  "userStats": [
+    {
+      "seasonId": 41, "matchingMode": 3, "matchingTeamMode": 3, "mmr": 3107, "nickname": "보리팬클럽", "rank": 24, "rankSize": 58,
+      "totalGames": 40, "totalWins": 6, "averageRank": 3.45, "top1": 0.15, "top2": 0.3, "top3": 0.5,
+      "characterStats": [
+        { "characterCode": 3, "totalGames": 5, "usages": 5, "wins": 0, "top3": 2, "top3Rate": 0.4, "averageRank": 4.2 },
+        { "characterCode": 2, "totalGames": 20, "usages": 20, "wins": 4, "top3": 12, "top3Rate": 0.6, "averageRank": 2.9 },
+        { "characterCode": 10, "totalGames": 3, "usages": 3, "wins": 0, "top3": 1, "top3Rate": 0.33, "averageRank": 5 },
+        { "characterCode": 1, "totalGames": 12, "usages": 12, "wins": 2, "top3": 5, "top3Rate": 0.42, "averageRank": 3.8 }
+      ]
+    }
+  ]
+}

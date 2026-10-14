@@ -4,11 +4,14 @@
 
 ```bash
 npm run test
+npm run test -- security secrets   # 시나리오 파일 이름으로 일부만
 ```
 
-44건을 약 130초에 검사한다. 실패하면 종료 코드 1이다.
+검사 건수와 걸린 시간은 끝 줄에 나온다(건수는 [docs/progress.md](../../docs/progress.md)에 적는다). 실패하면 종료 코드 1, 모르는 시나리오 이름이면 2다.
 
-순수 함수 수준의 단위 검사는 따로 `npm run test:unit`으로 돌린다(`packages/*/test/*.test.ts`, Node 내장 `node:test` + `tsx`).
+실행기는 처음에 포트·Node 버전·시나리오 수를 한 줄 찍는다. 검사 실패가 아닌 이유로 끝나면(시나리오 밖 예외, Ctrl+C) `[run] 종료 코드 …, 마지막 단계: …`를 남기고, 시나리오가 예외로 멈추면 그 서버의 출력(서버가 죽었으면 종료 코드도)을 붙인다. 이 줄도 없이 끝났다면 실행기 프로세스가 밖에서 강제 종료된 것이다(Windows의 `taskkill /F`·`Stop-Process`는 종료 코드 1만 남긴다).
+
+순수 함수 수준의 단위 검사는 따로 `npm run test:unit`으로 돌린다(`packages/*/test/*.test.ts`와 `apps/*/test/*.test.ts`, Node 내장 `node:test` + `tsx`). 멈춘 검사가 CI를 붙잡지 않도록 검사 하나에 30초 상한(`--test-timeout`)을 둔다.
 
 ## 왜 이 형태인가
 
@@ -24,14 +27,23 @@ npm run test
 
 | 파일 | 역할 |
 |---|---|
-| `run.mjs` | 실행기. 서버를 띄우고 시나리오를 돌린 뒤 정리한다 |
-| `harness.mjs` | 프로세스 기동, 포트 대기, HTTP 클라이언트, 결과 보고 |
+| `run.mjs` | 실행기. 서버를 띄우고 시나리오를 돌린 뒤 정리한다. 인자로 시나리오 파일 이름을 주면 그것만 돈다 |
+| `harness.mjs` | 프로세스 기동, 포트 대기, HTTP 클라이언트, 결과 보고. 띄운 서버가 루트 `.env`를 읽지 않게 `BORI_ENV_FILE=""`을 기본으로 준다 |
 | `mock-openai.mjs` | 가짜 API 서버. 답변·임베딩·음성 세 경로와 검사용 엔드포인트 |
 | `latency.mjs` | 체감 지연 시나리오 |
 | `behavior.mjs` | 동작 시나리오 |
 | `isolation.mjs` | 기억 격리 시나리오. 시청자 A의 기억이 B 채팅의 LLM 요청에 들어가지 않는지, 기동 시 기억 파일 마이그레이션 |
 | `stability.mjs` | 방송 안정화 시나리오. 생성 중 종료·종료 직후 재시작·빠른 시작/종료 반복, 임베딩 멈춤, LLM 500·타임아웃·깨진 JSON과 회로 복구, TTS 실패 복구, 큐 상한 |
+| `security.mjs` | 요청 경계. 허용 밖 Origin·루프백 아닌 Host·깨진 경로 인코딩·JSON 아닌 본문·64KB 초과, 방송 화면 Origin의 1:1 API 접근, 설정 검증 |
+| `companion.mjs` | 1:1 API 계약(생성·목록·전송·기록·삭제와 오류 코드)과 방송과의 격리(상태·요청·요약·기억) |
+| `usage.mjs` | 모드별 사용량 기록, 사용량에 대화 내용·닉네임이 없는지, 재시작 뒤 유지, LLM 설정 검증 |
 | `concurrency.mjs` | 방송 채팅 50건과 1:1 메시지 50건을 섞어 보내도 맥락이 섞이지 않는지, 한쪽 회로가 열려도 다른 쪽이 동작하는지 |
+| `secrets.mjs` | API 키 저장. 환경변수·`.env` 키는 `data/`에 쓰지 않고, 화면에서 넣은 키만 암호화해 저장하는지 |
+| `privacy.mjs` | 1:1 기록 모두 지우기, 개인 기억만 지우기, 시작 시 오래된 백업·로그만 정리하는지 |
+| `durability.mjs` | 깨진 기억·설정 파일, 풀지 못한 암호문 키, 파일 쓰기 실패에도 데이터를 잃지 않고 서버가 사는지 |
+| `safety.mjs` | 위기 신호 안내, 방송 프롬프트 주입 방어, 시청자 개인정보 |
+| `obs-pages.mjs` | 서버가 빌드한 OBS 페이지를 `/obs/` 아래로 내주는지, 서버 자신의 Origin으로 모듈 스크립트를 받는지, 경로 탈출을 막는지(실행 인자 이름은 `obsPages`) |
+| `operations.mjs` | 방송 운영 시나리오. 방송 중 재시작·두 번 종료·생성 중 종료의 기억 저장, 큐 만료(60초)·시청자별 상한·중복·버려진 채팅 집계·거절 코드, lastError 수명, 빈·깨진 음성 거절과 음성 길이에 맞춘 말풍선, 방송 음성 상한, 음성 캐시 크기, 목소리 목록 캐시, 쿼리·끝 슬래시·HEAD 경로 |
 | `soak.mjs` | 장시간 운영 검사. 기본 실행에 넣지 않는다(아래 참고) |
 | `fixtures/` | 시나리오가 쓰는 설정·기억·매크로 고정 자료. `memories.json`은 마이그레이션 경로를 타도록 일부러 예전(v1) 형식이다 |
 
@@ -69,7 +81,7 @@ export async function run({ bori, mock, report }) {
 
 ## 실패 주입
 
-`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고르므로 방송 답변(`[답변할 채팅]`)과 1:1 답변(`[답변할 메시지]`), 누적 요약을 따로 실패시킬 수 있다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다.
+`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고르므로 방송 답변(`[답변할 채팅]`)과 1:1 답변(`[답변할 메시지]`), 누적 요약을 따로 실패시킬 수 있다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다. 음성(`tts`)에는 `empty`(200·0바이트), `garbage`(200·mp3 아님), `long`(`ms` 길이의 mp3)도 있다. `GET /v1/voices`는 ElevenLabs 목소리 목록을 흉내 내고 받은 횟수를 `/__calls`에 `voices`로 남긴다(실행기가 `BORI_ELEVENLABS_BASE_URL`을 가짜 API로 준다).
 
 ## 장시간 검사
 

@@ -16,6 +16,8 @@
  *   GET /__summary?json=        방송 종료 요약 응답({summary, highlights}) 지정. json이 없으면 기본값으로 되돌림
  *   GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=
  *                              지정 횟수만큼만 실패 주입(match가 있으면 본문에 그 문자열이 든 요청만). clear=1이면 모두 지움
+ *                              tts에는 mode=empty(200·0바이트), garbage(200·mp3 아님), long(ms 길이의 mp3)도 있다.
+ *   GET /v1/voices             ElevenLabs 목소리 목록 흉내. 받은 횟수를 calls에 voices로 남긴다
  *
  * 답변 생성 응답에는 고정 토큰 사용량(usage)을 붙인다. 사용량 집계를 확인할 때 쓴다.
  */
@@ -61,15 +63,26 @@ let broadcastSummary = null;
 
 /** 1:1 개인 기억 정리 응답. 두 번째 문장은 민감 정보라 서버가 저장 직전에 걸러야 한다. */
 const MOCK_DIGEST_MEMORIES = ["상대는 정리표시 연주곡을 즐겨 듣는다.", "상대의 집 주소는 정리표시동이다."];
+/** 정리 요청의 상대 발언 가운데 이 말이 든 것은 그대로 옮겨 기억으로 돌려준다. 1:1 메시지가 기억이 되는지 볼 때 쓴다. */
+const DIGEST_ECHO_MARK = "좋아해";
+
+/** 정리 요청 본문의 상대 발언(상대: "…")을 꺼낸다. */
+function companionLines(user) {
+  return user.split("\n").flatMap(line => {
+    if (!line.startsWith("상대: ")) return [];
+    try { return [JSON.parse(line.slice("상대: ".length))]; } catch { return []; }
+  });
+}
 
 /**
  * 답변 생성과 요약·기억 정리 요청은 스키마 모양으로 구분한다.
  * 보리는 같은 어댑터에 스키마만 갈아 끼워 모두 부른다. 1:1 요약은 지시문으로 방송 요약과 구분한다.
  */
-function replyFor(schema, system) {
+function replyFor(schema, system, user = "") {
   const properties = schema?.properties ?? {};
   if ("memories" in properties) {
-    return JSON.stringify({ memories: MOCK_DIGEST_MEMORIES });
+    const echoed = companionLines(user).filter(text => text.includes(DIGEST_ECHO_MARK)).map(text => `상대가 말한 취향: ${text}`);
+    return JSON.stringify({ memories: [...MOCK_DIGEST_MEMORIES, ...echoed].map(text => ({ text, replaces: [] })) });
   }
   if ("highlights" in properties && broadcastSummary) {
     return JSON.stringify(broadcastSummary);
@@ -157,7 +170,14 @@ const server = createServer(async (request, response) => {
 
     calls.push({ kind: "llm", ...record });
     await sleep(timing.llm);
-    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema, record.system) } }], usage: MOCK_USAGE });
+    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema, record.system, record.user) } }], usage: MOCK_USAGE });
+    return;
+  }
+
+  // ElevenLabs 목소리 목록. 서버가 목록을 캐시하는지 횟수로 본다.
+  if (url.pathname.endsWith("/voices")) {
+    calls.push({ kind: "voices", at });
+    sendJson(response, 200, { voices: [{ voice_id: "mockvoice", name: "가짜 목소리" }] });
     return;
   }
 
@@ -166,6 +186,22 @@ const server = createServer(async (request, response) => {
     if (injected?.mode === "500") {
       calls.push({ kind: "tts-failed", at });
       sendJson(response, 500, { error: { message: "테스트용 주입 실패" } });
+      return;
+    }
+    // 업체가 200으로 빈 본문이나 mp3가 아닌 데이터를 주는 경우. 서버가 실패로 봐야 한다.
+    if (injected?.mode === "empty" || injected?.mode === "garbage") {
+      calls.push({ kind: "tts", at });
+      response.writeHead(200, { "Content-Type": "audio/mpeg" });
+      response.end(injected.mode === "empty" ? undefined : Buffer.from("<html>not audio</html>"));
+      return;
+    }
+    // ms 길이의 mp3. 128kbps 44.1kHz 프레임(417바이트, 약 26.1ms)을 이어 붙인다.
+    if (injected?.mode === "long") {
+      calls.push({ kind: "tts", at });
+      const frame = Buffer.alloc(417);
+      frame.set([0xff, 0xfb, 0x90, 0x00]);
+      response.writeHead(200, { "Content-Type": "audio/mpeg" });
+      response.end(Buffer.concat(Array.from({ length: Math.ceil(injected.ms / (1152 / 44.1)) }, () => frame)));
       return;
     }
     if (injected?.mode === "delay") await sleep(injected.ms);

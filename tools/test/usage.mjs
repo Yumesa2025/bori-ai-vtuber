@@ -198,8 +198,14 @@ export async function run({ bori, mock, report, dataDir }) {
   // ── 재시작 뒤에도 남는다 ────────────────────────────────────
   {
     // 백그라운드 호출(누적 요약)이 끝나 숫자가 멈출 때까지 기다린 뒤 비교한다.
-    await sleep(800);
-    const beforeRestart = (await usage())?.today?.totals?.calls;
+    // 고정 800ms 대신 400ms 간격으로 두 번 같은 값이 나올 때까지 본다. 느린 러너에서는 그만큼 더 기다린다.
+    let beforeRestart = (await usage())?.today?.totals?.calls;
+    for (let tries = 0; tries < 25; tries += 1) {
+      await sleep(400);
+      const next = (await usage())?.today?.totals?.calls;
+      if (next === beforeRestart && tries > 0) break;
+      beforeRestart = next;
+    }
     await runningScript("bori-server").restart();
     await waitForHttp(`${bori.baseUrl}/api/health`, { describe: "다시 띄운 보리 서버" });
     const afterRestart = await usage();

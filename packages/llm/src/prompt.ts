@@ -111,13 +111,42 @@ function personaLayer(): string[] {
   return ["[페르소나]", ...boriPersonaLines, "", "[역할 범위]", ...boriScopeLines];
 }
 
+/** 한국 시간(UTC+9). 한국은 서머타임이 없어 고정 차이로 계산한다. */
+const KOREA_OFFSET_MS = 9 * 3_600_000;
+const WEEKDAYS = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"] as const;
+
+/** 한국 시간의 날짜 부분. 서버 시각대와 상관없이 같은 값을 낸다. */
+export function koreanDateParts(now: number): { year: number; month: number; day: number; weekday: string; hour: number } {
+  const shifted = new Date(now + KOREA_OFFSET_MS);
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate(), weekday: WEEKDAYS[shifted.getUTCDay()], hour: shifted.getUTCHours() };
+}
+
+/** 기억에 붙이는 짧은 날짜("10월 15일"). 한국 시간 기준이다. */
+export function koreanDateLabel(now: number): string {
+  const { month, day } = koreanDateParts(now);
+  return `${month}월 ${day}일`;
+}
+
+/**
+ * 프롬프트 상황 섹션에 넣는 오늘 날짜 문장. 서버 시각을 한국 시간으로 바꿔 쓴다.
+ * 점검(a6 A6-12)에서 프롬프트에 날짜가 없어 "오늘 무슨 요일이에요?"에 요일을 지어냈고,
+ * 8일 전에 들은 "다음 주 토요일 여행"을 아직 다가올 일로 말했다(점검 M-7).
+ */
+export function currentDateLine(now: number): string {
+  const { year, month, day, weekday, hour } = koreanDateParts(now);
+  const period = hour === 0 ? "밤" : hour < 6 ? "새벽" : hour < 12 ? "오전" : hour === 12 ? "낮" : hour < 18 ? "오후" : "저녁";
+  const clock = hour % 12 === 0 ? 12 : hour % 12;
+  return `지금은 한국 시간으로 ${year}년 ${month}월 ${day}일 ${weekday} ${period} ${clock}시 무렵이다.`;
+}
+
 function sessionLayer(request: LlmRequest, policy: ConversationPolicy): string[] {
   const lines: string[] = [];
 
-  // 경과 시간이나 답변 수는 모델이 대화만 보고 셀 수 없다.
+  // 경과 시간이나 답변 수, 오늘 날짜는 모델이 대화만 보고 알 수 없다.
   // 모델에게 세라고 시키는 대신 서버가 계산한 값을 그대로 준다.
-  if (request.broadcastStatus.length > 0) {
-    lines.push(`[${policy.sectionTitles.status}]`, ...request.broadcastStatus.map(line => `- ${line}`));
+  const status = [...(request.currentDate ? [request.currentDate] : []), ...request.broadcastStatus];
+  if (status.length > 0) {
+    lines.push(`[${policy.sectionTitles.status}]`, ...status.map(line => `- ${line}`));
   }
 
   // 최근 대화 창 밖으로 밀려난 흐름. 긴 방송에서 초반 이야기를 잊지 않기 위한 문맥이다.
@@ -212,3 +241,41 @@ export const responseJsonSchema = {
   required: ["reply", "emotion", "actions"],
   additionalProperties: false,
 } as const;
+
+/**
+ * 요청별 응답 스키마. 허용 감정·모션과 고정 레이어·우선순위를 enum으로 넣어 업체가 목록 밖 값을 내지 못하게 한다(a3 F8, a6 A6-02).
+ * 검증(validateLlmOutput)은 그대로 거친다. 스키마를 지원하지 않는 업체·모델이 목록 밖 값을 내면 검증이 기본값으로 바꾼다.
+ * 모션 개수(하나)는 스키마로 묶지 않는다. 업체마다 maxItems 지원이 달라 요청 자체가 거절될 수 있어 검증에서 맞춘다.
+ */
+export function responseJsonSchemaFor(request: Pick<LlmRequest, "allowedEmotions" | "allowedMotions">) {
+  const base = responseJsonSchema;
+  // 빈 enum은 스키마 오류다. 목록이 비면 문자열로 두고 검증에 맡긴다.
+  const enumOf = (values: readonly string[]) => (values.length > 0 ? { type: "string", enum: [...values] } : { type: "string" });
+  return {
+    ...base,
+    properties: {
+      ...base.properties,
+      emotion: { ...base.properties.emotion, properties: { ...base.properties.emotion.properties, primary: enumOf(request.allowedEmotions) } },
+      actions: {
+        ...base.properties.actions,
+        items: {
+          ...base.properties.actions.items,
+          properties: {
+            name: enumOf(request.allowedMotions.map(motion => motion.name)),
+            layer: { type: "string", enum: ["body"] },
+            priority: { type: "integer", enum: [2] },
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * 최대 출력 토큰. 답이 상한을 넘게 길어지면 다 생성·과금된 뒤 검증에서 버려지므로 업체 쪽에서 끊는다(a3 F8).
+ * 답변 JSON은 120자 한국어 답(약 150토큰)에 감정·모션 필드를 더해도 300토큰 안팎이라 512면 넉넉하다.
+ * 요약·기억 정리(스키마를 갈아 끼운 요청)는 문장이 여러 개라 두 배를 둔다. 잘리면 JSON이 깨져 그 요약만 실패한다.
+ */
+export const REPLY_MAX_OUTPUT_TOKENS = 512;
+export const TASK_MAX_OUTPUT_TOKENS = 1024;
+export const maxOutputTokensFor = (request: Pick<LlmRequest, "overrideSchema">) => (request.overrideSchema ? TASK_MAX_OUTPUT_TOKENS : REPLY_MAX_OUTPUT_TOKENS);

@@ -1,0 +1,9 @@
+{
+  "code": 200,
+  "message": "Success",
+  "userGames": [
+    { "gameId": 1002, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 1, "bestWeapon": 9 },
+    { "gameId": 1001, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 2, "bestWeapon": 9 },
+    { "gameId": 998, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 7, "bestWeapon": 9 }
+  ]
+}
