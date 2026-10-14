@@ -352,7 +352,7 @@ export type ChzzkChatConnection = {
   stop(): void;
 };
 export function connectChzzkChat(options: {
-  getAccessToken: () => Promise<string>;   // 만료 1시간 전이면 갱신해서 준다
+  getAccessToken: (options?: { forceRefresh?: boolean }) => Promise<string>;   // 만료 1시간 전이면 갱신해서 준다. forceRefresh면 API 401 뒤 강제 갱신
   onChat: (chat: ChzzkChat) => void;
   onStatus?: (status: string) => void;
   baseUrl?: string;                        // 기본 https://openapi.chzzk.naver.com
