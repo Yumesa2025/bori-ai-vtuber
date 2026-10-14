@@ -180,6 +180,21 @@ API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면�
 
 OBS에서 게임 화면 위에 보리만 얹으려면 방송 화면 URL에 `?transparent=1`을 붙여 배경을 비운다(입력창 숨김과 함께: `http://127.0.0.1:4173/?input=0&transparent=1`).
 
+### OBS 페이지 (치지직 방송)
+
+치지직 방송은 화면을 레이어로 나눈 OBS 페이지 6종을 브라우저 소스(1920×1080)로 겹친다. 메인 장면은 보리가 왼쪽 1/3, 오른쪽에 대시보드 패널, 그 아래 채팅 띠, 맨 아래 가운데 자막이다. `npm run build:broadcast` 후에는 API 서버가 그대로 내주므로 Vite 없이 서버 주소로 연다. 개발 중에는 `npm run dev:broadcast`의 주소(`http://127.0.0.1:4173/obs/<이름>.html`)를 쓴다.
+
+| 페이지 | 주소(서버) | 배경 | 소리 |
+|---|---|---|---|
+| 보리 Live2D(왼쪽 1/3) | `http://127.0.0.1:4310/obs/character.html` | 투명 | 있음(TTS). OBS에서 "Control audio via OBS"를 켠다 |
+| 대시보드(오른쪽 패널) | `http://127.0.0.1:4310/obs/dashboard.html` | 투명 | 없음 |
+| 자막(아래 가운데) | `http://127.0.0.1:4310/obs/caption.html` | 투명 | 없음 |
+| 채팅 띠(대시보드 아래) | `http://127.0.0.1:4310/obs/chat.html` | 투명 | 없음 |
+| 대기 화면 | `http://127.0.0.1:4310/obs/waiting.html` | 불투명 | 없음 |
+| 엔딩 화면 | `http://127.0.0.1:4310/obs/ending.html` | 불투명 | 없음 |
+
+모든 페이지는 `?demo=1`을 붙이면 서버 없이 고정 예시 상태로 그린다. 대시보드는 `?demo=1&view=season|top5|character|missing|player|waiting|summary`로 카드를 고른다. 대기 화면의 방송 제목은 `?title=`로 바꾼다. 대시보드·대기·엔딩의 내용은 방송 진행기(`BroadcastState.show`)가 채운다. 진행기는 아직 구현 전(구현 계획 W4)이라 지금은 데모 상태에서만 대시보드가 보이고, 캐릭터·자막·채팅 띠는 기존 방송 상태로 동작한다. 빌드하지 않았으면 서버는 503으로 빌드 명령을 알린다. OBS에서의 투명 합성과 자동 재생은 아직 실제 OBS로 확인하지 않았다.
+
 실제 운영 절차 — 포트, LLM·TTS·기억 설정, OBS 송출, 튜닝 파라미터 — 는 [docs/operations.md](docs/operations.md)에 정리되어 있다.
 
 ## 문서
