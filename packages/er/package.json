@@ -1,0 +1,11 @@
+{
+  "name": "@bori/er",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": { "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": {
+    "@bori/shared": "0.1.0"
+  }
+}

@@ -291,3 +291,63 @@ export type CompanionStats = {
   messages: number;
   privateMemories: number;
 };
+
+// ── 방송 진행(쇼) ─────────────────────────────────
+export type ShowStage = "idle" | "opening" | "briefing" | "qna" | "diagnosis" | "ending";
+export const showStages: readonly ShowStage[] = ["idle", "opening", "briefing", "qna", "diagnosis", "ending"];
+
+/** OBS 장면 이름. OBS에서 이 이름 그대로 장면을 만든다. */
+export type ObsSceneName = "보리-대기" | "보리-메인" | "보리-전적" | "보리-엔딩";
+
+/** 이터널리턴 캐릭터 하나의 집계값. 픽률·평균 순위는 표본 기준이다. */
+export type ErCharacterStat = {
+  code: number;
+  name: string;          // 한국어 이름
+  picks: number;         // 표본 안에서 고른 횟수
+  pickRate: number;      // 0~1
+  avgRank: number;       // 평균 순위(1이 1등)
+  top1Rate: number;      // 0~1
+  mainWeapon: string;    // 가장 많이 쓴 무기 한국어 이름, 모르면 ""
+};
+
+/** 메타 집계의 기준. 화면과 보리 대사에 그대로 밝힌다. */
+export type ErMetaBasis = {
+  seasonName: string;    // 예: "시즌 21"
+  sampleGames: number;   // 집계에 쓴 캐릭터-경기 수
+  collectedAt: string;   // ISO 시각
+  description: string;   // 예: "최근 7일 상위 랭커 7,200판 기준"
+};
+
+export type ErPlayerReport = {
+  maskedNickname: string;   // 예: "보리팬**"
+  seasonName: string;
+  games: number;
+  avgRank: number;
+  top1Rate: number;
+  recentRanks: number[];    // 최근 경기 순위, 최신이 앞, 최대 10개
+  mainCharacters: Array<{ name: string; games: number; avgRank: number }>; // 최대 3개
+};
+
+export type DashboardView =
+  | { kind: "season"; basis: ErMetaBasis | null }
+  | { kind: "top5"; items: ErCharacterStat[]; revealed: number; basis: ErMetaBasis | null }
+  | { kind: "character"; query: string; stat: ErCharacterStat | null; suggestions: string[]; basis: ErMetaBasis | null }
+  | { kind: "player"; status: "waiting" | "loading" | "ready" | "not-found" | "error"; report: ErPlayerReport | null }
+  | { kind: "summary"; characters: string[] };
+
+export type ShowConnections = {
+  chzzk: "off" | "connecting" | "connected" | "error";
+  obs: "off" | "connecting" | "connected" | "error";
+  er: "ready" | "stale" | "missing" | "refreshing";
+};
+
+export type ShowState = {
+  stage: ShowStage;
+  scene: ObsSceneName;
+  dashboard: DashboardView;
+  /** 자막. 보리의 현재 답 문장과 같지만 OBS 자막 페이지가 따로 읽는다. */
+  caption: string;
+  connections: ShowConnections;
+  /** ER 데이터 갱신 진행률 0~1, 갱신 중이 아니면 null. */
+  erRefreshProgress: number | null;
+};

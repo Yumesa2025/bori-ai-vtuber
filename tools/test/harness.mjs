@@ -157,6 +157,8 @@ export function createMockClient(baseUrl) {
     /** 지정 횟수만큼 실패를 주입한다. mode는 500·delay·badjson, match가 있으면 그 문자열이 든 요청만. */
     inject: ({ target, mode, count = 1, ms = 0, match = "" }) => call(`/__inject?target=${target}&mode=${mode}&count=${count}&ms=${ms}&match=${encodeURIComponent(match)}`),
     clearInjections: () => call("/__inject?clear=1"),
+    /** 방송 종료 요약 응답을 정한다. 인자 없이 부르면 기본값으로 되돌린다. */
+    setBroadcastSummary: summary => call(`/__summary${summary ? `?json=${encodeURIComponent(JSON.stringify(summary))}` : ""}`),
     /** 답변 생성 호출만 고른다. 누적 요약 호출이 섞이므로 그냥 마지막을 보면 안 된다. */
     async answerCalls() {
       const all = await call("/__calls");
