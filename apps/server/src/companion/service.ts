@@ -1,6 +1,6 @@
 import { extractPrivateMemoryCandidates, isStorableMemory, type EmbeddingProvider, type MemoryCandidate, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, CompanionMemory, ConversationMessage, SendConversationMessageResult } from "@bori/shared";
-import { isUnsafeContent, type ConversationEngine, type ConversationSession, type RespondResult, type SessionTurn } from "../conversation/index.js";
+import { crisisTurnMask, isCrisisContent, isInCrisisContext, isUnsafeContent, type ConversationEngine, type ConversationSession, type RespondResult, type SessionTurn } from "../conversation/index.js";
 import type { DigestMemories } from "./memory-digest.js";
 import { relationshipStatusLines } from "./relationship.js";
 import type { ConversationStore, NewConversationMessage } from "./store.js";
@@ -128,7 +128,8 @@ export function createCompanionService(deps: CompanionServiceDeps) {
    */
   async function digestAndSave(ownerId: string, turns: readonly SessionTurn[]) {
     const digest = deps.digestMemories;
-    if (!digest) return;
+    // 위기 대화를 빼고 나면 상대의 발언이 없을 수 있다. 그때는 부르지 않는다.
+    if (!digest || !turns.some(turn => turn.role === "viewer")) return;
 
     const isStale = staleCheck(ownerId);
     try {
@@ -164,7 +165,10 @@ export function createCompanionService(deps: CompanionServiceDeps) {
     const userIndexes = turns.flatMap((turn, index) => (turn.role === "viewer" ? [index] : []));
     if (userIndexes.length === 0 || userIndexes.length % every !== 0) return;
 
-    const task = digestAndSave(ownerId, turns.slice(userIndexes[userIndexes.length - every]));
+    // 위기 대화는 정리에 넘기지 않는다(S-3). 앞뒤 맥락을 보도록 전체로 표시한 뒤 이번 몫만 자른다.
+    const start = userIndexes[userIndexes.length - every];
+    const excluded = crisisTurnMask(turns);
+    const task = digestAndSave(ownerId, turns.slice(start).filter((_, index) => !excluded[start + index]));
     background.add(task);
     void task.finally(() => background.delete(task));
   }
@@ -184,7 +188,9 @@ export function createCompanionService(deps: CompanionServiceDeps) {
       if (!userMessage) return { kind: "not_found" };
 
       // 기억 저장은 답변 생성과 나란히 돌린다. 막은 입력은 기억으로도 남기지 않는다.
-      const memorySaved = isUnsafeContent(content) ? Promise.resolve() : savePrivateMemories(ownerId, content);
+      // 위기 신호와 그 뒤에 이어진 말도 개인 기억으로 남기지 않는다(S-3). 엔진이 위기 답을 고르는 기준과 같다.
+      const crisis = isCrisisContent(content) || isInCrisisContext(session.recentTurns);
+      const memorySaved = isUnsafeContent(content) || crisis ? Promise.resolve() : savePrivateMemories(ownerId, content);
       const outcome = await deps.engine.respond(session, { content, speaker: { ownerId }, statusLines });
       const reply = deps.store.append(ownerId, conversationId, draftFor(outcome));
       // 다음 메시지가 이번에 만든 기억을 볼 수 있도록 응답 전에 저장을 마친다.

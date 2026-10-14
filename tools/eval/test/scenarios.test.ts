@@ -80,8 +80,9 @@ describe("문서와 데이터 대조", () => {
   test("실제 문서와 시나리오 데이터가 일치한다", () => {
     const set = loadScenarioSet();
     assert.deepEqual(checkScenarioDoc(set), []);
-    assert.equal(set.scenarios.filter(entry => entry.mode === "broadcast").length, 18);
-    assert.equal(set.scenarios.filter(entry => entry.mode === "companion").length, 20);
+    // 문서와 데이터는 checkScenarioDoc이 하나씩 대조한다. 시나리오는 여러 작업이 나란히 더하므로 개수는 고정하지 않는다.
+    assert.ok(set.scenarios.some(entry => entry.mode === "broadcast"));
+    assert.ok(set.scenarios.some(entry => entry.mode === "companion"));
   });
 });
 
@@ -102,6 +103,11 @@ describe("시나리오 데이터 형식 검사", () => {
     };
     assert.throws(() => parseScenarioSet(broken), (error: Error) =>
       /중복/.test(error.message) && /알 수 없는 모드/.test(error.message) && /알 수 없는 처리 경로/.test(error.message) && /깨진 패턴/.test(error.message));
+  });
+
+  test("위기 표시(crisis)는 true·false만 받는다", () => {
+    assert.equal(parseScenarioSet({ ...valid, scenarios: [scenario({ crisis: true })] }).scenarios[0].crisis, true);
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [scenario({ crisis: "yes" as unknown as boolean })] }), /crisis는 true 또는 false/);
   });
 
   test("입력이 없는데 혼잣말 경로가 아니면 막는다", () => {

@@ -29,6 +29,11 @@ export type LlmRequest = {
    * 모델에게 세라고 시키지 않고 서버가 계산해서 문장으로 넘긴다.
    */
   broadcastStatus: readonly string[];
+  /**
+   * 위기 신호에 답할 때 모드 정책 뒤에 붙이는 지침([위기 대응]). 평소에는 비우거나 넘기지 않는다.
+   * 서버가 위기를 감지했을 때만 넣으므로 매 턴 시스템 프롬프트가 커지지 않는다.
+   */
+  crisisGuidance?: readonly string[];
   /** 허용된 감정 이름. 이 밖의 값은 검증에서 걸러진다. */
   allowedEmotions: readonly string[];
   /**

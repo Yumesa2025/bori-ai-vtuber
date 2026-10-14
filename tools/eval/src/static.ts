@@ -1,6 +1,6 @@
 import { boriPersonaLines, boriScopeLines, conversationModes, conversationPolicies } from "@bori/character";
 import { boriEmotionNames, isBoriMotionGroup } from "@bori/live2d";
-import { buildSystemPrompt, buildUserPrompt } from "@bori/llm";
+import { buildSystemPrompt, buildUserPrompt, quoteUserText } from "@bori/llm";
 import { ungroundedHits } from "./judge.js";
 import { findRelationshipFragments } from "./relationship.js";
 import { buildScenarioRequest, evalAllowedMotions, evalReplyLimit, selectMemories } from "./request.js";
@@ -82,8 +82,8 @@ export function promptChecks(scenario: Scenario, system: string, user: string): 
     .filter(fragment => system.includes(fragment) || user.includes(fragment));
   checks.push(check("policy.isolation", "다른 모드 정책 미포함", leaked.length === 0, `섞임: ${leaked.join(" / ")}`));
 
-  // 답할 입력
-  const inputBlock = `[${policy.sectionTitles.input}]\n${scenario.input}`;
+  // 답할 입력. 사람이 쓴 글은 큰따옴표 문자열로 감싸 들어간다(ADR-022).
+  const inputBlock = `[${policy.sectionTitles.input}]\n${quoteUserText(scenario.input ?? "")}`;
   checks.push(check("input", "입력 섹션", user.includes(inputBlock), `"${inputBlock}"가 user 프롬프트에 없습니다.`));
 
   // 기억 섹션. 기억이 없으면 섹션을 지우지 않고 기억 없음 문장을 넣어야 한다.

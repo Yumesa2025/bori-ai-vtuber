@@ -7,6 +7,7 @@ import { buildScenarioRequest, selectMemories } from "../src/request.js";
 import { loadScenarioSet, type Scenario } from "../src/scenarios.js";
 import { evaluateScenarioStatic, fabricationDataCheck, promptChecks, reactionDataCheck, runStaticEvaluation } from "../src/static.js";
 import { buildSystemPrompt, buildUserPrompt } from "@bori/llm";
+import { boriCrisisLines } from "@bori/character";
 
 const set = loadScenarioSet();
 const byId = (id: string): Scenario => {
@@ -16,11 +17,20 @@ const byId = (id: string): Scenario => {
 };
 
 describe("정적 평가", () => {
-  test("시나리오 38건 전부에 결과가 나온다", () => {
+  // 시나리오는 여러 작업이 나란히 더하므로 개수를 고정하지 않고 데이터 개수와 맞춘다.
+  test("시나리오 전부에 결과가 나온다", () => {
     const section = runStaticEvaluation(set);
-    assert.equal(section.scenarios.length, 38);
+    assert.equal(section.scenarios.length, set.scenarios.length);
     const { pass, fail, out_of_scope: outOfScope } = section.counts;
-    assert.equal(pass + fail + outOfScope, 38);
+    assert.equal(pass + fail + outOfScope, set.scenarios.length);
+  });
+
+  test("위기 시나리오는 서버처럼 위기 지침을 붙이고 기억을 넘기지 않는다(ADR-022)", () => {
+    const crisis = buildScenarioRequest(byId("C-90"));
+    assert.deepEqual(crisis.crisisGuidance, boriCrisisLines);
+    assert.deepEqual(crisis.memories, []);
+    assert.ok(buildSystemPrompt(crisis).includes("[위기 대응]"));
+    assert.equal(buildScenarioRequest(byId("C-02")).crisisGuidance, undefined);
   });
 
   test("서버 차단 시나리오는 범위 밖으로 표시한다", () => {
@@ -88,7 +98,7 @@ describe("실모델 평가", () => {
   test("키가 없으면 호출 없이 전부 건너뛴다", async () => {
     const section = await runModelEvaluation(set, { apiKey: undefined });
     assert.match(section.skippedReason ?? "", /OPENAI_API_KEY/);
-    assert.equal(section.counts.skipped, 38);
+    assert.equal(section.counts.skipped, set.scenarios.length);
   });
 
   test("경로별로 평가 대상을 가른다", () => {
@@ -171,7 +181,7 @@ describe("관계 맥락 정적 평가", () => {
 
   test("방송 시나리오는 고정값이 없으면 상황 섹션이 비고 관계 문장이 없다", () => {
     const broadcast = set.scenarios.filter(entry => entry.mode === "broadcast" && entry.path !== "blocked" && entry.path !== "monologue");
-    assert.equal(broadcast.length, 15);
+    assert.ok(broadcast.length > 0);
     for (const scenario of broadcast) {
       const result = evaluateScenarioStatic(structuredClone(scenario));
       assert.equal(checkOf(result, "status.empty")?.status, "pass", scenario.id);

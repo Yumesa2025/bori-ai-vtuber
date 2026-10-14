@@ -3,6 +3,30 @@ import type { MemoryCandidate } from "./types.js";
 
 /** 저장하면 안 되는 내용. 계획서 12장의 제외 대상이다. */
 const excludePattern = /(정치|의료|법률|투자|주식|개인정보|비밀번호|전화번호|주소|계좌|주민등록)/;
+
+/**
+ * 낱말 목록만으로는 "010-1234-5678", "test@example.com"처럼 값만 적은 문장을 못 막았다(a2 M-08).
+ * 저장 직전에 값의 꼴과 건강·정신건강 표현을 함께 본다(S-3). 위기·정신건강 발화는 기억으로 남기지 않는다(ADR-022).
+ */
+const sensitivePatterns: readonly RegExp[] = [
+  // 휴대전화·일반 전화번호
+  /01[016-9][-\s.]?\d{3,4}[-\s.]?\d{4}/,
+  /0\d{1,2}-\d{3,4}-\d{4}/,
+  // 이메일과 연락처 낱말
+  /[\w.+-]+@[\w-]+(\.[\w-]+)+/,
+  /연락처|이메일|메일\s*주소|카톡\s*아이디/,
+  // 주민등록번호 꼴
+  /\d{6}\s*-\s*[1-4]\d{6}/,
+  // 연도가 붙은 생년월일. "생일은 3월 5일"처럼 연도 없는 생일은 남긴다.
+  /생년월일|(19|20)?\d{2}\s*년생|(19|20)\d{2}\s*[년.\/-]\s*\d{1,2}\s*[월.\/-]\s*\d{1,2}\s*일?\s*(생|에\s*태어|태어)/,
+  // 병·진단·치료
+  /진단|처방|복용|정신과|병원|입원|수술|우울증|공황|조울|양극성|불안\s*장애|ADHD|조현|치매|항우울|약을?\s*먹/,
+  // 위기·정신건강 표현
+  /자살|자해|죽\s*고\s*싶|사라지고\s*싶|살\s*기\s*(가\s*)?싫|극단\s*적\s*(인\s*)?선택|우울/,
+];
+
+/** 저장하면 안 되는 내용인지. 계획서 12장의 제외 낱말과 값의 꼴·건강 표현을 함께 본다. */
+const isSensitiveText = (text: string) => excludePattern.test(text) || sensitivePatterns.some(pattern => pattern.test(text));
 /**
  * 인사·감탄 낱말과 문장부호. 이것들을 다 지웠을 때 남는 것이 없으면 단순 인사·일회성 반응이다.
  * 예전에는 "안녕"으로 시작하기만 해도 버려서 "안녕 보리! 나는 피아노 연주곡을 좋아해"처럼
@@ -27,7 +51,7 @@ export type ConversationTurn = { role: "viewer" | "bori"; text: string; viewerId
 function classifyMemoryText(raw: string): { text: string; importance: number } | null {
   const text = raw.trim();
   if (text.length < 6) return null;
-  if (excludePattern.test(text)) return null;
+  if (isSensitiveText(text)) return null;
   if (isTrivialText(text)) return null;
 
   const isPreference = preferencePattern.test(text);
@@ -87,5 +111,5 @@ export function extractPrivateMemoryCandidates(texts: readonly string[], ownerId
 export function isStorableMemory(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length < 4) return false;
-  return !excludePattern.test(trimmed);
+  return !isSensitiveText(trimmed);
 }

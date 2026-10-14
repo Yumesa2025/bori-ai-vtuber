@@ -13,6 +13,7 @@
  *   GET /__reset               요청 목록과 남은 실패 주입 비우기
  *   GET /__timing?llm=&tts=&embed=   응답 지연 변경(ms)
  *   GET /__fail?on=1           답변 생성 요청을 500으로 실패시키기
+ *   GET /__summary?json=        방송 종료 요약 응답({summary, highlights}) 지정. json이 없으면 기본값으로 되돌림
  *   GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=
  *                              지정 횟수만큼만 실패 주입(match가 있으면 본문에 그 문자열이 든 요청만). clear=1이면 모두 지움
  *
@@ -55,6 +56,9 @@ const MOCK_USAGE = { prompt_tokens: 120, completion_tokens: 30, total_tokens: 15
 
 /** 1:1 누적 요약 응답. 방송 요약과 구분해 지난 대화 요약·재시작 복원을 확인한다. */
 const MOCK_COMPANION_SUMMARY = "가짜 1:1 요약";
+/** 방송 종료 요약 응답. 지정하지 않으면 누적 요약과 같은 기본값(하이라이트 없음)을 쓴다. */
+let broadcastSummary = null;
+
 /** 1:1 개인 기억 정리 응답. 두 번째 문장은 민감 정보라 서버가 저장 직전에 걸러야 한다. */
 const MOCK_DIGEST_MEMORIES = ["상대는 정리표시 연주곡을 즐겨 듣는다.", "상대의 집 주소는 정리표시동이다."];
 
@@ -66,6 +70,9 @@ function replyFor(schema, system) {
   const properties = schema?.properties ?? {};
   if ("memories" in properties) {
     return JSON.stringify({ memories: MOCK_DIGEST_MEMORIES });
+  }
+  if ("highlights" in properties && broadcastSummary) {
+    return JSON.stringify(broadcastSummary);
   }
   if ("summary" in properties && !("reply" in properties)) {
     return JSON.stringify({ summary: system.includes("1:1 대화의 흐름") ? MOCK_COMPANION_SUMMARY : "가짜 누적 요약" });
@@ -85,7 +92,14 @@ const server = createServer(async (request, response) => {
 
   if (url.pathname === "/__calls") { sendJson(response, 200, calls); return; }
   // 남은 실패 주입도 함께 지운다. 소비되지 않은 주입이 다음 시나리오로 넘어가지 않게 한다.
-  if (url.pathname === "/__reset") { calls.length = 0; injections.length = 0; sendJson(response, 200, { ok: true }); return; }
+  if (url.pathname === "/__reset") { calls.length = 0; injections.length = 0; broadcastSummary = null; sendJson(response, 200, { ok: true }); return; }
+
+  if (url.pathname === "/__summary") {
+    const json = url.searchParams.get("json");
+    broadcastSummary = json ? JSON.parse(json) : null;
+    sendJson(response, 200, { broadcastSummary });
+    return;
+  }
 
   if (url.pathname === "/__timing") {
     for (const key of ["llm", "tts", "embed"]) {

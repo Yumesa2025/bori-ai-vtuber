@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractMemoryCandidates, extractPrivateMemoryCandidates } from "../src/extract.js";
+import { extractMemoryCandidates, extractPrivateMemoryCandidates, isStorableMemory } from "../src/extract.js";
 
 const preference = "저는 잔잔한 인디 음악을 좋아해요";
 
@@ -69,4 +69,33 @@ test("메시지 전체가 인사·감탄뿐이면 후보가 되지 않는다", (
 
 test("1:1에서도 저장하면 안 되는 내용은 후보가 되지 않는다", () => {
   assert.deepEqual(extractPrivateMemoryCandidates(["요즘 주식 투자하는 걸 좋아해요"], "companion:local"), []);
+});
+
+test("값만 적은 연락처·이메일·주민번호·생년월일과 건강·위기 표현은 저장하지 않는다(a2 M-08, S-3)", () => {
+  // 점검에서 LLM 정리 결과라고 가정한 문장 10개 중 9개가 통과했다. 이 표가 다시 통과하면 안 된다.
+  const blocked = [
+    "상대의 연락처는 010-1234-5678이다.",
+    "제 번호 01012345678 이에요 고양이 좋아해요",
+    "이메일은 test@example.com",
+    "내 메일은 a@b.com 이고 고양이 좋아해",
+    "상대의 생년월일은 1999년 1월 1일이다.",
+    "저는 1999년 3월 5일생이에요",
+    "저 99년생이에요 게임 좋아해요",
+    "주민번호 990101-1234567",
+    "우울증 약을 먹고 있다",
+    "우울해서 약 먹고 있어 고양이 좋아해",
+    "공황장애 진단을 받았다",
+    "정신과 상담을 다니고 있어요",
+    "상대는 죽고 싶다는 생각이 자꾸 든다고 말했다.",
+    "상대는 요즘 너무 지쳐서 그냥 사라지고 싶다고 말했다.",
+    "자해를 한 적이 있다",
+  ];
+  for (const text of blocked) {
+    assert.equal(isStorableMemory(text), false, text);
+    assert.deepEqual(extractPrivateMemoryCandidates([text], "companion:local"), [], text);
+  }
+  // 연도 없는 생일, 평범한 취향·경험은 그대로 남는다.
+  for (const text of ["생일은 3월 5일이에요 케이크 좋아해요", "저는 잔잔한 인디 음악을 좋아해요", "퇴근하고 피아노 연습하는 걸 좋아해요"]) {
+    assert.equal(isStorableMemory(text), true, text);
+  }
 });
