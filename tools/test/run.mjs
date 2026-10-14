@@ -32,13 +32,14 @@ import * as secrets from "./secrets.mjs";
 import * as privacy from "./privacy.mjs";
 import * as durability from "./durability.mjs";
 import * as safety from "./safety.mjs";
+import * as obsPages from "./obs-pages.mjs";
 
 const mockPort = Number(process.env.MOCK_PORT ?? 4390);
 const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
-const scenarios = [latency, behavior, isolation, security, companion, usage, stability, concurrency, secrets, privacy, durability, safety];
+const scenarios = [latency, behavior, isolation, security, companion, usage, stability, concurrency, secrets, privacy, durability, safety, obsPages];
 const startedAt = Date.now();
 let allResults = [];
 
