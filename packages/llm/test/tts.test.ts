@@ -20,7 +20,7 @@ function mp3Frames(count: number): Buffer {
 }
 
 const respondWith = (body: Buffer | string, headers: Record<string, string> = {}) => {
-  globalThis.fetch = (async () => new Response(body, { status: 200, headers })) as typeof fetch;
+  globalThis.fetch = (async () => new Response(typeof body === "string" ? body : new Uint8Array(body), { status: 200, headers })) as typeof fetch;
 };
 
 describe("mp3 길이", () => {

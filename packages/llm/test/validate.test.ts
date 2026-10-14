@@ -32,8 +32,7 @@ const output = (patch: Record<string, unknown>) => JSON.stringify({
 
 function validOf(raw: string) {
   const result = validateLlmOutput(raw, request);
-  assert.equal(result.ok, true, result.ok ? "" : result.reason);
-  if (!result.ok) throw new Error(result.reason);
+  if (!result.ok) throw new Error(`검증 실패: ${result.reason}`);
   return result;
 }
 
