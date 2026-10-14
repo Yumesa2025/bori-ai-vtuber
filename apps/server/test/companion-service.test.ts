@@ -317,7 +317,7 @@ describe("누적 요약 영속화", () => {
     assert.equal(summaryRequests.length, 1);
     assert.ok(summaryRequests[0].overrideSystemPrompt?.includes("1:1 대화의 흐름"));
     assert.ok(!summaryRequests[0].overrideSystemPrompt?.includes("방송"));
-    assert.ok(summaryRequests[0].overrideUserPrompt?.includes("상대: 첫 메시지"));
+    assert.ok(summaryRequests[0].overrideUserPrompt?.includes('상대: "첫 메시지'));
     assert.equal(store.summaryOf(OWNER, conversation.id), "요약 1");
   });
 
@@ -495,7 +495,7 @@ describe("LLM 개인 기억 정리기", () => {
     for (const phrase of ["직접 말한 사실, 취향, 경험만", "한 문장씩", "추측하거나 지어내지 않는다", "개인정보"]) {
       assert.ok(system.includes(phrase), phrase);
     }
-    assert.ok(fake.requests[0].overrideUserPrompt?.includes("상대: 저는 재즈를 좋아해요"));
+    assert.ok(fake.requests[0].overrideUserPrompt?.includes('상대: "저는 재즈를 좋아해요"'));
   });
 
   test("형식이 틀린 응답은 null이다", async () => {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { conversationModes, type ConversationMode } from "@bori/character";
+import { boriCrisisLines, conversationModes, type ConversationMode } from "@bori/character";
 import { boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
 import { buildSystemPrompt, type LlmRequest } from "@bori/llm";
 import { canAccessMemory, type MemoryAccess, type MemoryRecord } from "@bori/memory";
@@ -68,6 +68,8 @@ export function buildScenarioRequest(scenario: Scenario, options: { timeoutMs?: 
     allowedMotions: evalAllowedMotions,
     maxReplyLength: evalReplyLimit,
     timeoutMs: options.timeoutMs ?? 8000,
+    // 위기 시나리오는 서버와 같이 위기 지침을 붙인다. 기억도 서버처럼 넘기지 않는다.
+    ...(scenario.crisis ? { crisisGuidance: boriCrisisLines, memories: [] } : {}),
   };
 }
 

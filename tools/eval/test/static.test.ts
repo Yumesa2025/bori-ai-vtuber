@@ -7,6 +7,7 @@ import { buildScenarioRequest, selectMemories } from "../src/request.js";
 import { loadScenarioSet, type Scenario } from "../src/scenarios.js";
 import { evaluateScenarioStatic, fabricationDataCheck, promptChecks, reactionDataCheck, runStaticEvaluation } from "../src/static.js";
 import { buildSystemPrompt, buildUserPrompt } from "@bori/llm";
+import { boriCrisisLines } from "@bori/character";
 
 const set = loadScenarioSet();
 const byId = (id: string): Scenario => {
@@ -22,6 +23,14 @@ describe("정적 평가", () => {
     assert.equal(section.scenarios.length, set.scenarios.length);
     const { pass, fail, out_of_scope: outOfScope } = section.counts;
     assert.equal(pass + fail + outOfScope, set.scenarios.length);
+  });
+
+  test("위기 시나리오는 서버처럼 위기 지침을 붙이고 기억을 넘기지 않는다(ADR-022)", () => {
+    const crisis = buildScenarioRequest(byId("C-90"));
+    assert.deepEqual(crisis.crisisGuidance, boriCrisisLines);
+    assert.deepEqual(crisis.memories, []);
+    assert.ok(buildSystemPrompt(crisis).includes("[위기 대응]"));
+    assert.equal(buildScenarioRequest(byId("C-02")).crisisGuidance, undefined);
   });
 
   test("서버 차단 시나리오는 범위 밖으로 표시한다", () => {
