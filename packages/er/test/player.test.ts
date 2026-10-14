@@ -17,7 +17,7 @@ const GAMES = "/v1/user/games/uid/uid-p";
 function playerRoutes(): Record<string, unknown> {
   return {
     ...dictionaryRoutes(),
-    [nicknamePath]: { code: 200, message: "Success", user: { uid: "uid-p", nickname: NICK } },
+    [nicknamePath]: { code: 200, message: "Success", user: { userId: "uid-p", nickname: NICK } },
     [RANKED]: fixture("user-stats-ranked.json"),
     [NORMAL]: fixture("user-stats-normal.json"),
     [GAMES]: fixture("user-games-player.json"),
@@ -60,6 +60,12 @@ test("랭크 통계가 비어 있으면 일반 통계와 일반 경기를 쓴다
   assert.deepEqual(report?.recentRanks, [10, 11]);
   assert.deepEqual(report?.mainCharacters, [{ name: "재키", games: 8, avgRank: 4 }]);
   assert.deepEqual(calls, [nicknamePath, RANKED, NORMAL, GAMES]);
+});
+
+test("닉네임 응답이 공식 문서 예시처럼 uid여도 받는다", async () => {
+  const routes = { ...playerRoutes(), [nicknamePath]: { code: 200, message: "Success", user: { uid: "uid-p", nickname: NICK } } };
+  const { report } = await lookup(routes);
+  assert.equal(report?.games, 40);
 });
 
 test("랭크 통계가 404여도 일반 통계로 넘어간다", async () => {

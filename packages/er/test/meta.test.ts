@@ -21,7 +21,8 @@ function metaRoutes(): Record<string, unknown> {
   return {
     ...dictionaryRoutes(),
     "/v1/rank/top/41/3": fixture("rank-top.json"),
-    [nicknamePath("랭커A")]: { code: 200, message: "Success", user: { uid: "uid-a", nickname: "랭커A" } },
+    [nicknamePath("랭커A")]: { code: 200, message: "Success", user: { userId: "uid-a", nickname: "랭커A" } },
+    // 공식 문서 예시는 uid지만 실제 응답(2026-10-15)은 userId다. 둘 다 받는다
     [nicknamePath("랭커B")]: { code: 200, message: "Success", user: { uid: "uid-b", nickname: "랭커B" } },
     "/v1/user/games/uid/uid-a": fixture("user-games-a.json"),
     "/v1/user/games/uid/uid-b": fixture("user-games-b.json"),

@@ -4,6 +4,8 @@ Character/Name/2┃아야
 Character/Name/3┃피오라
 Character/Name/10┃리 다이린
 Character/Name/46┃얀
+Character/Name/11┃유키
+Character/Name/33┃니키
 WeaponType/None┃없음
 WeaponType/Glove┃글러브
 WeaponType/Pistol┃권총

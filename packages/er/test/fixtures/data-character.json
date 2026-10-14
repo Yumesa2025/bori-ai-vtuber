@@ -7,6 +7,8 @@
     { "code": 3, "name": "Fiora", "maxHp": 900 },
     { "code": 10, "name": "LiDailin", "maxHp": 930 },
     { "code": 46, "name": "Yan", "maxHp": 950 },
+    { "code": 11, "name": "Yuki", "maxHp": 900 },
+    { "code": 33, "name": "Nicky", "maxHp": 900 },
     { "code": 99, "name": "NewOne", "maxHp": 900 }
   ]
 }

@@ -72,6 +72,8 @@ test("못 찾으면 비슷한 이름을 최대 3개 제안한다", async () => {
   assert.equal(result.match, null);
   assert.ok(result.suggestions.includes("재키"));
   assert.ok(result.suggestions.length <= 3);
+  // 거리가 같으면 자모가 더 비슷한 이름이 앞이다(잭키: 재키 > 니키·유키)
+  assert.deepEqual(result.suggestions, ["재키", "니키", "유키"]);
   // 조사가 붙어도 앞부분으로 비교한다
   assert.ok(findCharacter("피오나는 어때?", dict).suggestions.includes("피오라"));
   // 전혀 다른 말에는 제안이 없다

@@ -13,7 +13,8 @@ const RANKED_MODE = 3;
 const RECENT_GAMES = 10;
 const MAIN_CHARACTERS = 3;
 
-type NicknameResponse = { user?: { uid?: string; nickname?: string } };
+/** 공식 문서 예시는 uid지만 실제 응답(2026-10-15 확인)은 userId다. 둘 다 받는다. */
+type NicknameResponse = { user?: { userId?: string; uid?: string; nickname?: string } };
 type UserStats = {
   totalGames?: number;
   totalWins?: number;
@@ -46,8 +47,9 @@ export async function lookupPlayer(client: ErClient, dict: ErDictionary, nicknam
     if (isNotFound(error)) return null;
     throw error;
   }
-  if (!user?.uid) return null;
-  const uid = encodeURIComponent(user.uid);
+  const userId = user?.userId ?? user?.uid;
+  if (!user || !userId) return null;
+  const uid = encodeURIComponent(userId);
 
   const ranked = await fetchStats(client, `/v2/user/stats/uid/${uid}/${dict.seasonId}/${RANKED_MODE}`);
   const normal = ranked ? null : await fetchStats(client, `/v2/user/stats/uid/${uid}/0/${NORMAL_MODE}`);

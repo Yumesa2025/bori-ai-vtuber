@@ -91,6 +91,16 @@ function editDistance(a: string, b: string): number {
   return previous[y.length]!;
 }
 
+/** 한글 음절을 초성·중성·종성으로 나눈다. 거리가 같은 제안을 고를 때 쓴다(잭키는 니키보다 재키에 가깝다). */
+function jamo(text: string): string {
+  return Array.from(text, (char) => {
+    const index = char.codePointAt(0)! - 0xac00;
+    if (index < 0 || index > 11171) return char;
+    const tail = index % 28;
+    return String.fromCharCode(0x1100 + Math.floor(index / 588), 0x1161 + Math.floor((index % 588) / 28)) + (tail ? String.fromCharCode(0x11a7 + tail) : "");
+  }).join("");
+}
+
 /** 제안으로 인정할 최대 편집 거리. 한 글자 이름은 비슷한 말이 너무 많아 제안하지 않는다. */
 const maxSuggestDistance = (length: number) => (length <= 1 ? 0 : length <= 4 ? 1 : 2);
 
@@ -128,20 +138,23 @@ export function findCharacter(text: string, dict: ErDictionary): { match: ErDict
   if (best) return { match: best.character, suggestions: [] };
 
   const candidates = [...words.map(({ word }) => word), bare(text)].filter(Boolean);
-  const scored: Array<{ name: string; distance: number }> = [];
+  const scored: Array<{ name: string; distance: number; jamoDistance: number }> = [];
   for (const character of dict.characters) {
     const name = bare(character.name);
     const length = Array.from(name).length;
     const limit = maxSuggestDistance(length);
     if (limit === 0) continue;
     let distance = Infinity;
+    let jamoDistance = Infinity;
     for (const candidate of candidates) {
       // 조사가 붙은 낱말("피오나는")은 이름 길이만큼 앞부분으로도 비교한다
-      const head = Array.from(candidate).slice(0, length).join("");
-      distance = Math.min(distance, editDistance(candidate, name), editDistance(head, name));
+      for (const word of [candidate, Array.from(candidate).slice(0, length).join("")]) {
+        distance = Math.min(distance, editDistance(word, name));
+        jamoDistance = Math.min(jamoDistance, editDistance(jamo(word), jamo(name)));
+      }
     }
-    if (distance <= limit) scored.push({ name: character.name, distance });
+    if (distance <= limit) scored.push({ name: character.name, distance, jamoDistance });
   }
-  scored.sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name, "ko"));
+  scored.sort((a, b) => a.distance - b.distance || a.jamoDistance - b.jamoDistance || a.name.localeCompare(b.name, "ko"));
   return { match: null, suggestions: scored.slice(0, 3).map(({ name }) => name) };
 }

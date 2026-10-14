@@ -14,7 +14,8 @@ const RANKED_MODE = 3;
 const SQUAD_TEAM_MODE = 3;
 
 type TopRanksResponse = { topRanks?: Array<{ nickname: string; rank: number }> };
-type NicknameResponse = { user?: { uid?: string } };
+/** 공식 문서 예시는 uid지만 실제 응답(2026-10-15 확인)은 userId다. 둘 다 받는다. */
+type NicknameResponse = { user?: { userId?: string; uid?: string } };
 type GamesResponse = { userGames?: Array<{ gameId: number; matchingMode?: number; characterNum?: number; gameRank?: number; bestWeapon?: number }> };
 
 type Tally = { picks: number; rankSum: number; top1: number; weapons: Map<number, number> };
@@ -52,7 +53,8 @@ export async function collectMeta(
   const uids: string[] = [];
   for (const ranker of rankers) {
     const found = await orSkip(client.get<NicknameResponse>(`/v1/user/nickname?query=${encodeURIComponent(ranker.nickname)}`));
-    if (found?.user?.uid) uids.push(found.user.uid);
+    const uid = found?.user?.userId ?? found?.user?.uid;
+    if (uid) uids.push(uid);
     else total -= 1 + gamesPerRanker;
     step();
   }
