@@ -61,15 +61,26 @@ let broadcastSummary = null;
 
 /** 1:1 개인 기억 정리 응답. 두 번째 문장은 민감 정보라 서버가 저장 직전에 걸러야 한다. */
 const MOCK_DIGEST_MEMORIES = ["상대는 정리표시 연주곡을 즐겨 듣는다.", "상대의 집 주소는 정리표시동이다."];
+/** 정리 요청의 상대 발언 가운데 이 말이 든 것은 그대로 옮겨 기억으로 돌려준다. 1:1 메시지가 기억이 되는지 볼 때 쓴다. */
+const DIGEST_ECHO_MARK = "좋아해";
+
+/** 정리 요청 본문의 상대 발언(상대: "…")을 꺼낸다. */
+function companionLines(user) {
+  return user.split("\n").flatMap(line => {
+    if (!line.startsWith("상대: ")) return [];
+    try { return [JSON.parse(line.slice("상대: ".length))]; } catch { return []; }
+  });
+}
 
 /**
  * 답변 생성과 요약·기억 정리 요청은 스키마 모양으로 구분한다.
  * 보리는 같은 어댑터에 스키마만 갈아 끼워 모두 부른다. 1:1 요약은 지시문으로 방송 요약과 구분한다.
  */
-function replyFor(schema, system) {
+function replyFor(schema, system, user = "") {
   const properties = schema?.properties ?? {};
   if ("memories" in properties) {
-    return JSON.stringify({ memories: MOCK_DIGEST_MEMORIES });
+    const echoed = companionLines(user).filter(text => text.includes(DIGEST_ECHO_MARK)).map(text => `상대가 말한 취향: ${text}`);
+    return JSON.stringify({ memories: [...MOCK_DIGEST_MEMORIES, ...echoed].map(text => ({ text, replaces: [] })) });
   }
   if ("highlights" in properties && broadcastSummary) {
     return JSON.stringify(broadcastSummary);
@@ -157,7 +168,7 @@ const server = createServer(async (request, response) => {
 
     calls.push({ kind: "llm", ...record });
     await sleep(timing.llm);
-    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema, record.system) } }], usage: MOCK_USAGE });
+    sendJson(response, 200, { choices: [{ message: { content: replyFor(parsed.response_format?.json_schema?.schema, record.system, record.user) } }], usage: MOCK_USAGE });
     return;
   }
 

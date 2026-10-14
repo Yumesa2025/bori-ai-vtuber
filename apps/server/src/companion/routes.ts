@@ -100,7 +100,10 @@ export function createCompanionRoutes(deps: CompanionRouteDeps): Handler {
           if (body.title !== undefined && typeof body.title !== "string") throw new HttpError(400, "title은 문자열이어야 합니다.");
           // 제목은 목록에 한 줄로 나가므로 줄바꿈도 공백으로 바꾼다.
           const title = Array.from(cleanInputText(body.title ?? "").replace(/\s+/g, " ").trim()).slice(0, TITLE_MAX_LENGTH).join("");
-          sendJson(response, 201, { conversation: store.create(ownerId, title.length > 0 ? title : DEFAULT_TITLE) });
+          const conversation = store.create(ownerId, title.length > 0 ? title : DEFAULT_TITLE);
+          // 새 대화를 열면 앞 대화는 끝난 것으로 보고 남은 메시지를 기억으로 정리한다(점검 M-6). 응답은 기다리지 않는다.
+          service.conversationStarted(ownerId, conversation.id);
+          sendJson(response, 201, { conversation });
           return;
         }
         throw new HttpError(405, "지원하지 않는 메서드입니다.");

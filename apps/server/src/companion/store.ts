@@ -23,6 +23,11 @@ type StoredConversation = {
   /** 엔진 세션의 누적 요약. 재시작 뒤 세션을 되살릴 때와 다음 대화의 지난 대화 요약에 쓴다. */
   summary?: string;
   summaryUpdatedAt?: string;
+  /**
+   * LLM 기억 정리가 처리한 메시지 수(앞에서부터, 보리 답 포함). 그 뒤의 메시지가 아직 정리되지 않았다(점검 M-6).
+   * 없으면 예전 규칙(사용자 메시지 N개마다 정리)으로 이미 정리한 만큼을 계산한다. 형식 버전은 그대로 둔다.
+   */
+  digestedCount?: number;
 };
 
 type StoredMessage = ConversationMessage & { conversationId: string; ownerId: string };
@@ -104,8 +109,9 @@ export function createConversationStore(filePath: string, options: ConversationS
     conversations = parsed.conversations
       .filter(entry => isString(entry?.id) && isString(entry?.ownerId))
       // 문자열이 아닌 요약은 없는 것으로 본다. 프롬프트에 그대로 들어가는 값이다.
-      .map(({ summary, summaryUpdatedAt, ...entry }) => ({
+      .map(({ summary, summaryUpdatedAt, digestedCount, ...entry }) => ({
         ...entry,
+        ...(Number.isInteger(digestedCount) && (digestedCount as number) >= 0 ? { digestedCount } : {}),
         ...(typeof summary === "string" && summary.length > 0 ? { summary } : {}),
         ...(typeof summary === "string" && summary.length > 0 && typeof summaryUpdatedAt === "string" ? { summaryUpdatedAt } : {}),
       }));
@@ -167,7 +173,8 @@ export function createConversationStore(filePath: string, options: ConversationS
 
     create(ownerId: string, title: string): Conversation {
       const at = new Date(now()).toISOString();
-      const conversation: StoredConversation = { id: randomUUID(), ownerId, title, createdAt: at, updatedAt: at };
+      // 새 대화는 정리할 메시지가 없는 상태에서 시작한다. 기록이 없으면 예전 규칙으로 계산하므로 0을 남겨 둔다.
+      const conversation: StoredConversation = { id: randomUUID(), ownerId, title, createdAt: at, updatedAt: at, digestedCount: 0 };
       commit([...conversations, conversation], messages);
       return toConversation(conversation);
     },
@@ -210,6 +217,33 @@ export function createConversationStore(filePath: string, options: ConversationS
         messages,
       );
       return true;
+    },
+
+    /** LLM 기억 정리가 처리한 메시지 수. 기록이 없거나 소유자의 대화가 아니면 null이다. */
+    digestCursor(ownerId: string, id: string): number | null {
+      return find(ownerId, id)?.digestedCount ?? null;
+    },
+
+    /** LLM 기억 정리가 처리한 메시지 수를 남긴다. 요약과 같이 updatedAt을 올리지 않는다. 소유자의 대화가 아니면 false다. */
+    setDigestCursor(ownerId: string, id: string, count: number): boolean {
+      const conversation = find(ownerId, id);
+      if (!conversation) return false;
+      if (conversation.digestedCount === count) return true;
+      commit(conversations.map(entry => (entry === conversation ? { ...entry, digestedCount: count } : entry)), messages);
+      return true;
+    },
+
+    /**
+     * 대화의 지금까지 메시지를 모두 정리한 것으로 표시한다. ownerId가 없으면 모든 소유자다. 한 번에 쓴다.
+     * 기억을 지운 뒤, 지우기 전 메시지가 다음 정리로 다시 기억이 되지 않게 할 때 쓴다(점검 M-9).
+     */
+    markAllDigested(ownerId?: string): void {
+      const next = conversations.map(entry => {
+        if (ownerId !== undefined && entry.ownerId !== ownerId) return entry;
+        const count = messagesOf(entry).length;
+        return entry.digestedCount === count ? entry : { ...entry, digestedCount: count };
+      });
+      if (next.some((entry, index) => entry !== conversations[index])) commit(next, messages);
     },
 
     /** 관계 맥락 계산용 기록. 소유자의 대화만 돌려준다. */

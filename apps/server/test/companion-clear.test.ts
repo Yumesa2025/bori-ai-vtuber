@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { createMemoryStore, type EmbeddingProvider, type MemoryStore } from "@bori/memory";
 import { createCompanionService, createConversationStore, type DigestMemories } from "../src/companion/index.js";
 import { createConversationEngine } from "../src/conversation/index.js";
-import { createFakeEngineHarness, testMemorySettings, type FakeEngineHarness } from "./fakes.js";
+import { createFakeEngineHarness, fakeDigest, testMemorySettings, type FakeEngineHarness } from "./fakes.js";
 
 const OWNER = "companion:local";
 const OTHER = "companion:other";
@@ -129,7 +129,7 @@ describe("1:1 기록 모두 지우기", () => {
 describe("삭제 전에 시작한 작업", () => {
   test("LLM 기억 정리가 끝나기 전에 모두 지우면 정리 결과를 버린다", async () => {
     const pending = deferred<string[] | null>();
-    const { store, service } = boot({ digestMemories: () => pending.promise });
+    const { store, service } = boot({ digestMemories: fakeDigest(() => pending.promise) });
     const conversation = store.create(OWNER, "제목");
     for (const content of numbered(testMemorySettings.privateDigestEveryMessages)) await service.sendMessage(OWNER, conversation.id, content, { tts: false });
 
@@ -141,7 +141,7 @@ describe("삭제 전에 시작한 작업", () => {
 
   test("기억만 지운 경우에도 진행 중이던 정리 결과를 버린다", async () => {
     const pending = deferred<string[] | null>();
-    const { store, service } = boot({ digestMemories: () => pending.promise });
+    const { store, service } = boot({ digestMemories: fakeDigest(() => pending.promise) });
     const conversation = store.create(OWNER, "제목");
     for (const content of numbered(testMemorySettings.privateDigestEveryMessages)) await service.sendMessage(OWNER, conversation.id, content, { tts: false });
 
@@ -154,12 +154,30 @@ describe("삭제 전에 시작한 작업", () => {
   });
 
   test("지운 뒤 다시 시작한 정리는 정상으로 저장한다", async () => {
-    const { store, service } = boot({ digestMemories: async () => ["상대는 고양이를 키운다."] });
+    const { store, service } = boot({ digestMemories: fakeDigest(async () => ["상대는 고양이를 키운다."]) });
     await service.clearAll(OWNER);
     const conversation = store.create(OWNER, "제목");
     for (const content of numbered(testMemorySettings.privateDigestEveryMessages)) await service.sendMessage(OWNER, conversation.id, content, { tts: false });
     await service.settle();
     assert.deepEqual(ownedPrivate().map(record => record.text), ["상대는 고양이를 키운다."]);
+  });
+
+  test("답을 만드는 사이 기억을 지우면 그 메시지는 답 뒤에도 기억으로 저장하지 않는다", async () => {
+    // 기억 저장을 답 뒤로 옮겼다(점검 M-8). 삭제 시점은 메시지를 보낸 때를 기준으로 본다.
+    const { store, service } = boot();
+    const conversation = store.create(OWNER, "제목");
+    let release!: () => void;
+    const gate = new Promise<void>(done => { release = done; });
+    const baseLlmFor = h.deps.llmFor;
+    h.deps.llmFor = mode => ({ isCircuitOpen: () => false, respond: async (settings, apiKey, request) => { await gate; return baseLlmFor(mode).respond(settings, apiKey, request); } });
+
+    const sending = service.sendMessage(OWNER, conversation.id, "저는 퇴근하고 재즈 피아노 듣는 걸 좋아해요", { tts: false });
+    await new Promise(resolve => setImmediate(resolve));
+    await service.clearMemories(OWNER);
+    release();
+    assert.equal((await sending).kind, "ok");
+    await service.settle();
+    assert.deepEqual(ownedPrivate(), []);
   });
 
   test("임베딩을 기다리는 사이 모두 지우면 그 메시지의 개인 기억은 저장하지 않는다", async () => {
@@ -180,6 +198,7 @@ describe("삭제 전에 시작한 작업", () => {
     // 답변이 삭제 전에 저장됐는지는 타이밍에 달렸다. 어느 쪽이든 삭제 뒤에 남는 것은 없어야 한다.
     await sending;
     await clearing;
+    await service.settle();
 
     assert.deepEqual(ownedPrivate(), []);
     assert.deepEqual(store.list(OWNER), []);

@@ -861,10 +861,12 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     return;
   }
   // 장기 기억. 원문은 관리자만 본다. 공개 범위(scope)와 소유자(ownerId)도 함께 보낸다.
+  // 임베딩 배열은 보내지 않는다. 화면이 쓰지 않는데 실임베딩 50건이면 약 1.4MB를 1.5초마다 보냈다(점검 M-13).
   if (request.method === "GET" && request.url === "/api/memory") {
     const records = memoryStore.all()
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      .slice(0, 50);
+      .slice(0, 50)
+      .map(({ embedding, ...record }) => ({ ...record, hasEmbedding: embedding !== undefined }));
     sendJson(response, 200, { settings: memorySettings, count: memoryStore.count(), records });
     return;
   }

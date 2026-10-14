@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConversationStore, relationshipStatusLines, type ConversationActivity } from "../src/companion/index.js";
+import { createConversationStore, PREVIOUS_SUMMARY_COUNT, relationshipStatusLines, type ConversationActivity } from "../src/companion/index.js";
 
 /** 2026년 10월 day일 hour:minute(로컬). */
 const at = (day: number, hour = 12, minute = 0) => new Date(2026, 9, day, hour, minute).getTime();
@@ -73,18 +73,35 @@ describe("관계 맥락 문장", () => {
 });
 
 describe("지난 대화 요약", () => {
-  test("현재 대화를 뺀 가장 최근 대화의 요약을 넣는다", () => {
+  test("현재 대화를 뺀 최근 대화들의 요약을 오래된 것부터, 언제 대화인지 붙여 넣는다", () => {
     const lines = relationshipStatusLines({
       conversations: [record("old", at(5), at(5), "오래된 요약"), record("recent", at(10), at(11), "최근 요약"), record("now", at(12, 9), at(12, 9), "지금 대화 요약")],
       currentId: "now",
       now: NOW,
     });
-    assert.equal(lines.at(-1), "지난 대화 요약: 최근 요약");
+    assert.equal(lines.at(-1), "지난 대화 요약: (7일 전) 오래된 요약 / (1일 전) 최근 요약");
     assert.ok(!lines.some(line => line.includes("지금 대화 요약")), "현재 대화의 요약은 [지금까지의 대화]가 맡는다");
   });
 
-  test("가장 최근 대화에 요약이 없으면 더 오래된 대화 요약으로 대신하지 않는다", () => {
+  test("가장 최근 대화에 요약이 없어도 그 전 대화 요약은 남는다(점검 M-10)", () => {
+    // 직전 대화가 짧아(누적 요약 전) 요약이 없으면 예전에는 지난 대화 요약이 통째로 사라졌다.
     const lines = relationshipStatusLines({ conversations: [record("old", at(5), at(5), "오래된 요약"), record("recent", at(10)), record("now", null)], currentId: "now", now: NOW });
+    assert.equal(lines.at(-1), "지난 대화 요약: (7일 전) 오래된 요약");
+  });
+
+  test(`요약이 있는 대화는 최근 ${PREVIOUS_SUMMARY_COUNT}개까지만 넣는다`, () => {
+    const conversations = [1, 2, 3, 4, 5].map(day => record(`d${day}`, at(day), at(day), `${day}일 요약`));
+    const lines = relationshipStatusLines({ conversations: [...conversations, record("now", null)], currentId: "now", now: NOW });
+    assert.equal(lines.at(-1), "지난 대화 요약: (9일 전) 3일 요약 / (8일 전) 4일 요약 / (7일 전) 5일 요약");
+  });
+
+  test("오늘 앞서 나눈 대화는 (오늘)로 적는다", () => {
+    const lines = relationshipStatusLines({ conversations: [record("a", at(12, 9), at(12, 9), "아침 요약"), record("now", null)], currentId: "now", now: NOW });
+    assert.equal(lines.at(-1), "지난 대화 요약: (오늘) 아침 요약");
+  });
+
+  test("요약이 있는 지난 대화가 없으면 넣지 않는다", () => {
+    const lines = relationshipStatusLines({ conversations: [record("old", at(5)), record("recent", at(10)), record("now", null)], currentId: "now", now: NOW });
     assert.ok(!lines.some(line => line.startsWith("지난 대화 요약")), lines.join(" / "));
   });
 
@@ -95,15 +112,15 @@ describe("지난 대화 요약", () => {
   test("요약이 상한을 넘으면 자르고 말줄임표를 붙인다. 글자 수는 한글 기준으로 센다", () => {
     const long = "가".repeat(30);
     const lines = relationshipStatusLines({ conversations: [record("a", at(10), at(10), long), record("now", null)], currentId: "now", now: NOW, summaryMaxLength: 10 });
-    assert.equal(lines.at(-1), `지난 대화 요약: ${"가".repeat(9)}…`);
+    assert.equal(lines.at(-1), `지난 대화 요약: (2일 전) ${"가".repeat(9)}…`);
 
     const exact = relationshipStatusLines({ conversations: [record("a", at(10), at(10), "가".repeat(10)), record("now", null)], currentId: "now", now: NOW, summaryMaxLength: 10 });
-    assert.equal(exact.at(-1), `지난 대화 요약: ${"가".repeat(10)}`);
+    assert.equal(exact.at(-1), `지난 대화 요약: (2일 전) ${"가".repeat(10)}`);
   });
 
-  test("기본 상한은 200자다", () => {
+  test("기본 상한은 요약 하나에 200자다", () => {
     const lines = relationshipStatusLines({ conversations: [record("a", at(10), at(10), "나".repeat(300)), record("now", null)], currentId: "now", now: NOW });
-    assert.equal(Array.from(lines.at(-1)!.replace("지난 대화 요약: ", "")).length, 200);
+    assert.equal(Array.from(lines.at(-1)!.replace("지난 대화 요약: (2일 전) ", "")).length, 200);
   });
 });
 

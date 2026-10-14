@@ -1,6 +1,6 @@
 import { boriCrisisHelpLine, boriCrisisLines, boriCrisisReplies, conversationPolicies, type ConversationMode, type ConversationPolicy } from "@bori/character";
 import { boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
-import { buildSystemPrompt, createAdapter, summarizeSessionProgress, type createLlmClient, type LlmRequest } from "@bori/llm";
+import { buildSystemPrompt, createAdapter, currentDateLine, summarizeSessionProgress, type createLlmClient, type LlmRequest } from "@bori/llm";
 import { isAnonymousViewer, type EmbeddingProvider, type MemoryAccess, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, LlmSettings, MacroPrompt } from "@bori/shared";
 import { activateMacros, clearMacros, tickMacros } from "./macros.js";
@@ -105,6 +105,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
     return {
       mode,
       ...context,
+      currentDate: currentDateLine(Date.now()),
       allowedEmotions: boriEmotionNames,
       allowedMotions,
       maxReplyLength: settings.maxReplyLength,
