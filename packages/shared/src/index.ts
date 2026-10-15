@@ -356,6 +356,8 @@ export type ShowState = {
   erRefreshProgress: number | null;
   /** "방송 켜기"를 눌러 대기 화면 영상과 배경음악이 처음부터 재생 중인지. 처음으로 돌아가면 false. */
   onAir?: boolean;
+  /** 시연 채팅 대본 자동 재생. lines는 대본 줄 수(켤 때 읽은 것). */
+  demoChats?: { enabled: boolean; lines: number };
   /** 코너 자동 진행. 지금 코너에 주어진 시간(초, 제한 없으면 0)과 지난 시간(초). */
   auto?: { enabled: boolean; stageSeconds: number; elapsedSeconds: number };
 };

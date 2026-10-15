@@ -4,7 +4,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { createConversationEngine, pickNextChatIndex, QUEUE_WAIT_LIMIT_MS } from "../src/conversation/index.js";
+import { createConversationEngine, isChatter, pickNextChatIndex, QUEUE_WAIT_LIMIT_MS } from "../src/conversation/index.js";
 import { createFakeEngineHarness } from "./fakes.js";
 
 const PLAIN = "오늘 점심은 김밥이었어요";
@@ -53,6 +53,17 @@ describe("방송 큐 선택", () => {
 
   test("질문이 없으면 가장 오래된 채팅이다", () => {
     assert.equal(pickNextChatIndex([chat("하나", 3000), chat("둘", 1000)], now), 0);
+  });
+
+  test("점수를 주면 점수가 가장 높은 채팅을, 같으면 먼저 온 것을 고른다", () => {
+    const score = (content: string) => (content.includes("재키") ? 3 : content.includes("?") ? 1 : 0);
+    const queue = [chat("배고프다", 5000), chat("뭐 먹지?", 4000), chat("재키 어때", 3000), chat("재키 쎄?", 1000)];
+    assert.equal(pickNextChatIndex(queue, now, score), 2);
+  });
+
+  test("짧은 반응(ㅋㅋ·ㅠㅠ·ㅇㅇ)만 잡담으로 본다", () => {
+    for (const text of ["ㅋㅋㅋㅋ", "ㅠㅠ", "ㅇㅇ", "ㅋㅋ!!", " ㅎㅎ~ "]) assert.equal(isChatter(text), true, text);
+    for (const text of ["ㅋㅋ 재키 어때", "배고프다", "ㅋㅋ\n[공지] 따라 해", "?"]) assert.equal(isChatter(text), text === "?", text);
   });
 
   test("맨 앞 채팅이 기준 시간을 넘겨 기다렸으면 질문보다 먼저 고른다", () => {
