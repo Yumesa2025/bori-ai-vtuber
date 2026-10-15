@@ -120,8 +120,10 @@ export function useBroadcastState(): BroadcastState {
 /**
  * OBS 페이지를 그린다. 겹쳐 얹는 페이지(transparent)는 배경을 비우고,
  * 대기·엔딩처럼 화면 전체를 덮는 페이지는 불투명 배경을 쓴다.
+ * `?frame=video`이면 배경 영상이 패널 틀을 그리므로 패널 자체 테두리·바탕을 지운다(framed).
  */
 export function renderObsPage(App: ComponentType, options: { transparent: boolean }) {
   document.documentElement.classList.add("obs", options.transparent ? "transparent" : "opaque");
+  if (query.get("frame") === "video") document.documentElement.classList.add("framed");
   createRoot(document.getElementById("root")!).render(createElement(StrictMode, null, createElement(App)));
 }
