@@ -1,5 +1,5 @@
 /**
- * 치지직 방송 진행기(W1~W4)용 OBS 장면 4개와 브라우저 소스 7개(배경 영상이 있으면 미디어 소스 2개 더)를 만든다. 이미 있으면 소스 설정만 맞춘다.
+ * 치지직 방송 진행기(W1~W4)용 OBS 장면 4개와 브라우저 소스 7개(배경 영상이 있으면 미디어 소스 2개 더)를 만들고 장면 전환을 정한다. 이미 있으면 소스 설정만 맞춘다.
  * 서버가 장면 이름(보리-대기·보리-메인·보리-전적·보리-엔딩)으로 자동 전환하므로 이름을 바꾸지 않는다.
  * 다른 장면·소스는 건드리지 않고 지우지도 않는다. 이미 있는 장면 항목의 순서·위치도 그대로 두고, 새로 넣는 항목만 정해진 층에 끼운다.
  *
@@ -8,9 +8,15 @@
  * 배경 영상이 private-assets/obs/에 있으면(저장소에 올리지 않는 사용자 자산) 반복 재생 미디어 소스로 넣고, 그 자리의 페이지 항목은 숨긴다(지우지 않음).
  *   waiting-loop.mp4 → 보리-대기 화면 전체, main-loop.mp4 → 보리-메인·전적 맨 아래층. 영상을 빼고 다시 돌리면 페이지 배경으로 돌아간다.
  *
+ * 장면 전환 영상(private-assets/obs/transition.webm·mov·mp4)이 있으면 스팅어 전환 "보리 전환"에 넣고 현재 전환으로 정한다.
+ * obs-websocket에는 전환을 새로 만드는 요청이 없어, OBS 장면 전환 칸의 + → 스팅어로 "보리 전환"을 한 번 만들어 두어야 한다.
+ * 전환 시점(영상이 화면을 다 덮는 때)은 BORI_OBS_TRANSITION_POINT_MS(밀리초), 없으면 ffprobe로 잰 영상 길이의 절반이다.
+ * 영상이나 "보리 전환"이 없으면 페이드 0.3초를 쓴다.
+ *
  * 비밀번호는 루트 .env의 OBS_WEBSOCKET_PASSWORD(셸 환경변수가 있으면 그것)에서 읽고 출력하지 않는다.
  * 소스 주소는 보리 서버(BORI_SERVER_PORT, 기본 4310)를 가리킨다. 서버가 꺼져 있어도 장면은 만들어진다.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -42,6 +48,19 @@ const VIDEOS = {
 const hasVideo = key => existsSync(VIDEOS[key].file);
 const pick = key => (hasVideo(key) ? key : VIDEOS[key].replaces);
 const nameOf = key => (VIDEOS[key] ?? SOURCES[key]).name;
+// 장면 전환 영상. 알파 채널이 있는 webm·mov를 먼저 찾는다.
+const TRANSITION_NAME = "보리 전환";
+const transitionFile = ["webm", "mov", "mp4"].map(ext => resolve(`private-assets/obs/transition.${ext}`)).find(file => existsSync(file));
+
+/** 스팅어가 아래 장면을 바꾸는 시점(밀리초). 정할 수 없으면 null(OBS에 저장된 값을 그대로 둔다). */
+function transitionPointMs(file) {
+  const fromEnv = Number.parseInt(process.env.BORI_OBS_TRANSITION_POINT_MS ?? "", 10);
+  if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv;
+  const probe = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file], { encoding: "utf8" });
+  const seconds = Number.parseFloat(probe.stdout ?? "");
+  return probe.status === 0 && Number.isFinite(seconds) ? Math.round((seconds * 1000) / 2) : null;
+}
+
 // 메인 배경 영상의 금테 틀에 얹히는 패널 페이지. 패널 자체 테두리·바탕을 지우게 주소에 ?frame=video를 붙인다.
 const FRAMED_PAGES = new Set(["dashboard", "chat"]);
 
@@ -141,10 +160,19 @@ for (const key of Object.keys(VIDEOS).filter(hasVideo)) {
   await obs.call("SetInputMute", { inputName: VIDEOS[key].name, inputMuted: true });
 }
 
-// 기본 전환은 페이드 0.3초(설계 9절). 페이드 전환이 없으면 그대로 둔다.
+// 전환 영상과 스팅어 "보리 전환"이 있으면 그것을, 아니면 페이드 0.3초(설계 9절)를 쓴다. 페이드 전환도 없으면 그대로 둔다.
 const { transitions } = await obs.call("GetSceneTransitionList");
+const stinger = transitions.find(transition => transition.transitionName === TRANSITION_NAME && transition.transitionKind === "obs_stinger_transition");
 const fade = transitions.find(transition => transition.transitionKind === "fade_transition");
-if (fade) {
+if (transitionFile && stinger) {
+  await obs.call("SetCurrentSceneTransition", { transitionName: TRANSITION_NAME });
+  const point = transitionPointMs(transitionFile);
+  // tp_type 0은 시간(밀리초) 기준이다.
+  const timing = point === null ? {} : { tp_type: 0, transition_point: point };
+  await obs.call("SetCurrentSceneTransitionSettings", { transitionSettings: { path: transitionFile, hw_decode: true, ...timing }, overlay: true });
+  console.log(`전환: ${TRANSITION_NAME} (${transitionFile}, 전환 시점 ${point === null ? "OBS에 저장된 값" : `${point}ms`})`);
+} else if (fade) {
+  if (transitionFile) console.log(`주의: 전환 영상이 있지만 OBS에 스팅어 전환 "${TRANSITION_NAME}"이 없다. 장면 전환 칸의 + → 스팅어로 그 이름으로 만들고 다시 실행한다.`);
   await obs.call("SetCurrentSceneTransition", { transitionName: fade.transitionName });
   await obs.call("SetCurrentSceneTransitionDuration", { transitionDuration: 300 });
   console.log(`전환: ${fade.transitionName} 0.3초`);
