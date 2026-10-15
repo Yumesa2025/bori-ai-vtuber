@@ -2,7 +2,7 @@
  * OBS 페이지가 그리는 값의 계산. 화면 컴포넌트는 이 결과를 그리기만 한다.
  * DOM에 묶이지 않아 브라우저 없이 검사한다(test/obs-view.test.ts).
  */
-import type { BroadcastState, DashboardView, ErCharacterStat, VisibleChat } from "@bori/shared";
+import type { BroadcastState, DashboardView, ErCharacterStat, ShowStage, VisibleChat } from "@bori/shared";
 
 /** 0~1 비율을 소수 한 자리 퍼센트로. 예: 0.0812 → "8.1%" */
 export const formatPercent = (ratio: number) => `${(ratio * 100).toFixed(1)}%`;
@@ -23,6 +23,13 @@ export type ChatStripLine = { id: string; text: string; command: boolean };
 
 export function chatStripLines(chats: VisibleChat[]): ChatStripLine[] {
   return chats.slice(-CHAT_STRIP_LINES).map(chat => ({ id: chat.id, text: chat.content, command: chat.content.trimStart().startsWith("!") }));
+}
+
+/** 채팅이 아직 없을 때 띠에 띄우는 참여 안내. 빈 띠가 사라지면 시청자가 채팅 자리를 알 수 없다. */
+export function chatEmptyHint(stage: ShowStage | undefined): string {
+  if (stage === "diagnosis") return "채팅에 !전적 닉네임을 적어 주세요";
+  if (stage === "qna") return "궁금한 캐릭터를 채팅으로 물어봐 주세요";
+  return "채팅으로 함께해 주세요";
 }
 
 /** 자막. 진행기의 자막이 있으면 그것, 없으면 보리의 현재 답이다. */

@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { BroadcastState } from "@bori/shared";
-import { captionText, chatStripLines, formatPercent, formatRank, playerStatusText, visibleTop5 } from "../src/obs/view";
+import { captionText, chatEmptyHint, chatStripLines, formatPercent, formatRank, playerStatusText, visibleTop5 } from "../src/obs/view";
 
 test("픽률은 소수 한 자리 퍼센트", () => assert.equal(formatPercent(0.0812), "8.1%"));
 test("평균 순위", () => assert.equal(formatRank(3.42), "3.4위"));
@@ -21,6 +21,11 @@ test("채팅 띠는 최근 4줄, 명령은 강조 표시", () => {
   assert.deepEqual(lines.map(l => l.text), ["b", "!전적 보리팬", "c", "d"]);
   assert.equal(lines.find(l => l.text.startsWith("!전적"))?.command, true);
   assert.equal(lines.find(l => l.text === "b")?.command, false);
+});
+test("채팅이 없을 때 띠에 단계별 참여 안내를 보여 준다", () => {
+  assert.equal(chatEmptyHint("diagnosis"), "채팅에 !전적 닉네임을 적어 주세요");
+  assert.equal(chatEmptyHint("qna"), "궁금한 캐릭터를 채팅으로 물어봐 주세요");
+  for (const stage of ["idle", "opening", "briefing", "ending", undefined] as const) assert.equal(chatEmptyHint(stage), "채팅으로 함께해 주세요");
 });
 
 const base: BroadcastState = { status: "live", layout: "chat", currentEmotion: "calm", queueSize: 0, visibleChatCount: 0, lastError: null, visibleChats: [], unprocessedCount: 0 };
