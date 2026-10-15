@@ -28,6 +28,7 @@ function setup(options: Setup = {}) {
   const spoken: Array<{ directive: string; gameData: readonly string[] }> = [];
   const said: string[] = [];
   const lookups: string[] = [];
+  const chats: string[] = [];
   const command = createPlayerCommand({
     stage: () => stage,
     epoch: () => epoch,
@@ -42,10 +43,11 @@ function setup(options: Setup = {}) {
       await options.speak?.();
     },
     say: async line => { said.push(line); },
+    showChat: text => { chats.push(text); },
     now: () => clock,
   });
   return {
-    command, dashboards, spoken, said, lookups,
+    command, dashboards, spoken, said, lookups, chats,
     moveStage(next: ShowStage) { stage = next; epoch += 1; },
     advance(ms: number) { clock += ms; },
   };
@@ -76,6 +78,20 @@ describe("!전적", () => {
     assert.match(lines, /1등 비율: 15\.0%/);
     assert.match(lines, /최근 순위\(최신부터\): 1, 4, 2/);
     assert.match(lines, /재키 40판/);
+  });
+
+  test("채팅 띠에는 가린 닉네임으로 명령이 뜨고, 보리가 검색해 볼까요 한 뒤에 결과를 보여 준다", async () => {
+    let release!: (value: ErPlayerReport) => void;
+    const { command, chats, said, dashboards } = setup({ lookup: () => new Promise(resolve => { release = resolve; }) });
+    command.handle("!전적 보리팬클럽");
+    await flush();
+    assert.deepEqual(chats, ["!전적 보리팬**"]);
+    assert.match(said[0] ?? "", /검색해 볼까요/);
+    assert.deepEqual(dashboards.map(view => view.kind === "player" ? view.status : view.kind), ["loading"]);
+    release(report);
+    await command.idle();
+    const last = dashboards.at(-1);
+    assert.equal(last?.kind === "player" ? last.status : null, "ready");
   });
 
   test("대사 줄에는 원래 닉네임도 가린 닉네임도 없다", async () => {
@@ -129,7 +145,9 @@ describe("!전적", () => {
     command.handle("!전적 둘째");
     await flush();
     assert.deepEqual(lookups, ["첫째"]);
-    assert.deepEqual(said, ["잠깐만요, 지금 보고 있어요!"]);
+    assert.equal(said.length, 2);
+    assert.match(said[0], /검색해 볼까요/);
+    assert.equal(said[1], "잠깐만요, 지금 보고 있어요!");
     release(report);
     await command.idle();
     // 끝나면 다음 조회를 받는다.
@@ -143,7 +161,7 @@ describe("!전적", () => {
     command.handle("!전적 없는사람");
     await command.idle();
     assert.deepEqual(dashboards.at(-1), { kind: "player", status: "not-found", report: null });
-    assert.match(said[0] ?? "", /찾지 못했어요/);
+    assert.match(said[1] ?? "", /찾지 못했어요/);
     assert.equal(spoken.length, 0);
   });
 
@@ -152,7 +170,7 @@ describe("!전적", () => {
     command.handle("!전적 보리팬클럽");
     await command.idle();
     assert.deepEqual(dashboards.at(-1), { kind: "player", status: "error", report: null });
-    assert.match(said[0] ?? "", /불러오지 못했어요/);
+    assert.match(said[1] ?? "", /불러오지 못했어요/);
   });
 
   test("ER 데이터를 쓸 수 없으면 조회하지 않고 error로 둔다", async () => {
@@ -180,6 +198,6 @@ describe("!전적", () => {
     const { command, said } = setup({ speak: () => Promise.reject(new Error("LLM 실패")) });
     command.handle("!전적 보리팬클럽");
     await command.idle();
-    assert.match(said[0] ?? "", /화면/);
+    assert.match(said[1] ?? "", /화면/);
   });
 });

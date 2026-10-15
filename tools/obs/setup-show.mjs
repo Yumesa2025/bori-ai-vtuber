@@ -1,12 +1,12 @@
 /**
- * 치지직 방송 진행기(W1~W4)용 OBS 장면 4개와 브라우저 소스 7개(배경 영상이 있으면 미디어 소스 2개 더)를 만들고 장면 전환을 정한다. 이미 있으면 소스 설정만 맞춘다.
+ * 치지직 방송 진행기(W1~W4)용 OBS 장면 4개와 브라우저 소스 7개(배경 영상이 있으면 미디어 소스 3개 더)를 만들고 장면 전환을 정한다. 이미 있으면 소스 설정만 맞춘다.
  * 서버가 장면 이름(보리-대기·보리-메인·보리-전적·보리-엔딩)으로 자동 전환하므로 이름을 바꾸지 않는다.
  * 다른 장면·소스는 건드리지 않고 지우지도 않는다. 이미 있는 장면 항목의 순서·위치도 그대로 두고, 새로 넣는 항목만 정해진 층에 끼운다.
  *
  *   npm run obs:setup
  *
  * 배경 영상이 private-assets/obs/에 있으면(저장소에 올리지 않는 사용자 자산) 반복 재생 미디어 소스로 넣고, 그 자리의 페이지 항목은 숨긴다(지우지 않음).
- *   waiting-loop.mp4 → 보리-대기 화면 전체, main-loop.mp4 → 보리-메인·전적 맨 아래층. 영상을 빼고 다시 돌리면 페이지 배경으로 돌아간다.
+ *   waiting-loop.mp4 → 보리-대기 화면 전체, main-loop.mp4 → 보리-메인·전적 맨 아래층, ending-loop.mp4 → 보리-엔딩 화면 전체. 영상을 빼고 다시 돌리면 페이지 배경으로 돌아간다.
  *
  * 장면 전환 영상(private-assets/obs/transition.webm·mov·mp4)이 있으면 스팅어 전환 "보리 전환"에 넣고 현재 전환으로 정한다.
  * obs-websocket에는 전환을 새로 만드는 요청이 없어, OBS 장면 전환 칸의 + → 스팅어로 "보리 전환"을 한 번 만들어 두어야 한다.
@@ -44,6 +44,7 @@ const SOURCES = {
 const VIDEOS = {
   waitingVideo: { name: "보리 대기 영상", file: resolve("private-assets/obs/waiting-loop.mp4"), replaces: "waiting" },
   mainVideo: { name: "보리 배경 영상", file: resolve("private-assets/obs/main-loop.mp4"), replaces: "background" },
+  endingVideo: { name: "보리 엔딩 영상", file: resolve("private-assets/obs/ending-loop.mp4"), replaces: "ending" },
 };
 const hasVideo = key => existsSync(VIDEOS[key].file);
 const pick = key => (hasVideo(key) ? key : VIDEOS[key].replaces);
@@ -70,7 +71,7 @@ const SCENES = {
   "보리-대기": [pick("waitingVideo")],
   "보리-메인": [pick("mainVideo"), "dashboard", "character", "chat", "caption"],
   "보리-전적": [pick("mainVideo"), "dashboard", "character", "chat", "caption"],
-  "보리-엔딩": ["ending"],
+  "보리-엔딩": [pick("endingVideo")],
 };
 
 const pageSettings = page => ({

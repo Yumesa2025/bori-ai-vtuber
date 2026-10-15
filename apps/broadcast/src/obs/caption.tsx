@@ -1,14 +1,51 @@
 /**
- * OBS caption 페이지. 화면 아래 가운데 흰 말풍선에 보리 자막을 두 줄까지 보여 준다.
+ * OBS caption 페이지. 화면 오른쪽 아래 흰 말풍선에 보리 자막을 두 줄씩 보여 준다.
  * 진행기의 자막이 있으면 그것, 없으면 보리의 현재 답이다.
+ * 두 줄을 넘는 답은 두 줄 묶음으로 나눠 말하는 시간(currentSpeechMs)에 맞춰 차례로 넘긴다.
  */
-import { captionText } from "./view";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { captionPageDurations, captionText, paginateCaption } from "./view";
 import { renderObsPage, useBroadcastState } from "./state";
 
+/** 음성 길이를 모를 때 쓰는 말하는 시간(서버 말풍선 표시 시간과 같다). */
+const FALLBACK_SPEECH_MS = 5000;
+
 function CaptionPage() {
-  const text = captionText(useBroadcastState());
+  const state = useBroadcastState();
+  const text = captionText(state);
+  const speechMs = state.currentSpeechMs ?? FALLBACK_SPEECH_MS;
+  const box = useRef<HTMLParagraphElement>(null);
+  const [pages, setPages] = useState<string[]>([]);
+  const [index, setIndex] = useState(0);
+
+  // 말풍선의 실제 글꼴과 안쪽 폭으로 잰다. 배치(obs.css)가 바뀌어도 따라간다.
+  useLayoutEffect(() => {
+    setIndex(0);
+    if (!text) { setPages([]); return; }
+    const element = box.current;
+    const context = document.createElement("canvas").getContext("2d");
+    if (!element || !context) { setPages([text]); return; }
+    const style = getComputedStyle(element);
+    context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const width = element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    setPages(paginateCaption(text, value => context.measureText(value).width, width));
+  }, [text]);
+
+  useEffect(() => {
+    if (pages.length <= 1) return;
+    const durations = captionPageDurations(pages, speechMs);
+    const timers: number[] = [];
+    let at = 0;
+    for (let page = 1; page < pages.length; page += 1) {
+      at += durations[page - 1];
+      timers.push(window.setTimeout(() => setIndex(page), at));
+    }
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [pages, speechMs]);
+
   if (!text) return null;
-  return <p className="obs-caption" key={text}>{text}</p>;
+  // 처음 재기 전에는 전체 글로 그려 폭을 얻는다.
+  return <p className="obs-caption" key={`${text}#${index}`} ref={box}>{pages[index] ?? text}</p>;
 }
 
 renderObsPage(CaptionPage, { transparent: true });

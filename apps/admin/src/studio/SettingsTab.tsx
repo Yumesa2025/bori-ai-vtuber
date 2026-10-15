@@ -291,9 +291,12 @@ export default function SettingsTab() {
         ? <div className="settings-grid"><label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.25', max: '4', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label></div>
         : tts.settings.provider === 'fish'
         ? <>
-          <div className="settings-grid"><label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.5', max: '2', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label></div>
+          <div className="settings-grid">
+            <label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.5', max: '2', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label>
+            <label>안정성{numberInput(ttsDrafts, ttsFields.stability, tts.settings.stability, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.stability) })}</label>
+          </div>
           <div className="chat-input-row"><input value={fishVoiceInput} onChange={event => setFishVoiceInput(event.target.value)} aria-label="Fish Audio 목소리 ID" placeholder="목소리 ID 32자리 (fish.audio/m/ 뒤의 값)" /><button onClick={() => { void saveTts({ voice: fishVoiceInput.trim() }); setFishVoiceInput(''); }} disabled={!fishVoiceInput.trim()}>목소리 적용</button></div>
-          <p className="hint">{tts.hasFishKey ? 'Fish Audio 키를 .env에서 읽었습니다.' : '.env에 FISH_API_KEY를 넣고 스튜디오를 다시 켜 주세요.'} 목록에는 내 계정에서 만든 목소리만 나옵니다. 공개 목소리는 fish.audio 목소리 페이지 주소(fish.audio/m/…)의 ID를 위 칸에 넣습니다. 속도는 0.5~2.0입니다.</p>
+          <p className="hint">{tts.hasFishKey ? 'Fish Audio 키를 .env에서 읽었습니다.' : '.env에 FISH_API_KEY를 넣고 스튜디오를 다시 켜 주세요.'} 목록에는 내 계정에서 만든 목소리만 나옵니다. 공개 목소리는 fish.audio 목소리 페이지 주소(fish.audio/m/…)의 ID를 위 칸에 넣습니다. 속도는 0.5~2.0입니다. 목소리가 합성마다 달라지면 안정성을 0.7~0.8로 올려 보세요(높을수록 일정하고, 낮을수록 표현이 커집니다).</p>
         </>
         : <>
           <div className="settings-grid">

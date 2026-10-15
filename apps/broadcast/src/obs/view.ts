@@ -49,3 +49,48 @@ export function playerStatusText(status: PlayerStatus): string | null {
     case "ready": return null;
   }
 }
+
+/**
+ * 자막을 maxLines줄씩 끊어 차례로 보여 줄 묶음으로 나눈다. 전에는 두 줄을 넘으면 "…"로 잘려 뒷말이 보이지 않았다.
+ * 문장 단위로 묶고, 한 문장이 maxLines줄을 넘으면 어절 단위로 나눈다. 띄어쓰기 없는 긴 낱말은 폭만큼 줄을 더 차지한다고 센다.
+ * measure는 글자열의 폭(px)이다. 화면은 canvas measureText를, 검사는 글자 수를 쓴다.
+ */
+export function paginateCaption(text: string, measure: (value: string) => number, maxWidth: number, maxLines = 2): string[] {
+  const words = (value: string) => value.split(/\s+/).filter(Boolean);
+  /** 어절을 앞에서부터 줄에 채운다. */
+  const wrap = (list: readonly string[]) => {
+    const lines: string[] = [];
+    for (const word of list) {
+      const last = lines.at(-1);
+      if (last !== undefined && measure(`${last} ${word}`) <= maxWidth) lines[lines.length - 1] = `${last} ${word}`;
+      else lines.push(word);
+    }
+    return lines;
+  };
+  const lineCount = (lines: readonly string[]) => lines.reduce((sum, line) => sum + Math.max(1, Math.ceil(measure(line) / maxWidth)), 0);
+
+  const sentences = text.trim().split(/(?<=[.!?…~])\s+/).filter(Boolean);
+  const pages: string[] = [];
+  let current: string[] = [];
+  for (const sentence of sentences) {
+    const joined = [...current, ...words(sentence)];
+    if (lineCount(wrap(joined)) <= maxLines) { current = joined; continue; }
+    if (current.length > 0) pages.push(current.join(" "));
+    current = [];
+    // 한 문장이 길면 maxLines줄씩 잘라 넣고, 남은 줄은 다음 문장과 이어 붙일 수 있게 둔다.
+    for (const line of wrap(words(sentence))) {
+      const next = [...current, ...words(line)];
+      if (lineCount(wrap(next)) <= maxLines) { current = next; continue; }
+      if (current.length > 0) pages.push(current.join(" "));
+      current = words(line);
+    }
+  }
+  if (current.length > 0) pages.push(current.join(" "));
+  return pages.length > 0 ? pages : [text.trim()].filter(Boolean);
+}
+
+/** 묶음마다 보여 줄 시간(ms). 말하는 시간을 글자 수 비율로 나눈다. 너무 짧으면 읽을 수 없어 최소 시간을 둔다. */
+export function captionPageDurations(pages: readonly string[], speechMs: number, minMs = 1200): number[] {
+  const total = pages.reduce((sum, page) => sum + Array.from(page).length, 0) || 1;
+  return pages.map(page => Math.max(minMs, Math.round(speechMs * Array.from(page).length / total)));
+}

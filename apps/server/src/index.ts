@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, ChatSource, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, ShowState, VisibleChat } from "@bori/shared";
+import type { BroadcastState, ChatMessage, ChatSource, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, ShowStage, ShowState, VisibleChat } from "@bori/shared";
 import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { createAdapter as createProviderAdapter, createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, summarizeBroadcast, supportedProviders, synthesizeSpeech, ttsApiKey, type TtsProvider, type TtsSettings } from "@bori/llm";
@@ -23,6 +23,7 @@ import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
 import { createErClient } from "@bori/er";
 import { createObsController } from "./obs/controller.js";
 import { ChzzkCallbackError, createChzzkLink } from "./show/chzzk-link.js";
+import { createAutopilot } from "./show/autopilot.js";
 import { createPlayerCommand } from "./show/commands.js";
 import { createShowController } from "./show/controller.js";
 import { createErData } from "./show/er-data.js";
@@ -428,8 +429,24 @@ function broadcastStatusLines(): string[] {
   const minutes = Math.floor((Date.now() - sessionStartedAt) / 60_000);
   const lines = [minutes < 1 ? "방송을 막 시작했다." : `방송을 시작한 지 ${minutes}분 지났다.`];
   if (answeredCount > 0) lines.push(`지금까지 채팅 ${answeredCount}개에 답했다.`);
+  const corner = CORNER_LINES[show.view().stage];
+  if (corner) lines.push(corner);
   return lines;
 }
+
+/**
+ * 지금 코너를 보리에게 알려 주는 줄. 코너에 맞지 않는 채팅에도 답은 하되 코너로 이끈다.
+ * 전적 진단 코너는 전적을 보는 시간이라 캐릭터 질문으로 다루지 않는다(2026-10-15 사용자 결정).
+ */
+const CORNER_LINES: Partial<Record<ShowStage, string>> = {
+  opening: "지금은 방송을 여는 오프닝이다.",
+  briefing: "지금은 랭커 데이터 TOP 5를 보는 메타 브리핑 코너다.",
+  qna: "지금은 질문 코너다. 캐릭터나 메타 질문에는 [게임 데이터]가 있으면 그 수치로 답한다.",
+  diagnosis: "지금은 전적 진단 코너다. 캐릭터를 묻는 채팅에는 짧게만 답하고, 채팅에 '!전적 닉네임'을 적으면 전적을 봐 준다고 안내한다.",
+};
+
+/** 캐릭터 질문으로 보고 [게임 데이터]를 붙이는 단계. 전적 진단은 전적을 보는 코너라 넣지 않는다. */
+const CHARACTER_QUESTION_STAGES: ReadonlySet<ShowStage> = new Set(["opening", "briefing", "qna"]);
 
 let state: BroadcastState = { status: "idle", layout: "chat", currentEmotion: "calm", queueSize: 0, visibleChatCount: 0, lastError: null, visibleChats: [], unprocessedCount: 0 };
 
@@ -511,8 +528,29 @@ const monologues: readonly { reply: string; emotion: string; motion?: string }[]
   { reply: "가끔은 이렇게 조용한 시간도 나쁘지 않네요.", emotion: "calm" },
 ];
 
+/**
+ * 코너별 혼잣말. 채팅이 조용할 때 그 코너에 맞게 참여를 이끈다(2026-10-15 사용자 요청). 없는 코너는 위의 일반 혼잣말을 쓴다.
+ * 코너 안내 문장(stages.ts)과 같은 내용을 되풀이하지 않게 표현을 바꿨다.
+ */
+const cornerMonologues: Partial<Record<ShowStage, readonly { reply: string; emotion: string; motion?: string }[]>> = {
+  briefing: [
+    { reply: "TOP 5 보니까 요즘 랭커들 취향이 보이는 것 같아요.", emotion: "curious" },
+    { reply: "평균 순위랑 픽률을 같이 보면 재밌는 게 많아요.", emotion: "gaming", motion: "shoushi" },
+  ],
+  qna: [
+    { reply: "궁금한 캐릭터 있으면 이름만 적어 주셔도 돼요!", emotion: "happy", motion: "xingxingyan" },
+    { reply: "요즘 메타가 궁금하시면 편하게 물어봐 주세요.", emotion: "calm" },
+    { reply: "자주 하시는 캐릭터가 요즘 어떤지 같이 봐요!", emotion: "gaming", motion: "shoushi" },
+  ],
+  diagnosis: [
+    { reply: "채팅에 느낌표 전적, 그리고 닉네임을 적어 주시면 바로 봐 드릴게요.", emotion: "happy", motion: "xingxingyan" },
+    { reply: "최근 경기가 어땠는지 궁금하시면 전적 명령어로 불러 주세요!", emotion: "curious" },
+  ],
+};
+
 function makeMonologue(): CharacterResponse {
-  const chosen = monologues[Math.floor(Math.random() * monologues.length)];
+  const pool = cornerMonologues[show.view().stage] ?? monologues;
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
   return {
     reply: engine.pickReply(broadcastSession, [chosen.reply]),
     emotion: { primary: chosen.emotion, intensity: 0.35, durationSeconds: 7 },
@@ -590,18 +628,17 @@ function cancelMonologue() {
 function speak(response: CharacterResponse, audioId?: string) {
   speaking = true;
   cancelMonologue();
-  state = { ...state, currentResponse: response, currentEmotion: response.emotion.primary, currentAudioId: audioId };
-
   // 음성이 있으면 실제 음성 길이만큼 말풍선을 둔다. 전에는 글자 수로 어림해(글자당 110ms, 최대 15초) 긴 답의 음성이 잘렸다(a4 A4-12).
   const audioMs = audioId ? audioCache.get(audioId)?.durationMs : undefined;
   const displayMs = audioMs !== undefined ? Math.max(RESPONSE_DISPLAY_MS, Math.min(AUDIO_DISPLAY_MAX_MS, audioMs + AUDIO_DISPLAY_TAIL_MS)) : RESPONSE_DISPLAY_MS;
+  state = { ...state, currentResponse: response, currentEmotion: response.emotion.primary, currentAudioId: audioId, currentSpeechMs: audioMs ?? displayMs };
   // 표시가 끝나기 전에 방송을 다시 시작하면 이 타이머는 이전 세션 것이다.
   // 세대를 보지 않으면 새 세션이 막 올린 말풍선을 지워 버린다.
   const generation = sessionGeneration;
 
   setTimeout(() => {
     if (generation !== sessionGeneration) return;
-    state = { ...state, currentResponse: undefined, currentAudioId: undefined };
+    state = { ...state, currentResponse: undefined, currentAudioId: undefined, currentSpeechMs: undefined };
     speaking = false;
     scheduleNext();
     scheduleMonologue();
@@ -626,7 +663,7 @@ function boriQuiet(): boolean {
  */
 function scheduleMonologue() {
   if (monologueTimer || !settings.monologueEnabled) return;
-  if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0 || boriQuiet()) return;
+  if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0 || boriQuiet() || autopilot.holding()) return;
 
   const min = settings.monologueMinSeconds;
   const max = Math.max(min, settings.monologueMaxSeconds);
@@ -635,7 +672,7 @@ function scheduleMonologue() {
   monologueTimer = setTimeout(() => {
     monologueTimer = undefined;
     // 기다리는 동안 채팅이 들어왔거나 이미 말하고 있으면 혼잣말을 건너뛴다.
-    if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0 || boriQuiet()) { scheduleNext(); return; }
+    if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0 || boriQuiet() || autopilot.holding()) { scheduleNext(); return; }
 
     const monologue = makeMonologue();
     const generation = sessionGeneration;
@@ -670,7 +707,8 @@ function scheduleMonologue() {
  * 이번 차례의 후보가 아니라 다음 차례로 넘어간다.
  */
 function scheduleNext() {
-  if (responseTimer || speaking || showHold > 0 || state.status !== "live" || boriQuiet()) return;
+  // 코너 시간이 다 됐으면 새 답을 시작하지 않는다. 자동 진행이 연결 멘트 뒤 다음 코너로 넘긴다.
+  if (responseTimer || speaking || showHold > 0 || state.status !== "live" || boriQuiet() || autopilot.holding()) return;
   dropExpiredChats();
   syncQueueState();
   if (queue.length === 0) return;
@@ -695,7 +733,7 @@ function scheduleNext() {
   });
 
   // 방송 진행기가 켜져 있으면 채팅에서 캐릭터를 찾아 수치 줄을 붙인다. 진행기를 쓰지 않는 방송(idle)은 지금처럼 답한다.
-  const game = show.view().stage === "idle" ? null : buildGameData(chat.content, erContext());
+  const game = CHARACTER_QUESTION_STAGES.has(show.view().stage) ? buildGameData(chat.content, erContext()) : null;
 
   // 답변과 음성을 대기와 나란히 만든다. 실패는 각 함수가 안에서 처리한다.
   // 익명 채팅은 화자를 모르는 발언으로 넘겨 어떤 시청자의 기억도 꺼내지 않게 한다.
@@ -797,7 +835,7 @@ function endBroadcast(): boolean {
   recordUnanswered();
   cancelMonologue();
   // 채팅 목록도 비운다. 끝난 방송 화면에 지난 채팅이 계속 보였다(a4 A4-23).
-  state = { ...state, status: "ended", queueSize: 0, currentResponse: undefined, currentAudioId: undefined, currentEmotion: "calm", visibleChats: [], visibleChatCount: 0 };
+  state = { ...state, status: "ended", queueSize: 0, currentResponse: undefined, currentAudioId: undefined, currentSpeechMs: undefined, currentEmotion: "calm", visibleChats: [], visibleChatCount: 0 };
   // 기억 저장은 오래 걸릴 수 있으므로 응답을 막지 않는다.
   void persistSessionMemories(endedSession);
   // 방송이 끝나면 진행기도 처음(대기 장면)으로 돌린다. 진행 중이던 대사는 세대가 바뀌어 버려진다.
@@ -825,12 +863,17 @@ function startBroadcast() {
   cancelResponseWait();
   cancelMonologue();
   // 지난 방송의 오류는 새 방송에서 지운다. 남아 있으면 지금 일어난 오류처럼 보인다(a4 A4-10).
-  state = { ...state, status: "live", currentEmotion: "calm", currentResponse: undefined, currentAudioId: undefined, visibleChats: [], visibleChatCount: 0, queueSize: 0, unprocessedCount: 0, lastError: null };
+  state = { ...state, status: "live", currentEmotion: "calm", currentResponse: undefined, currentAudioId: undefined, currentSpeechMs: undefined, visibleChats: [], visibleChatCount: 0, queueSize: 0, unprocessedCount: 0, lastError: null };
   scheduleMonologue();
 }
 
 /** 채팅을 받지 않은 이유. 화면·관리자가 이유별로 안내할 수 있게 나눈다(a4 A4-20). */
 type ChatRejection = { code: "invalid" | "invalid_text" | "too_long" | "nickname_too_long" | "empty" | "not_live" | "duplicate"; error: string };
+
+/** 방송 화면 채팅 띠에 한 줄 올린다. 화면에 필요한 값만 담는다. */
+function pushVisibleChat(visible: VisibleChat) {
+  state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
+}
 
 /**
  * 방송 채팅 하나를 검사해 큐에 넣는다. 받지 않으면 이유를 돌려준다.
@@ -850,7 +893,7 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }, source: Ch
   // 다른 인코딩으로 보낸 한글은 본문을 읽을 때 U+FFFD로 바뀐다. 깨진 글자를 방송 화면·프롬프트에 내보내지 않는다.
   if (content.includes("�")) return { code: "invalid_text", error: "글자가 깨진 채팅은 받지 않습니다. UTF-8로 보내 주세요." };
   if (state.status !== "live") return { code: "not_live", error: "방송 중이 아니라 채팅을 받지 않습니다." };
-  // 방송 진행 중의 명령(!전적)은 큐와 화면 채팅 목록에 올리지 않는다. 명령에 든 닉네임이 화면에 드러나지 않게 한다.
+  // 방송 진행 중의 명령(!전적)은 큐에 넣지 않는다. 화면 채팅 띠에는 명령 처리기가 닉네임을 가린 한 줄만 올린다.
   if (show.view().stage !== "idle" && playerCommand.handle(content)) return null;
 
   const viewerId = nickname ? viewerIdOf(nickname) : "virtual-viewer";
@@ -875,8 +918,7 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }, source: Ch
 
   // 방송 화면에 넘기는 목록에는 화면에 필요한 값만 담는다.
   // viewerId도 닉네임에서 만든 값이라 함께 빼야 닉네임이 드러나지 않는다.
-  const visible: VisibleChat = { id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) };
-  state = { ...state, visibleChats: [...state.visibleChats, visible].slice(-settings.visibleChatLimit), visibleChatCount: Math.min(state.visibleChatCount + 1, settings.visibleChatLimit) };
+  pushVisibleChat({ id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) });
 
   dropExpiredChats();
   // 한 시청자가 큐를 차지하지 못하게, 그 시청자의 대기가 상한이면 가장 오래된 것을 버리고 새 채팅을 받는다.
@@ -967,6 +1009,12 @@ async function speakShowDirective(directive: string, gameData: readonly string[]
   await presentShowLine(outcome.response, isCurrent);
 }
 
+/** 보리가 지금 하는 말과 기다리는 진행 대사를 다 마칠 때까지 기다린다. 방송이 끝나거나 다시 시작하면 바로 돌아온다. */
+async function waitQuiet(): Promise<void> {
+  const generation = sessionGeneration;
+  while ((speaking || showHold > 0) && generation === sessionGeneration) await new Promise(resolve => setTimeout(resolve, 200));
+}
+
 /** 정해진 문장을 그대로 말한다. 진행 고정 문장과 !전적 안내에 쓴다. */
 async function sayShowLine(line: string, isCurrent: () => boolean): Promise<void> {
   if (state.status !== "live") return;
@@ -979,6 +1027,21 @@ const show = createShowController({
   say: sayShowLine,
   er: { basis: () => erData.basis(), top5: () => erData.top5() },
 });
+/**
+ * 코너 자동 진행. 시간이 다 되면 하던 말을 마치고 연결 멘트 뒤 다음 코너로 넘어간다(show/autopilot.ts).
+ * 기본으로 켜고, BORI_SHOW_AUTO_ADVANCE=0이면 끈다(통합 검사는 직접 넘긴다). 스튜디오에서 켜고 끌 수 있다.
+ */
+const autopilot = createAutopilot({
+  stage: () => show.view().stage,
+  epoch: show.epoch,
+  ready: () => state.status === "live" && !speaking && showHold === 0,
+  say: sayShowLine,
+  waitQuiet,
+  next: () => show.next(),
+  enabled: process.env.BORI_SHOW_AUTO_ADVANCE !== "0",
+});
+setInterval(() => autopilot.tick(), 500).unref();
+
 const playerCommand = createPlayerCommand({
   stage: () => show.view().stage,
   epoch: show.epoch,
@@ -987,6 +1050,7 @@ const playerCommand = createPlayerCommand({
   setDashboard: show.setDashboard,
   speak: speakShowDirective,
   say: sayShowLine,
+  showChat: text => pushVisibleChat({ id: randomUUID(), content: text, receivedAt: new Date().toISOString(), category: "normal" }),
 });
 
 // 치지직 채팅은 관리자 테스트 채팅과 같은 ingestChat으로 들어간다. 내용·닉네임은 로그에 남기지 않는다.
@@ -1013,6 +1077,7 @@ function showState(): ShowState {
     caption: state.currentResponse?.reply ?? "",
     connections: { chzzk: chzzk.status().state, obs: obs.status().state, er: erData.connection() },
     erRefreshProgress: erData.status().progress,
+    auto: autopilot.status(),
   };
 }
 
@@ -1038,6 +1103,17 @@ function handleShowRoute(request: IncomingMessage, response: ServerResponse, met
     // 단계·장면·대시보드는 바로 바뀌고, 대사는 뒤에서 만든다.
     void show.next();
     sendJson(response, 200, showState());
+    return true;
+  }
+  if (method === "POST" && path === "/api/show/auto") {
+    readBody(request, response, body => {
+      try {
+        const { enabled } = JSON.parse(body) as { enabled?: unknown };
+        if (typeof enabled !== "boolean") { sendJson(response, 400, { error: "enabled는 true 또는 false여야 합니다." }); return; }
+        autopilot.setEnabled(enabled);
+        sendJson(response, 200, showState());
+      } catch (error) { sendBodyError(response, error); }
+    });
     return true;
   }
   if (method === "POST" && path === "/api/show/prev") { void show.prev(); sendJson(response, 200, showState()); return true; }
