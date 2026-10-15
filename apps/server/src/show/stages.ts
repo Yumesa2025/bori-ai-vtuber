@@ -4,6 +4,8 @@ import type { DashboardView, ErCharacterStat, ErMetaBasis, ObsSceneName, ShowSta
 export type StageContext = {
   basis: ErMetaBasis | null;
   top5: ErCharacterStat[];
+  /** 집계한 캐릭터 전체(많이 고른 순). TOP 5가 전체에서 몇 번째인지 볼 때 쓴다. */
+  stats: ErCharacterStat[];
   /** 이번 방송에서 대시보드에 띄운 캐릭터 이름. 엔딩 요약에 쓴다. */
   mentioned: string[];
 };
@@ -20,6 +22,8 @@ export type StageConfig = {
    * 엔딩은 말하지 않으므로 마무리 인사를 전적 진단을 떠날 때 한다(2026-10-15 사용자 결정).
    */
   outro?: { directive: string; fallbackLines: string[] };
+  /** TOP 5가 다 열린 뒤 하는 말(브리핑). 왜 TOP 5인지 데이터로 풀어 본다(2026-10-15 사용자 요청). */
+  afterReveal?: { directive: string; fallbackLines: string[] };
 };
 
 /** 방송 진행 단계. 순서는 showStages(@bori/shared)를 따른다. */
@@ -34,8 +38,12 @@ export const stageConfig: Record<ShowStage, StageConfig> = {
   briefing: {
     scene: "보리-메인",
     dashboard: ctx => ({ kind: "top5", items: ctx.top5, revealed: 0, basis: ctx.basis }),
-    // 4분 시연 구성(2026-10-15): TOP 5는 짧게, 눈에 띄는 두 명에 해설을 모은다.
-    directive: "[게임 데이터]의 TOP 5를 1위부터 이름만 짧게 훑고, 그중 눈에 띄는 캐릭터 두 명(예: 픽률 1위, 평균 순위나 1등 비율이 특히 좋은 캐릭터)을 골라 수치와 함께 자세히 설명하고 보리의 생각을 붙인다. 수치는 주어진 것만 쓴다. 4~5문장.",
+    // 4분 시연 구성(2026-10-15): 먼저 TOP 5를 짧게 소개하고, 표가 다 열린 뒤(afterReveal) 왜 TOP 5인지 데이터로 풀어 본다.
+    directive: "랭커들이 많이 고른 TOP 5를 공개한다고 하며 1위부터 이름만 짧게 소개한다. 수치는 아직 말하지 않는다. 2문장.",
+    afterReveal: {
+      directive: "TOP 5에 왜 들었는지 [게임 데이터]로 풀어 본다. 많이 골라진 정도와 성적(평균 순위·1등 비율이 집계 전체에서 몇 번째인지)을 비교해, 눈에 띄는 두세 명을 '많이 고르고 성적도 좋아서', '많이 고르지만 성적은 중간이라 손에 익은 캐릭터 같다'처럼 보리의 생각으로 설명한다. 패치·스킬 같은 데이터에 없는 이유는 말하지 않는다. 수치는 주어진 것만 쓴다. 3~4문장.",
+      fallbackLines: ["TOP 5를 보면 많이 고르는 캐릭터와 성적이 좋은 캐릭터가 꼭 같지는 않아요. 화면의 평균 순위와 1등 비율도 같이 봐 주세요!"],
+    },
     fallbackLines: ["이번 랭커 데이터 TOP 5를 볼게요! 화면을 같이 봐 주세요."],
   },
   qna: {

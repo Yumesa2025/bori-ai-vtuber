@@ -1,14 +1,15 @@
 /**
- * OBS caption 페이지. 화면 오른쪽 아래 흰 말풍선에 보리 자막을 세 줄씩 보여 준다(2026-10-15 사용자 결정).
+ * OBS caption 페이지. 화면 오른쪽 아래 흰 말풍선에 보리 자막을 두 줄씩 보여 준다.
  * 진행기의 자막이 있으면 그것, 없으면 보리의 현재 답이다.
- * 세 줄을 넘는 답은 세 줄 묶음으로 나눠 말하는 시간(currentSpeechMs)에 맞춰 차례로 넘긴다.
+ * 말풍선은 세 줄이 들어가는 크기라, 브라우저가 두 줄 묶음을 한 줄 더 길게 감싸도 잘리지 않는다(2026-10-15 사용자 요청: 세 줄로 나누면 아래가 계속 잘렸다).
+ * 두 줄을 넘는 답은 두 줄 묶음으로 나눠 말하는 시간(currentSpeechMs)에 맞춰 차례로 넘긴다.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { captionPageDurations, captionText, paginateCaption } from "./view";
 import { renderObsPage, useBroadcastState } from "./state";
 
-/** 한 번에 보여 줄 줄 수. obs.css의 -webkit-line-clamp와 같아야 한다. */
-const CAPTION_LINES = 3;
+/** 한 번에 보여 줄 줄 수. 말풍선(obs.css)은 한 줄 여유를 두고 세 줄 크기다. */
+const CAPTION_LINES = 2;
 /** 음성 길이를 모를 때 쓰는 말하는 시간(서버 말풍선 표시 시간과 같다). */
 const FALLBACK_SPEECH_MS = 5000;
 

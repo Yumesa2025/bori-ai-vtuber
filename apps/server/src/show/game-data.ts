@@ -35,6 +35,22 @@ export function stageGameData(stage: ShowStage, ctx: StageContext): string[] {
   }
 }
 
+/**
+ * TOP 5가 왜 상위인지 설명할 때 붙이는 데이터. 캐릭터마다 수치와, 집계 전체에서 많이 고른·평균 순위·1등 비율 순서를 넣는다.
+ * 순서를 주면 "많이 고르지만 성적은 중간" 같은 판단을 수치로 할 수 있다(근거 없는 이유를 지어내지 않게).
+ */
+export function top5ReasonLines(ctx: StageContext): string[] {
+  if (ctx.top5.length === 0 || !ctx.basis) return [NO_META_LINE];
+  const all = ctx.stats.length > 0 ? ctx.stats : ctx.top5;
+  const order = (sorted: readonly ErCharacterStat[], stat: ErCharacterStat) => sorted.findIndex(entry => entry.code === stat.code) + 1;
+  const byRank = [...all].sort((a, b) => a.avgRank - b.avgRank);
+  const byTop1 = [...all].sort((a, b) => b.top1Rate - a.top1Rate);
+  return [
+    ...ctx.top5.map((stat, index) => `${index + 1}위 ${statSummary(stat)} — 집계 캐릭터 ${all.length}명 중 많이 고른 순서 ${order(all, stat)}번째, 평균 순위가 좋은 순서 ${order(byRank, stat)}번째, 1등 비율이 높은 순서 ${order(byTop1, stat)}번째`),
+    basisLine(ctx.basis),
+  ];
+}
+
 /** 마무리 인사(전적 진단을 떠날 때)에 붙이는 데이터. 오늘 이야기한 캐릭터만 넣는다. */
 export function outroGameData(ctx: StageContext): string[] {
   return [ctx.mentioned.length > 0 ? `오늘 이야기한 캐릭터: ${ctx.mentioned.join(", ")}` : "오늘은 캐릭터 질문이 없었다."];
@@ -66,6 +82,17 @@ export type GameDataContext = { dictionary: ErDictionary | null; stats: readonly
 /** 캐릭터를 못 찾았을 때 캐릭터 질문으로 볼 말. "세"는 "세상"과 겹쳐 물음 꼴만 본다. */
 const CHARACTER_QUESTION = /어때|좋아|추천|쎄|센가|세\?|세냐|세요\?|강해/;
 /** 특정 캐릭터 없이 전체 판도를 묻는 말. "1티어 뭐야", "메타 어때", "추천해 줘", "뭐가 제일 쎄". */
+/**
+ * "1등 비율 제일 높은 애 누구야?"처럼 기록을 기준으로 가장 좋은 캐릭터를 묻는 말. 게임 기록 낱말과 최상급·누구가 함께 있을 때만 본다
+ * ("제일 좋아하는 노래"처럼 게임과 상관없는 최상급은 빼려고). 2026-10-15 리허설에서 이 질문을 메타 질문으로 보지 않아 데이터 없이 답했다.
+ */
+const RECORD_WORD = /1등|순위|픽률|승률|캐릭|티어/;
+const SUPERLATIVE = /제일|가장|누구|누가/;
+/** 전체 판도를 묻는 말인지. 메타·티어 질문 또는 기록 낱말 + 최상급. */
+export const isMetaQuestion = (content: string) => META_QUESTION.test(content) || (RECORD_WORD.test(content) && SUPERLATIVE.test(content));
+/** 가장 좋은 캐릭터를 고를 때 보는 범위(많이 고른 상위). 판수가 적은 캐릭터의 치우친 비율을 빼려고 둔다. */
+const LEADER_POOL = 15;
+
 export const META_QUESTION = /티어|메타|추천|사기\s*캐|(뭐가|누가)\s*(제일\s*)?(좋|쎄|세|강)/;
 /** 대시보드 카드에 보일 질문 글 길이(글자). */
 const QUERY_MAX_LENGTH = 40;
@@ -90,9 +117,20 @@ export function buildGameData(chatContent: string, ctx: GameDataContext): { line
     return { lines, view: { kind: "character", query, stat, suggestions: [], basis: ctx.basis } };
   }
 
-  if (META_QUESTION.test(chatContent)) {
+  if (isMetaQuestion(chatContent)) {
     if (ctx.stats.length === 0 || !ctx.basis) return { lines: [NO_META_LINE], view: null };
-    return { lines: [...ctx.stats.slice(0, META_COUNT).map((stat, index) => `많이 고른 순 ${index + 1}위: ${statSummary(stat)}`), basisLine(ctx.basis)], view: null };
+    const pool = ctx.stats.slice(0, LEADER_POOL);
+    const bestTop1 = [...pool].sort((a, b) => b.top1Rate - a.top1Rate)[0];
+    const bestRank = [...pool].sort((a, b) => a.avgRank - b.avgRank)[0];
+    return {
+      lines: [
+        ...ctx.stats.slice(0, META_COUNT).map((stat, index) => `많이 고른 순 ${index + 1}위: ${statSummary(stat)}`),
+        `많이 고른 상위 ${pool.length}명 중 1등 비율이 가장 높은 캐릭터: ${statSummary(bestTop1)}`,
+        `많이 고른 상위 ${pool.length}명 중 평균 순위가 가장 좋은 캐릭터: ${statSummary(bestRank)}`,
+        basisLine(ctx.basis),
+      ],
+      view: null,
+    };
   }
 
   if (!CHARACTER_QUESTION.test(chatContent) || suggestions.length === 0) return null;
