@@ -60,7 +60,16 @@ describe("이터널리턴 데이터", () => {
 
     const reloaded = open(null as never);
     assert.deepEqual(reloaded.top5(), data.top5());
-    assert.equal(reloaded.dictionary()?.seasonName, "시즌 21");
+    assert.equal(reloaded.dictionary()?.seasonName, "시즌 12");
+  });
+
+  test("시즌 표기 표시가 없는 예전 파일은 읽을 때 게임 시즌 번호로 바꾼다", () => {
+    writeFileSync(join(dir, "er-dictionary.json"), JSON.stringify({ characters: [], weaponNames: {}, seasonId: 41, seasonName: "시즌 21" }));
+    writeFileSync(join(dir, "er-meta.json"), JSON.stringify({ stats: [], basis: { seasonName: "프리시즌 21", sampleGames: 1, collectedAt: new Date().toISOString(), description: "예시" } }));
+    const data = createErData({ dataDir: dir, client: null, rankers: 2, gamesPerRanker: 2 });
+    data.load();
+    assert.equal(data.dictionary()?.seasonName, "시즌 12");
+    assert.equal(data.basis()?.seasonName, "프리시즌 12");
   });
 
   test("키가 없으면 갱신하지 않고 이유를 남긴다", () => {

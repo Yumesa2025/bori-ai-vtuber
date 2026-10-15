@@ -50,7 +50,7 @@ test("상위 랭커의 랭크 경기를 모아 캐릭터별로 집계한다", as
   assert.deepEqual(stats[2], { code: 3, name: "피오라", picks: 1, pickRate: 1 / 8, avgRank: 3, top1Rate: 0, mainWeapon: "레이피어" });
   assert.deepEqual(stats[3], { code: 10, name: "리 다이린", picks: 1, pickRate: 1 / 8, avgRank: 4, top1Rate: 0, mainWeapon: "글러브" });
 
-  assert.equal(basis.seasonName, "시즌 21");
+  assert.equal(basis.seasonName, "시즌 12");
   assert.equal(basis.sampleGames, 8);
   assert.equal(basis.description, "최근 상위 랭커 8판 기준");
   assert.ok(!Number.isNaN(Date.parse(basis.collectedAt)));

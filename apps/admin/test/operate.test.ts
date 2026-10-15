@@ -78,11 +78,11 @@ describe("OBS 주소", () => {
 });
 
 describe("ER 데이터 상태", () => {
-  const basis = { seasonName: "시즌 21", sampleGames: 7200, collectedAt: new Date(2026, 9, 15, 14, 3).toISOString(), description: "최근 7일 상위 랭커 7,200판 기준" };
+  const basis = { seasonName: "시즌 12", sampleGames: 7200, collectedAt: new Date(2026, 9, 15, 14, 3).toISOString(), description: "최근 7일 상위 랭커 7,200판 기준" };
 
   test("기준 시즌·판 수·마지막 갱신 시각을 보여 준다", () => {
     const summary = erSummary({ basis, refreshing: false, progress: null, lastError: null });
-    assert.equal(summary.title, "시즌 21 · 7,200판");
+    assert.equal(summary.title, "시즌 12 · 7,200판");
     assert.equal(summary.updated, "마지막 갱신 10월 15일 14:03");
     assert.equal(summary.description, "최근 7일 상위 랭커 7,200판 기준");
     assert.equal(summary.progress, null);

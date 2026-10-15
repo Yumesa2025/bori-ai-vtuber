@@ -1,5 +1,5 @@
 import { showStages, type DashboardView, type ErCharacterStat, type ErMetaBasis, type ObsSceneName, type ShowStage } from "@bori/shared";
-import { stageGameData } from "./game-data.js";
+import { outroGameData, stageGameData } from "./game-data.js";
 import { stageConfig, type StageContext } from "./stages.js";
 
 /**
@@ -17,6 +17,8 @@ export type ShowControllerDeps = {
   /** 정해진 문장을 그대로 말한다. 대사를 못 만들었을 때 쓴다. */
   say: (line: string, isCurrent: () => boolean) => Promise<void>;
   er: { basis(): ErMetaBasis | null; top5(): ErCharacterStat[] };
+  /** 보리가 지금 하는 말을 다 마칠 때까지 기다린다. 떠날 때 대사(outro) 뒤 넘어가기 전에 쓴다. 없으면 기다리지 않는다. */
+  waitQuiet?: () => Promise<void>;
   /** TOP 5를 한 줄씩 여는 간격. 기본 1.2초. */
   revealIntervalMs?: number;
 };
@@ -33,6 +35,8 @@ export function createShowController(deps: ShowControllerDeps) {
   let mentioned: string[] = [];
   /** 단계를 옮기는 중(장면 전환·대사 생성). 이 동안 next·prev는 무시한다. 빠른 두 번 누르기를 막는다. */
   let busy = false;
+  /** 떠날 때 대사(outro)를 하는 중. 이 동안 서버는 새 채팅 답을 시작하지 않는다. */
+  let leaving = false;
   /** 단계 세대. 단계가 바뀔 때마다 올려, 늦게 끝난 대사·공개 타이머가 지금 단계를 건드리지 못하게 한다. */
   let epoch = 0;
   let revealTimer: ReturnType<typeof setInterval> | undefined;
@@ -90,6 +94,23 @@ export function createShowController(deps: ShowControllerDeps) {
     if (next === "briefing" && isCurrent()) startReveal(current);
   }
 
+  /** 지금 단계에 떠날 때 대사가 있으면 말하고, 말을 다 마칠 때까지 기다린다. 못 만들면 고정 문장으로 대신한다. */
+  async function speakOutro() {
+    const outro = stageConfig[stage].outro;
+    if (!outro) return;
+    leaving = true;
+    const current = epoch;
+    const isCurrent = () => current === epoch;
+    try {
+      await deps.speak(outro.directive, outroGameData(context()), isCurrent);
+    } catch (error) {
+      console.error("[bori-server] 마무리 대사 생성 실패, 고정 문장으로 말합니다:", error instanceof Error ? error.message : String(error));
+      const line = outro.fallbackLines[0];
+      if (line && isCurrent()) await deps.say(line, isCurrent).catch(sayError => console.error("[bori-server] 마무리 고정 문장 실패:", sayError));
+    }
+    await deps.waitQuiet?.();
+  }
+
   /** 잠금 안에서 한 번만 옮긴다. 잠겨 있으면 아무것도 하지 않는다. */
   async function step(offset: 1 | -1) {
     if (busy) return;
@@ -98,9 +119,12 @@ export function createShowController(deps: ShowControllerDeps) {
     if (target === stage) return;
     busy = true;
     try {
+      // 마무리 인사가 있는 단계에서만 기다린다. 다른 단계는 곧바로 옮겨 next 응답이 새 단계를 돌려주게 한다.
+      if (offset === 1 && stageConfig[stage].outro) await speakOutro();
       await move(target, { speak: offset === 1 });
     } finally {
       busy = false;
+      leaving = false;
     }
   }
 
@@ -109,6 +133,8 @@ export function createShowController(deps: ShowControllerDeps) {
     /** 지금 단계 세대. 단계가 바뀌었는지 비교하는 데 쓴다. */
     epoch: () => epoch,
     next: () => step(1),
+    /** 떠날 때 대사(마무리 인사)를 하는 중인지. */
+    isLeaving: () => leaving,
     prev: () => step(-1),
     /** 잠금과 상관없이 idle로 간다. 진행 중이던 대사는 버려진다. 띄운 캐릭터 기록도 지운다. */
     async reset() {

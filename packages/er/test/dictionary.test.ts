@@ -11,7 +11,7 @@ test("한국어 이름·무기·현재 시즌으로 사전을 만든다", async 
   const dict = await loadDictionary(client);
 
   assert.equal(dict.seasonId, 41);
-  assert.equal(dict.seasonName, "시즌 21");
+  assert.equal(dict.seasonName, "시즌 12");
   assert.deepEqual(dict.characters.find((c) => c.code === 1), { code: 1, name: "재키", weapons: ["단검", "양손검", "도끼", "쌍검"] });
   // None 무기는 빠진다
   assert.deepEqual(dict.characters.find((c) => c.code === 2)?.weapons, ["권총", "돌격 소총", "저격총"]);

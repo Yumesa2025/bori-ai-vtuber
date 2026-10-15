@@ -6,6 +6,7 @@ import type { CharacterResponse, LlmSettings, MacroPrompt } from "@bori/shared";
 import { activateMacros, clearMacros, tickMacros } from "./macros.js";
 import { calmCrisisResponse, crisisResponse, crisisTurnMask, evaluateRules, fallbackResponse, isCrisisContent, isInCrisisContext, refusalResponse } from "./rules.js";
 import { createSessionState, pickReply, pushTurn, restoreTurns, type ConversationSession, type SessionTurn } from "./session.js";
+import { withoutOpinionQuestions } from "./reply-style.js";
 
 export type LlmClient = Pick<ReturnType<typeof createLlmClient>, "isCircuitOpen" | "respond">;
 
@@ -198,6 +199,13 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
    * 규칙을 쓰지 않는 모드(1:1)는 위험 차단만 거치고 바로 LLM으로 간다.
    * 위험 입력은 blocked를 돌려준다. 실패를 어디에 알릴지는 호출하는 쪽이 정한다.
    */
+  /** 방송 답에서 시청자에게 의견을 묻는 문장을 뺀다(reply-style.ts). 1:1은 그대로 둔다. */
+  function styled(session: ConversationSession, response: CharacterResponse): CharacterResponse {
+    if (session.mode !== "broadcast") return response;
+    const reply = withoutOpinionQuestions(response.reply);
+    return reply === response.reply ? response : { ...response, reply };
+  }
+
   async function respond(session: ConversationSession, input: RespondInput): Promise<RespondResult> {
     const llm = deps.llmFor(session.mode);
     const policy = session.policy;
@@ -242,7 +250,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
       ...(input.gameData && input.gameData.length > 0 ? { gameData: input.gameData } : {}),
     }));
 
-    if (result.ok) return { kind: "reply", response: result.response };
+    if (result.ok) return { kind: "reply", response: styled(session, result.response) };
 
     console.error(`[bori-server] LLM 실패(${result.kind}): ${result.reason}`);
     return { kind: "reply", response: fallbackFor(session), failure: { kind: result.kind, reason: result.reason } };
@@ -268,7 +276,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
       stageDirective: input.directive,
       ...(input.gameData.length > 0 ? { gameData: input.gameData } : {}),
     }));
-    if (result.ok) return { ok: true, response: result.response };
+    if (result.ok) return { ok: true, response: styled(session, result.response) };
     console.error(`[bori-server] LLM 실패(${result.kind}, 진행 대사): ${result.reason}`);
     return { ok: false, reason: result.reason };
   }

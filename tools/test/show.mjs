@@ -29,7 +29,7 @@ export const meta = {
   timing: { llm: 100, tts: 50, embed: 20 },
 };
 
-/** 화면에 보일 집계. 재키를 픽 수 1위로 두고 픽률 8.1%로 맞춘다. 시즌은 가짜 ER과 같은 41(시즌 21)이다. */
+/** 화면에 보일 집계. 재키를 픽 수 1위로 두고 픽률 8.1%로 맞춘다. 시즌은 가짜 ER과 같은 41(API Season21, 게임 표기 시즌 12)이다. */
 function seedMeta() {
   const stat = (code, name, picks, pickRate, avgRank, top1Rate, mainWeapon) => ({ code, name, picks, pickRate, avgRank, top1Rate, mainWeapon });
   return {
@@ -41,7 +41,9 @@ function seedMeta() {
       stat(33, "니키", 300, 0.042, 4.4, 0.07, "글러브"),
       stat(10, "리 다이린", 200, 0.028, 4.8, 0.05, "글러브"),
     ],
-    basis: { seasonName: "시즌 21", sampleGames: 7200, collectedAt: new Date().toISOString(), description: "최근 상위 랭커 7,200판 기준" },
+    basis: { seasonName: "시즌 12", sampleGames: 7200, collectedAt: new Date().toISOString(), description: "최근 상위 랭커 7,200판 기준" },
+    // 게임 시즌 번호로 쓴 파일이라는 표시. 없으면 서버가 예전 API 번호로 보고 9를 뺀다.
+    seasonLabel: "official",
   };
 }
 
@@ -57,7 +59,8 @@ const seedDictionary = {
   ],
   weaponNames: {},
   seasonId: 41,
-  seasonName: "시즌 21",
+  seasonName: "시즌 12",
+  seasonLabel: "official",
 };
 
 /** 가짜 외부 서비스를 띄우고 사전·메타 파일을 미리 둔다. 서버는 이 env로 뜬다. */
@@ -171,13 +174,17 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
         report.check("diagnosis 대시보드는 전적 대기 카드다", JSON.stringify((await show()).dashboard) === JSON.stringify({ kind: "player", status: "waiting", report: null }));
       }
     }
-    // 엔딩에서는 보리가 말하지 않는다(사용자 결정 2026-10-15). 단계 대사도, 채팅 답도 없다.
+    // 전적 진단을 떠날 때 마무리 인사를 한 번 하고 엔딩으로 간다. 엔딩에서는 보리가 말하지 않는다(사용자 결정 2026-10-15).
     await bori.waitForIdle();
-    const directivesBefore = (await directiveCalls()).length;
-    const ending = await post("/api/show/next");
-    stages.push(ending.stage);
+    const outroAt = (await directiveCalls()).length;
+    await post("/api/show/next");
+    const reachedEnding = await waitUntil(async () => (await show()).stage === "ending", 30_000);
+    stages.push((await show()).stage);
     await waitUntil(async () => obs.currentScene() === "보리-엔딩", 5000);
     scenes.push(obs.currentScene());
+    const outros = (await directiveCalls()).slice(outroAt);
+    report.check("전적 진단을 떠날 때 마무리 인사를 한 번 하고 엔딩으로 간다", Boolean(reachedEnding) && outros.length === 1 && outros[0].system.includes("오늘 방송을 마무리한다"), `directives=${outros.length}`);
+    const directivesBefore = (await directiveCalls()).length;
     const endingChat = await bori.chat("엔딩에서도 대답해 줘?");
     await new Promise(resolve => setTimeout(resolve, 4000));
     const endingAnswers = (await mock.answerCalls()).filter(entry => entry.user.includes("엔딩에서도 대답해 줘?"));
@@ -230,7 +237,7 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
     const stateText = JSON.stringify(state);
     report.check("화면 상태 어디에도 원래 닉네임이 없다", !stateText.includes(PLAYER_NICKNAME));
     report.check("채팅 띠에는 닉네임을 가린 명령이 뜬다", state.visibleChats.some(chat => chat.content === "!전적 테스**"), JSON.stringify(state.visibleChats.map(chat => chat.content)));
-    const analysis = await waitUntil(async () => (await directiveCalls()).find(entry => entry.system.includes("이 전적을 분석하고 조언 한마디")));
+    const analysis = await waitUntil(async () => (await directiveCalls()).find(entry => entry.system.includes("방금 검색한 전적 결과")));
     report.check("전적 분석 대사 요청에 전적 줄이 들어가고 닉네임은 없다",
       Boolean(analysis?.user.includes("평균 순위:")) && !analysis.user.includes(PLAYER_NICKNAME) && !analysis.user.includes("테스**") && !analysis.system.includes(PLAYER_NICKNAME));
   }
