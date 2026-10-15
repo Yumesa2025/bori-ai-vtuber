@@ -15,7 +15,7 @@ export const meta = {
   timing: { llm: 100, tts: 100, embed: 50 },
 };
 
-const PAGES = ["character", "dashboard", "caption", "chat", "waiting", "ending"];
+const PAGES = ["character", "dashboard", "caption", "chat", "waiting", "ending", "background"];
 const distDir = join(projectRoot, "apps/broadcast/dist");
 
 /** 경로를 고치지 않고 그대로 보낸다. */
@@ -41,7 +41,7 @@ export async function run({ bori, report }) {
     return;
   }
 
-  // ── 페이지 6종 ──────────────────────────────────────────────
+  // ── 페이지 7종 ──────────────────────────────────────────────
   let characterHtml = "";
   for (const name of PAGES) {
     const response = await rawRequest(bori.baseUrl, `/obs/${name}.html?demo=1`);

@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "concurrently -k \"npm run dev:web\" \"wait-on http://127.0.0.1:5174 && npm run dev:electron\"",
     "dev:web": "vite --configLoader runner --host 127.0.0.1 --port 5174",
-    "dev:electron": "electron .",
+    "dev:electron": "electron . --dev",
+    "start": "electron .",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

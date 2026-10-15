@@ -29,13 +29,13 @@ export const stageConfig: Record<ShowStage, StageConfig> = {
   briefing: {
     scene: "보리-메인",
     dashboard: ctx => ({ kind: "top5", items: ctx.top5, revealed: 0, basis: ctx.basis }),
-    directive: "[게임 데이터]의 TOP 5를 1위부터 짧게 소개한다. 1위에는 놀란다. 수치는 주어진 것만 쓴다. 3문장 이내.",
+    directive: "[게임 데이터]의 TOP 5를 1위부터 짧게 소개하고, 눈에 띄는 점(1위의 픽률, 평균 순위가 특히 좋은 캐릭터 등)에 대한 보리의 생각을 한마디 붙인다. 수치는 주어진 것만 쓴다. 3~4문장.",
     fallbackLines: ["이번 랭커 데이터 TOP 5를 볼게요! 화면을 같이 봐 주세요."],
   },
   qna: {
     scene: "보리-메인",
     dashboard: ctx => ({ kind: "season", basis: ctx.basis }),
-    directive: "이제 채팅으로 궁금한 캐릭터를 물어봐 달라고 한다. 예: '재키 어때?'. 1~2문장.",
+    directive: "이제 채팅으로 궁금한 캐릭터나 요즘 메타를 물어봐 달라고 한다. 예: '재키 어때?', '요즘 1티어 뭐야?'. 1~2문장.",
     fallbackLines: ["궁금한 캐릭터를 채팅으로 물어봐 주세요! 예를 들면 '재키 어때?'처럼요."],
   },
   diagnosis: {
@@ -47,7 +47,7 @@ export const stageConfig: Record<ShowStage, StageConfig> = {
   ending: {
     scene: "보리-엔딩",
     dashboard: ctx => ({ kind: "summary", characters: ctx.mentioned }),
-    directive: "오늘 이야기한 캐릭터를 짧게 돌아보고 마무리 인사를 한다. 2문장.",
+    directive: "오늘 이야기한 캐릭터 중 기억에 남는 것에 대한 보리의 감상을 한마디 하고 마무리 인사를 한다. 2문장.",
     fallbackLines: ["오늘 같이 메타 살펴봐 줘서 고마워요. 다음에 또 만나요!"],
   },
 };

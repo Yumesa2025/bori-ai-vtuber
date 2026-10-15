@@ -1,8 +1,9 @@
 <!doctype html>
 <html lang="ko">
   <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- 렌더러는 이 출처의 스크립트와 /api만 쓴다. 외부 스크립트·외부 전송을 막는다. 개발 서버는 vite.config.ts에서 HMR에 필요한 것만 더한다. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
-    <title>보리 관리자</title></head>
-  <body><div id="root"><div style="padding:32px;color:#f3a9c8;background:#17131a;min-height:100vh;font-family:Arial,sans-serif">보리 관리자 화면을 불러오는 중입니다…</div></div><script type="module" src="/src/main.tsx"></script></body>
+    <!-- 렌더러는 이 출처의 스크립트와 /api만 쓴다. 외부 스크립트·외부 전송을 막는다. 개발 서버는 vite.config.ts에서 HMR에 필요한 것만 더한다.
+         1:1 대화 탭은 같은 서버가 내주는 /companion/만 iframe으로 띄운다. 포트는 BORI_SERVER_PORT를 따르므로 주소 대신 'self'로 둔다. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>보리 스튜디오</title></head>
+  <body><div id="root"><div style="padding:32px;color:#f3a9c8;background:#17131a;min-height:100vh;font-family:Arial,sans-serif">보리 스튜디오를 불러오는 중입니다…</div></div><script type="module" src="/src/main.tsx"></script></body>
 </html>

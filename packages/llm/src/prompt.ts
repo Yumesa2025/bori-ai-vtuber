@@ -189,9 +189,18 @@ function contextLayer(request: LlmRequest, policy: ConversationPolicy): string[]
   }
 
   // 서버가 집계한 게임 수치. 모델이 수치를 지어내지 않게 이 섹션 밖의 숫자를 막는다.
+  // 수치만 읽으면 검색 결과처럼 들려(사용자 요청 2026-10-15) 수치에 근거한 보리의 생각을 한마디 붙이게 한다.
   if (request.gameData && request.gameData.length > 0) {
     if (lines.length > 0) lines.push("");
-    lines.push("[게임 데이터]", ...request.gameData.map(line => `- ${neutralizeUserText(line)}`), "- 이 수치 밖의 숫자는 말하지 않는다. 없으면 모른다고 한다.");
+    lines.push(
+      "[게임 데이터]",
+      ...request.gameData.map(line => `- ${neutralizeUserText(line)}`),
+      "- 이 수치 밖의 숫자는 말하지 않는다. 없으면 모른다고 한다.",
+      "- 수치가 있으면 읽어 주기만 하지 말고, 수치에서 보이는 보리의 생각을 한마디 붙인다. 숫자는 꼭 필요한 한두 개만 쓴다.",
+      "- 생각은 '~같아요', '제 느낌엔'처럼 의견으로 말한다. 평균 순위는 숫자가 작을수록 좋다. 전체에서 어느 쪽인지는 '순서' 줄로 판단한다.",
+      "- 수치가 없거나 집계 표본에 없으면 생각을 붙이지 말고 모른다고만 한다.",
+      "- 직접 해 봤다는 말과 무기·스킬 특성(빠르다, 세다 등), 패치, 상성 이야기는 데이터에 없으니 지어내지 않는다.",
+    );
   }
 
   if (request.recentTurns.length > 0) {
