@@ -145,6 +145,17 @@ export function promptChecks(scenario: Scenario, system: string, user: string): 
     checks.push(check("status.empty", "상황 고정값 없음 → 상황 섹션·관계 문장 없음", problems.length === 0, problems.join(" / ")));
   }
 
+  // 게임 데이터(W4). 고정값이 있는 시나리오만 본다. 수치 줄과 "수치 밖 숫자 금지" 문장이 user 메시지에 그대로 들어가야 한다.
+  const gameData = scenario.gameData ?? [];
+  if (gameData.length > 0) {
+    const gameBlock = ["[게임 데이터]", ...gameData.map(line => `- ${line}`), "- 이 수치 밖의 숫자는 말하지 않는다. 없으면 모른다고 한다."].join("\n");
+    const problems = [
+      ...(user.includes(gameBlock) ? [] : [`"${gameBlock}"가 user 프롬프트에 없습니다.`]),
+      ...gameData.filter(line => system.includes(line)).map(line => `system 프롬프트에 들어감: ${line}`),
+    ];
+    checks.push(check("game.data", `게임 데이터 섹션의 고정 줄 (${gameData.length}줄)`, problems.length === 0, problems.join(" / ")));
+  }
+
   // 감정·모션 allowlist
   const emotionLine = `- emotion.primary는 다음 중 하나여야 한다: ${boriEmotionNames.join(", ")}`;
   checks.push(check("allowlist.emotions", `감정 allowlist (${boriEmotionNames.length}개)`, system.includes(emotionLine), "감정 허용 목록 문장이 없습니다."));
@@ -173,6 +184,7 @@ export function fabricationDataCheck(scenario: Scenario): CheckResult {
   const fixtureText = [
     scenario.input ?? "",
     ...(scenario.statusLines ?? []),
+    ...(scenario.gameData ?? []),
     ...selectMemories(scenario).visible.map(memory => memory.text),
   ].join("\n");
   const groundingText = [fixtureText, ...boriPersonaLines].join("\n");

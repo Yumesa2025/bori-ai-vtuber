@@ -59,12 +59,12 @@ describe("누적 요약 지시문", () => {
     assert.equal(requests[0].overrideSystemPrompt, legacyBroadcastProgressPrompt);
   });
 
-  test("companion은 1:1 지시문을 쓴다: 사실·취향·약속 위주, 닉네임·민감 정보 제외, 지어내지 않기", async () => {
+  test("companion은 1:1 지시문을 쓴다: 사실·취향·약속 위주, 상대가 밝힌 이름은 남기고 민감 정보 제외, 지어내지 않기", async () => {
     const { adapter, requests } = fakeAdapter(JSON.stringify({ summary: "요약" }));
     await summarizeSessionProgress(adapter, "이전 요약", turns, { timeoutMs: 1000, mode: "companion" });
     const system = requests[0].overrideSystemPrompt ?? "";
     assert.equal(requests[0].mode, "companion");
-    for (const phrase of ["1:1 대화", "직접 말한 사실, 취향, 경험", "약속", "닉네임이나 실명은 넣지 않는다", "개인정보", "지어내거나 추측해서 넣지 않는다", "보리의 답에서만 나온 내용", "나온 순서대로", "앞부분에 나온 화제도 빼지 않는다"]) {
+    for (const phrase of ["1:1 대화", "직접 말한 사실, 취향, 경험", "약속", "불러 달라고 한 이름이나 닉네임은 남긴다", "다른 사람의 실명은 넣지 않는다", "개인정보", "지어내거나 추측해서 넣지 않는다", "보리의 답에서만 나온 내용", "나온 순서대로", "앞부분에 나온 화제도 빼지 않는다"]) {
       assert.ok(system.includes(phrase), phrase);
     }
     assert.ok(!system.includes("방송") && !system.includes("시청자"));
@@ -107,9 +107,12 @@ describe("개인 기억 정리", () => {
     const { adapter, requests } = fakeAdapter(JSON.stringify({ memories: [] }));
     await digestPrivateMemories(adapter, turns, { timeoutMs: 1000 });
     const system = requests[0].overrideSystemPrompt ?? "";
-    for (const phrase of ["물어본 말은 사실이 아니다", "다른 사람에 관한 이야기", "A가 아니라 B예요", "replaces", "날짜로 바꿔 적는다"]) {
+    for (const phrase of ["물어본 말은 사실이 아니다", "다른 사람에 관한 이야기", "A가 아니라 B예요", "replaces", "날짜로 바꿔 적는다", "불러 달라고 했다"]) {
       assert.ok(system.includes(phrase), phrase);
     }
+    // 사용자 결정(2026-10-15): 1:1에서는 상대의 이름·닉네임을 기억한다. 연락처 같은 개인정보는 계속 뺀다.
+    assert.ok(!system.includes("닉네임, 실명, 연락처"));
+    assert.ok(system.includes("연락처, 주소, 계좌"));
     assert.ok(requests[0].overrideUserPrompt?.includes("[이미 저장된 기억]\n(없음)"));
   });
 

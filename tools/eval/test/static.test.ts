@@ -242,3 +242,30 @@ describe("관계 맥락 정적 평가", () => {
     assert.match(fabricationDataCheck(c14).detail ?? "", /언급 기대 말이 고정값에 없음: 김치찌개/);
   });
 });
+
+describe("게임 데이터 정적 평가(W4)", () => {
+  const checkOf = (result: ReturnType<typeof evaluateScenarioStatic>, id: string) => result.checks.find(check => check.id === id);
+
+  test("B-30·B-31은 서버처럼 [게임 데이터] 섹션에 고정 줄을 그대로 넣는다", () => {
+    for (const id of ["B-30", "B-31"]) {
+      const scenario = byId(id);
+      assert.ok(scenario.gameData && scenario.gameData.length > 0, id);
+      const result = evaluateScenarioStatic(scenario);
+      assert.equal(result.status, "pass", id);
+      assert.equal(checkOf(result, "game.data")?.status, "pass", id);
+      const user = buildUserPrompt(buildScenarioRequest(scenario));
+      assert.ok(user.includes(`[게임 데이터]\n${scenario.gameData!.map(line => `- ${line}`).join("\n")}`), id);
+    }
+  });
+
+  test("게임 데이터 섹션이 빠지면 game.data가 실패한다", () => {
+    const scenario = byId("B-30");
+    const request = { ...buildScenarioRequest(scenario), gameData: [] };
+    const checks = promptChecks(scenario, buildSystemPrompt(request), buildUserPrompt(request));
+    assert.equal(checks.find(check => check.id === "game.data")?.status, "fail");
+  });
+
+  test("게임 데이터가 없는 시나리오에는 game.data 검사를 붙이지 않는다", () => {
+    assert.equal(checkOf(evaluateScenarioStatic(byId("B-01")), "game.data"), undefined);
+  });
+});

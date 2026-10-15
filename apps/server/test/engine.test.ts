@@ -381,3 +381,39 @@ describe("시스템 프롬프트 크기", () => {
     assert.equal(engine.systemPromptChars("broadcast"), expected);
   });
 });
+
+describe("방송 진행 발화(W4)", () => {
+  test("채팅 답 요청에 게임 데이터를 넘기고, 없으면 넣지 않는다", async () => {
+    const session = engine.createSession("broadcast");
+    await engine.respond(session, { content: PLAIN, speaker: { ownerId: null }, gameData: ["캐릭터: 재키", "랭커 픽률: 8.1%"] });
+    assert.deepEqual(h.llmRequests.at(-1)?.gameData, ["캐릭터: 재키", "랭커 픽률: 8.1%"]);
+    await engine.respond(session, { content: "다른 이야기도 해요", speaker: { ownerId: null } });
+    assert.equal(h.llmRequests.at(-1)?.gameData, undefined);
+  });
+
+  test("direct는 규칙·기억 검색 없이 진행 지시와 게임 데이터로 LLM을 부르고 기록하지 않는다", async () => {
+    const session = engine.createSession("broadcast");
+    const result = await engine.direct(session, { directive: "방송을 시작하는 인사를 한다.", gameData: ["기준: 시즌 9"], statusLines: ["방송을 막 시작했다."] });
+    assert.ok(result.ok);
+    assert.equal(result.response.reply, "LLM 답변");
+    const request = h.llmRequests.at(-1)!;
+    assert.equal(request.content, "");
+    assert.equal(request.stageDirective, "방송을 시작하는 인사를 한다.");
+    assert.deepEqual(request.gameData, ["기준: 시즌 9"]);
+    assert.deepEqual(request.memories, []);
+    assert.deepEqual(request.broadcastStatus, ["방송을 막 시작했다."]);
+    assert.deepEqual(h.searches, []);
+    assert.deepEqual(session.sessionTurns, []);
+  });
+
+  test("direct는 LLM을 쓸 수 없거나 실패하면 이유와 함께 ok가 false다", async () => {
+    const session = engine.createSession("broadcast");
+    h.llmSettings.enabled = false;
+    const disabled = await engine.direct(session, { directive: "인사", gameData: [] });
+    assert.equal(disabled.ok, false);
+    h.llmSettings.enabled = true;
+    h.nextOutcome = { ok: false, kind: "call", reason: "시간 초과" };
+    const failed = await engine.direct(session, { directive: "인사", gameData: [] });
+    assert.deepEqual(failed, { ok: false, reason: "시간 초과" });
+  });
+});

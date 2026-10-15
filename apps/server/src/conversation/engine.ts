@@ -44,7 +44,13 @@ export type RespondInput = {
   speaker: Speaker;
   /** 모델이 스스로 셀 수 없는 상황 문장. 방송은 경과 시간·답변 수를 넘기고, 없으면 비운다. */
   statusLines?: readonly string[];
+  /** 방송 진행기가 채팅에서 찾은 게임 수치 줄([게임 데이터]). 없으면 넣지 않는다. */
+  gameData?: readonly string[];
 };
+
+/** 방송 진행기가 채팅 없이 보리에게 말을 시킬 때. 규칙·기억 검색 없이 지시와 게임 데이터만 넘긴다. */
+export type DirectInput = { directive: string; gameData: readonly string[]; statusLines?: readonly string[] };
+export type DirectResult = { ok: true; response: CharacterResponse } | { ok: false; reason: string };
 
 export type RespondFailure = { kind: "disabled" | "circuit" | "call" | "validation"; reason: string };
 
@@ -110,7 +116,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
 
   const pick = (session: ConversationSession, values: readonly string[]) => pickReply(session, values, deps.replyCooldownMinutes());
 
-  function buildRequest(mode: ConversationMode, settings: LlmSettings, context: Pick<LlmRequest, "content" | "recentTurns" | "memories" | "sessionSummary" | "macroPrompts" | "broadcastStatus" | "crisisGuidance">): LlmRequest {
+  function buildRequest(mode: ConversationMode, settings: LlmSettings, context: Pick<LlmRequest, "content" | "recentTurns" | "memories" | "sessionSummary" | "macroPrompts" | "broadcastStatus" | "crisisGuidance" | "stageDirective" | "gameData">): LlmRequest {
     return {
       mode,
       ...context,
@@ -233,12 +239,38 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
       sessionSummary: session.summary,
       macroPrompts: session.activeMacros.map(entry => entry.macro.prompt),
       broadcastStatus: input.statusLines ?? [],
+      ...(input.gameData && input.gameData.length > 0 ? { gameData: input.gameData } : {}),
     }));
 
     if (result.ok) return { kind: "reply", response: result.response };
 
     console.error(`[bori-server] LLM 실패(${result.kind}): ${result.reason}`);
     return { kind: "reply", response: fallbackFor(session), failure: { kind: result.kind, reason: result.reason } };
+  }
+
+  /**
+   * 방송 진행기의 단계 대사·전적 분석처럼 채팅 없이 지시로 말한다.
+   * 시청자 글이 없으므로 규칙·위기 판단·기억 검색을 거치지 않는다. 최근 대화와 누적 요약은 넘겨 흐름을 잇는다.
+   * LLM을 쓸 수 없거나 실패하면 ok가 false다. 고정 문장으로 대신할지는 부르는 쪽이 정한다. 기록도 부르는 쪽이 한다.
+   */
+  async function direct(session: ConversationSession, input: DirectInput): Promise<DirectResult> {
+    const llm = deps.llmFor(session.mode);
+    const settings = deps.llmSettings();
+    if (!settings.enabled || deps.apiKey().trim().length === 0 || llm.isCircuitOpen()) return { ok: false, reason: unavailableFailure(settings, llm).reason };
+
+    const result = await llm.respond(settings, deps.apiKey(), buildRequest(session.mode, settings, {
+      content: "",
+      recentTurns: [...session.recentTurns],
+      memories: [],
+      sessionSummary: session.summary,
+      macroPrompts: [],
+      broadcastStatus: input.statusLines ?? [],
+      stageDirective: input.directive,
+      ...(input.gameData.length > 0 ? { gameData: input.gameData } : {}),
+    }));
+    if (result.ok) return { ok: true, response: result.response };
+    console.error(`[bori-server] LLM 실패(${result.kind}, 진행 대사): ${result.reason}`);
+    return { ok: false, reason: result.reason };
   }
 
   /** 발언을 기록한다. 창 밖으로 밀려나는 대화는 누적 요약이 대신 붙든다. */
@@ -327,6 +359,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
   return {
     createSession,
     respond,
+    direct,
     record,
     /** 저장된 대화와 누적 요약으로 새 세션을 채운다. 누적 요약 호출은 하지 않는다. */
     restore: restoreTurns,

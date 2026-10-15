@@ -173,6 +173,13 @@ describe("시나리오 데이터의 statusLines·지어내기 판정 자료", ()
     assert.equal(parseScenarioSet({ ...valid, scenarios: [scenario({ statusLines: ["방송 시작 후 12분이 지났다."] })] }).scenarios.length, 1);
   });
 
+  test("게임 데이터(gameData)는 방송 시나리오의 비어 있지 않은 문자열 배열만 받는다", () => {
+    assert.deepEqual(parseScenarioSet({ ...valid, scenarios: [scenario({ gameData: ["캐릭터: 재키"] })] }).scenarios[0].gameData, ["캐릭터: 재키"]);
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [scenario({ gameData: [] })] }), /gameData가 비어 있습니다/);
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [scenario({ gameData: [1] as unknown as string[] })] }), /gameData는 문자열 배열/);
+    assert.throws(() => parseScenarioSet({ ...valid, scenarios: [companion({ gameData: ["캐릭터: 재키"] })] }), /gameData는 방송 시나리오만/);
+  });
+
   test("지어내기 판정 자료의 깨진 정규식, 알 수 없는 expect, mentions 없는 mention을 막는다", () => {
     const broken = companion({
       fabricationGuard: { grounded: [], suspects: [{ label: "깨진 후보", pattern: "(" }], expect: "mention" },

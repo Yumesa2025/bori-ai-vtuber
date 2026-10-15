@@ -641,7 +641,7 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 
 **남은 것**
 
-- 이름·호칭을 개인 기억으로 남길지 정해야 한다. 정리 지시문은 실명·닉네임을 넣지 않게 하므로 "저는 하늘이라고 해요"는 기억이 되지 않고, 이름 회상은 지난 대화 요약에 기대고 있다(사용자 결정 필요, a6 A6-07 ①).
+- ~~이름·호칭을 개인 기억으로 남길지 정해야 한다.~~ 2026-10-15 사용자 결정으로 1:1에서는 상대가 불러 달라고 한 이름·닉네임을 기억한다(`packages/llm/src/summarize.ts`의 1:1 지시문 두 개, ADR-023 결과 절). 방송은 그대로다. 실모델로 이름 회상을 다시 재지는 않았다(미검증).
 - 같은 대화 안의 앞부분(최근 10턴 밖)을 묻는 질문은 여전히 지어낸다. 누적 요약 지시문만 보강했고 엔진의 누적 요약 주기(F4 범위)는 건드리지 않았다.
 - 정정 반영은 모델이 `replaces`를 고르는 데 기대므로 놓칠 수 있다(위 부산 기억). 규칙 추출만 쓰는 경우(LLM 꺼짐)는 대체가 없고, 정정 문장이 새 기억으로 함께 남는다.
 - 기억을 하나만 지워도 그 전의 정리하지 않은 메시지는 정리하지 않는다. 지운 내용이 되살아나지 않게 하는 쪽을 택했다(ADR-023 결과).
@@ -749,3 +749,46 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 검사: 단위 `apps/server/test/guard.test.ts`(방송 Origin 경로 제한 5건), `apps/server/test/load-env.test.ts` 4건, `apps/broadcast/test/private-assets.test.ts` 7건. 통합 `security.mjs` 1건, `secrets.mjs` 3건(.env 없음·읽기와 우선순위·키 미저장).
 
 **`index.ts` 분리 계획(F23, 이번에는 하지 않음).** 다른 작업이 같은 파일을 고치고 있어 계획만 둔다. 효과가 큰 순서로 (1) 방송 스케줄러(큐·발화권·세대·혼잣말·`persistSessionMemories`)를 `broadcast/scheduler.ts`로 옮겨 모듈 전역 상태를 객체 안에 가두고 단위 검사를 붙인다. (2) 라우트를 method·pathname 표와 공통 디스패치로 바꿔 pathname 파싱(쿼리·끝 슬래시, F16)과 JSON 파싱을 한곳에 둔다. (3) LLM·TTS·기억 설정의 로드·저장·응답 만들기(GET·PATCH 응답 차이, F15)를 설정 모듈로 모은다. 방송 시스템(W1~W6)이 정적 경로와 새 라우트를 더한 뒤에 하는 편이 충돌이 적다.
+
+## 10. 치지직 방송 시스템
+
+보리를 OBS 브라우저 소스로 치지직에 송출하고 이터널리턴(ER) 데이터로 3~5분 참여형 방송을 진행한다. [설계](./broadcast/design-spec.md)와 [구현 계획](./broadcast/implementation-plan.md)(작업 묶음 W1~W6)을 따른다.
+
+### 10.1 방송 진행기와 외부 연동(W4)
+
+앞선 묶음(이 절에 함께 요약한다):
+
+- **W1 OBS 페이지(#25).** `apps/broadcast`에 OBS 페이지 6종(`character`·`dashboard`·`caption`·`chat`·`waiting`·`ending`, 1920×1080, 메인 장면 C안)을 더했다. 모두 `/api/state`를 폴링해 `state.show`를 그리기만 하고 `?demo=1`이면 서버 없이 예시 상태로 그린다. 서버는 빌드한 화면을 `/obs/`·`/companion/`·`/studio/`로 내준다(`apps/server/src/http/static.ts`, 폴더 밖 경로 거부). 서버 자신의 Origin을 허용 목록에 넣었다. 공유 타입에 `BroadcastState.show?: ShowState`를 더했다.
+- **W2 이터널리턴 패키지(#24).** `packages/er`(`@bori/er`)에 요청을 하나로 줄 세우는 클라이언트(호출 간격 1.1초, 429·403 한 번 재시도, 오류에 키·닉네임 없음), 캐릭터 사전(`loadDictionary`, `findCharacter`: 별칭·한 글자 이름·비슷한 이름 제안), 상위 랭커 랭크 경기 메타 집계(`collectMeta`), 전적 진단(`lookupPlayer`, 랭크 없으면 일반 대전), 닉네임 가림(`maskNickname`)을 두었다. 공유 타입 `ShowState`·`DashboardView` 등도 이때 들어왔다. 실제 API로 사전·소규모 집계·전적을 한 번 확인했다(닉네임 조회 응답 필드는 문서 예시의 `uid`가 아니라 `userId`).
+- **W3 치지직 채팅 모듈(#27).** `apps/server/src/chzzk/`에 OAuth(`buildAuthorizeUrl`·`exchangeCode`·`refreshTokens`), 토큰 암호화 저장(`data/chzzk-token.json`, 만료 1시간 전 갱신, 갱신 하나만 진행), 세션 소켓(`socket.io-client` 2.0.3 고정, websocket만, 세션 호스트 `*.nchat.naver.com`만, 16KB 넘는 이벤트 버림, 끊기면 1·2·5·10·30초로 재연결)을 두었다. 가짜 치지직 서버(`tools/test/fixtures/fake-chzzk.mjs`)로만 검사했고, 실제 연결은 이 묶음(W4)에서 확인한다.
+
+이 묶음(W4)에서 한 것. 결정과 근거는 [ADR-026](./decisions.md)에 있다.
+
+| 계획 단계 | 내용 | 위치 |
+|---|---|---|
+| 1. 상태 머신 | `idle → opening → briefing → qna → diagnosis → ending`. 단계마다 OBS 장면·대시보드·대사 지시·고정 문장(`stageConfig`). 옮기는 중 `next`·`prev` 무시(빠른 두 번 누르기), `reset`은 언제나. 장면 전환 실패에도 진행, 대사 실패면 고정 문장. briefing 대사 뒤 TOP 5를 1.2초 간격으로 1→5 공개 | `apps/server/src/show/stages.ts`·`controller.ts` |
+| 2. OBS 제어 | `obs-websocket-js` 5.0.8(JSON 하위 프로토콜). `connect`·`setScene`·`status`, 끊기면 5초마다 재연결, 비밀번호가 틀리면(4009) `error`로 멈춤, 없는 장면은 기록만 하고 throw하지 않음, 요청 3초 상한 | `apps/server/src/obs/controller.ts` |
+| 3. `ingestChat` 공유 | F4가 이미 `/api/chat` 처리를 `ingestChat` 한 함수로 모았으므로 새로 만들지 않고 출처(`manual`·`chzzk`) 인자만 더했다. `/api/chat`은 본문에서 `content`·`nickname`만 넘긴다. 동작 변화 없음(통합 검사 operations·behavior 45건) | `apps/server/src/index.ts` |
+| 4. 게임 데이터 | `buildGameData`: 캐릭터를 찾으면 수치 줄(픽률·평균 순위·1등 비율·주 무기·기준)과 캐릭터 카드, 표본에 없으면 없다는 줄, 못 찾았는데 캐릭터 질문(어때·좋아·추천 등)이고 비슷한 이름이 있으면 제안 카드, 나머지는 null. 수치 줄에 시청자 글을 넣지 않는다 | `apps/server/src/show/game-data.ts` |
+| 5. 프롬프트 섹션 | `LlmRequest`에 선택 필드 `stageDirective`·`gameData`. `[방송 단계]`는 system(위기 지침처럼), `[게임 데이터]`는 user 메시지 참고 정보 뒤에 "이 수치 밖의 숫자는 말하지 않는다. 없으면 모른다고 한다"와 함께. 채팅 없는 진행 턴은 입력 섹션에 채팅이 없다고 적는다. 정적 평가에 `gameData` 고정값·`game.data` 검사, 시나리오 B-30(수치 인용)·B-31(데이터 없음) | `packages/llm/src/prompt.ts`·`types.ts`, `tools/eval/*`, `docs/content/dialogue-scenarios.md` 6장 |
+| 6. `!전적` | 진단 단계에서만 조회(대시보드 loading → ready·not-found·error), 결과가 오면 닉네임 없는 전적 줄로 분석 한마디. 한 번에 하나, 닉네임 없음·ER 없음·조회 중 단계 이동을 다룸. 다른 단계는 "전적 진단 때 봐 드릴게요", 같은 안내는 15초 안에 되풀이 안 함. 명령 채팅은 큐·화면 채팅 목록에 올리지 않음 | `apps/server/src/show/commands.ts` |
+| 7. 서버 연결 | 구현 계획 1.2의 라우트 전부, `/api/state`의 `show`(자막 = 지금 답). 진행 대사는 지금 답이 끝난 뒤 채팅 답보다 먼저 말한다(발화권 대기, 엔진 `direct`). 진행기가 켜져 있으면 채팅 답 요청에 게임 데이터를 붙이고 qna에서 캐릭터 카드. ER 사전·메타는 `data/er-*.json`(없으면 `missing`, 7일 지나면 `stale`), `/api/er/refresh`가 백그라운드로 집계해 원자적으로 쓴다(규모 `BORI_ER_RANKERS`·`BORI_ER_GAMES_PER_RANKER`, 기본 100·3). 치지직은 로그인마다 일회용 state(10분), 콜백 화면에 코드·state·토큰 없음, 토큰이 있으면 시작 때 자동 연결, 채팅은 `ingestChat(…, "chzzk")`. OBS는 `OBS_WEBSOCKET_PASSWORD`가 있을 때만 자동 연결. 테스트용 주소 `BORI_CHZZK_BASE_URL`·`BORI_ER_BASE_URL`(비우면 공식 주소) | `apps/server/src/index.ts`, `show/er-data.ts`·`chzzk-link.ts`, `conversation/engine.ts`, `.env.example` |
+| 8. 통합 검사 | `tools/test/show.mjs`(40건): mock LLM + 가짜 OBS(4842)·치지직(4844)·ER(4846). 로그인 state 검사·콜백, next×5 장면 순서(대기→메인→메인→메인→전적→엔딩)와 단계 대사, TOP 5 공개, 치지직 "재키 어때?" → 캐릭터 카드·LLM 요청의 `[게임 데이터]`·"8.1%", `!전적 테스트닉` → player ready·화면 상태에 원래 닉네임 없음, OBS를 꺼도 진행, 가짜 ER 갱신. `run.mjs`에 시나리오가 가짜 서비스를 띄우고 서버 env를 더하는 선택 훅(`prepare`) | `tools/test/show.mjs`, `tools/test/fixtures/fake-obs.mjs`·`fake-er.mjs`, `tools/test/run.mjs` |
+
+검사(2026-10-15, `feature/show-controller`, `fix/audit-followup` 6a6420f 위):
+
+- 단위 67건 추가: `apps/server/test/show-controller.test.ts` 15, `obs-controller.test.ts` 8(가짜 OBS 4842, 실제 `obs-websocket-js`), `game-data.test.ts` 12, `commands.test.ts` 12, `er-data.test.ts` 6, `chzzk-link.test.ts` 7(가짜 치지직 4843), `engine.test.ts` 3, `packages/llm/test/prompt.test.ts` 4. 평가 도구 4건(`gameData` 형식, `game.data` 검사).
+- 결과: typecheck 10개 워크스페이스 통과, `test:unit` 771/771, `test` 329/329(새 `show.mjs` 40건, `MOCK_PORT=4847 BORI_TEST_PORT=4848`), `eval:test` 94/94, `eval:typecheck` 통과, `eval:static` 통과 52·실패 0·범위 밖 4(새 B-30·B-31 통과, 기존 54건 결과 그대로).
+- **실제 이터널리턴**(개인 키, 임시 `BORI_DATA_DIR`, 포트 4840): `BORI_ER_RANKERS=5 BORI_ER_GAMES_PER_RANKER=2`로 `/api/er/refresh` 한 번. 1분 안에 끝났고 오류 없음, 시즌 21·186판 기준, `er-dictionary.json`·`er-meta.json` 생성, `connections.er = ready`. 진행기를 briefing까지 넘겨 대시보드 TOP 5가 5줄까지 열리는 것을 확인했다(LLM 키 없이 띄워 진행 대사는 고정 문장). 전체 규모(100명·3판)는 W6 리허설 전에 돈다.
+- **실제 치지직: 미검증.** 앱 키를 넣은 서버를 포트 4310(임시 데이터 폴더)으로 띄워 `/api/chzzk/login`이 등록된 Redirect URL(`http://localhost:4310/api/chzzk/callback`)을 담아 치지직 인증 페이지로 302 하는 것까지 확인했다. 사용자 브라우저 로그인을 코디네이터에게 요청했지만 1시간 반 동안 진행되지 않아 서버를 내리고 임시 폴더를 지웠다. 그래서 W3의 미검증 항목(세션 URL 실제 호스트 `*.nchat.naver.com` 가정, `sessionKey` 쿼리 전달, 구독 POST 본문 없음, 이벤트 페이로드가 문자열인지 객체인지, `/auth/v1/token` 도메인, `socket.io-client` 2.0.3 실제 연결)과 이 묶음의 `GET /open/v1/users/me` 채널 이름은 그대로 미검증이다. 토큰은 사용자 실제 `data/`에 저장하지 않았다.
+- **실제 OBS: 미검증.** 가짜 OBS WebSocket v5 서버로만 확인했다.
+
+남은 것:
+
+- 실제 치지직 확인(W5 스튜디오 로그인 버튼과 함께 또는 W6 리허설 전에). 서버를 4310으로 띄우고 브라우저로 `/api/chzzk/login` → 승인 → `/api/chzzk/status`가 `connected`인지, 방송 중 채팅 한 줄이 `visibleChats`에 오르는지 본다. 세션 호스트가 `*.nchat.naver.com`이 아니면 W3 모듈이 연결하지 않고 `lastError`에 남긴다.
+- 실제 OBS에 장면 4개(`보리-대기`·`보리-메인`·`보리-전적`·`보리-엔딩`)를 만들고 `OBS_WEBSOCKET_PASSWORD`로 연결해 장면 전환을 확인한다(W6).
+- `obs-websocket-js`의 `isomorphic-ws`가 저장소의 `ws` 3.3.3(치지직 `socket.io-client` 2.0.3이 끌어온 것)으로 풀린다. 클라이언트로만 쓰고 연결 대상은 설정한 OBS 주소뿐이다. [보안 점검](./security-review.md) 9절에 반영하는 일은 남았다.
+- 진행 대사는 긴 음성 답 뒤에 최대 30초 늦을 수 있고 그동안 `next`는 무시된다.
+- 치지직 시청자 ID는 닉네임 기반(`local:닉네임`)이다. `senderChannelId`로 바꿀지는 기억 소유자 ID와 함께 정한다.
+- 게임 데이터·진행 대사의 실모델 품질(B-30·B-31)은 W6 리허설에서 본다.
+- 스튜디오 진행 버튼·연결 상태 표시·로그인 버튼·ER 갱신 버튼은 W5다.

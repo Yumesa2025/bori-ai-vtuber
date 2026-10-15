@@ -109,11 +109,6 @@ section p strong{color:var(--fg); font-weight:640}
 
 /* ---- screenshot ---- */
 figure{margin:0}
-.shot{
-  border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;
-  background:var(--bg-sunken); line-height:0;
-}
-.shot img{width:100%; height:auto; display:block}
 figcaption{color:var(--fg-faint); font-size:13.5px; margin-top:12px; line-height:1.6}
 
 /* ---- pipeline ---- */
@@ -218,20 +213,6 @@ footer p{margin:0 0 7px; color:inherit; max-width:none}
     </div>
   </div>
 </div>
-
-<section id="shot">
-  <div class="wrap">
-    <figure>
-      <div class="shot">
-        <img src="./assets/broadcast-screen.png" alt="방송 화면. 중앙에 Live2D 캐릭터가 렌더링되고 오른쪽에 채팅 패널이 있다." loading="lazy">
-      </div>
-      <figcaption>
-        프로덕션 빌드로 실행한 방송 화면. 1920×1080 기준으로 구성되며 OBS Browser Source로 그대로 송출된다.
-        캐릭터 레이어는 WebGL 캔버스이고 채팅 패널과 말풍선은 그 위에 얹힌 React 레이어다.
-      </figcaption>
-    </figure>
-  </div>
-</section>
 
 <section id="video" hidden>
   <div class="wrap">
