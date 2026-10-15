@@ -264,7 +264,12 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
     report.check("OBS가 꺼지면 OBS 상태가 connected가 아니다", Boolean(down));
     // 엔딩은 말하지 않으므로 질문 단계로 한 칸 돌아갔다가(prev는 말하지 않는다) 전적 단계로 넘어가며 대사를 본다.
     await post("/api/show/prev");
+    // 질문 코너에 들어온 채팅은 코너가 바뀌면 읽지 않는다(지난 코너 채팅). 답 대기(1초) 안에 바로 넘긴다.
+    const expiredBefore = (await bori.state()).droppedChats?.expired ?? 0;
+    await bori.chat("지난 코너 채팅이에요");
     const { moved, spoke } = await nextAndSpeak();
+    const stale = await waitUntil(async () => ((await bori.state()).droppedChats?.expired ?? 0) > expiredBefore, 10_000);
+    report.check("코너가 바뀌면 지난 코너 채팅은 버리고 답하지 않는다", Boolean(stale) && !JSON.stringify((await bori.state()).currentResponse ?? {}).includes("지난 코너"));
     report.check("OBS가 꺼져 있어도 다음 단계로 가고 보리가 말한다", moved.stage === "diagnosis" && Boolean(spoke));
     report.check("진행 상태의 OBS 연결도 connected가 아니다", (await show()).connections.obs !== "connected");
   }

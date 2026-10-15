@@ -81,15 +81,17 @@ export default function OperateTab({ active }: { active: boolean }) {
       setMoving(false);
     }
   }
-  /** 코너 자동 진행 켜기·끄기. */
-  async function setAuto(enabled: boolean) {
-    const response = await request('/api/show/auto', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) }, MUTATION_TIMEOUT_MS);
+  /** 코너 자동 진행·시연 채팅 자동 재생 켜기·끄기. */
+  async function setShowSwitch(path: '/api/show/auto' | '/api/show/demo-chats', enabled: boolean, done: string) {
+    const response = await request(path, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) }, MUTATION_TIMEOUT_MS);
     if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 요청을 보내지 못했습니다.'); return; }
     if (!response.ok) { setNotice(`요청이 거부되었습니다. ${await readError(response, '')}`.trim()); return; }
     const next = await readJson<ShowState>(response);
     if (next) setShow(next);
-    setNotice(enabled ? '코너 자동 진행을 켰습니다. 코너 시간이 다 되면 보리가 다음 코너로 넘어갑니다.' : '코너 자동 진행을 껐습니다. 다음 단계는 직접 넘겨 주세요.');
+    setNotice(done);
   }
+  const setAuto = (enabled: boolean) => setShowSwitch('/api/show/auto', enabled, enabled ? '코너 자동 진행을 켰습니다. 코너 시간이 다 되면 보리가 다음 코너로 넘어갑니다.' : '코너 자동 진행을 껐습니다. 다음 단계는 직접 넘겨 주세요.');
+  const setDemoChats = (enabled: boolean) => setShowSwitch('/api/show/demo-chats', enabled, enabled ? '시연 채팅 대본을 켰습니다. 코너마다 정해 둔 시간에 시청자 채팅이 올라갑니다.' : '시연 채팅 대본을 껐습니다.');
   const stage = show?.stage ?? 'idle';
   const canNext = serverOnline && show !== null && stage !== 'ending' && !moving;
   const goNext = () => { if (canNext) void moveShow('next', `${nextLabel(stage)}을 눌렀습니다.`); };
@@ -153,6 +155,7 @@ export default function OperateTab({ active }: { active: boolean }) {
         <button onClick={() => void moveShow('prev', '이전 단계로 돌아갔습니다. 보리는 다시 말하지 않습니다.')} disabled={!serverOnline || stage === 'idle' || moving}>이전</button>
         <button onClick={goReset} disabled={!serverOnline || moving}>처음으로</button>
         <label className="toggle-row"><input type="checkbox" checked={show?.auto?.enabled ?? false} disabled={!serverOnline || !show} onChange={event => void setAuto(event.target.checked)} /><span>코너 자동 진행</span></label>
+        <label className="toggle-row"><input type="checkbox" checked={show?.demoChats?.enabled ?? false} disabled={!serverOnline || !show} onChange={event => void setDemoChats(event.target.checked)} /><span>시연 채팅 자동 재생{show?.demoChats?.enabled ? ` (${show.demoChats.lines}줄)` : ''}</span></label>
       </div>
       {cornerTimeText(show?.auto) && <p className="hint">{cornerTimeText(show?.auto)}</p>}
       {show?.caption && <p className="caption-line">보리: {show.caption}</p>}

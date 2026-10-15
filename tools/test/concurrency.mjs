@@ -79,7 +79,10 @@ export async function run({ bori, mock, report }) {
     const companionSide = [...companionAnswers, ...companionBackground];
     report.check(
       "1:1 요청(답변·요약·기억 정리)에 방송 채팅이 없다",
-      companionAnswers.length === CONVERSATIONS * MESSAGES_PER_CONVERSATION && companionSide.every(entry => !`${entry.system}${entry.user}`.includes(BROADCAST_MARK)),
+      // 섞임만 본다. 모든 메시지가 답을 받았는지는 위 검사가 본다. 느린 Windows 러너에서 일부 답이 LLM 요청 없이 나가
+      // 요청 수가 메시지 수보다 적게 잡혀 이 검사가 흔들렸다(PR #35·#45). 요청 수는 위 note로 남긴다.
+      companionAnswers.length > 0 && companionSide.every(entry => !`${entry.system}${entry.user}`.includes(BROADCAST_MARK)),
+      `1:1 답변 요청 ${companionAnswers.length}/${CONVERSATIONS * MESSAGES_PER_CONVERSATION}`,
     );
 
     // 1:1 대화끼리도 섞이지 않는다. 각 대화의 요청에는 그 대화의 메시지만 들어간다.

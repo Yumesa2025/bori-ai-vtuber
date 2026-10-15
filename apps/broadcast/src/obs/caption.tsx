@@ -29,7 +29,8 @@ function CaptionPage() {
     if (!element || !context) { setPages([text]); return; }
     const style = getComputedStyle(element);
     context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    const width = element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    // 브라우저 줄바꿈과 canvas 폭이 조금 달라 네 줄로 넘치면 아래가 잘린다. 폭을 6% 좁게 잡아 세 줄 안에 넣는다.
+    const width = (element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)) * 0.94;
     setPages(paginateCaption(text, value => context.measureText(value).width, width, CAPTION_LINES));
   }, [text]);
 

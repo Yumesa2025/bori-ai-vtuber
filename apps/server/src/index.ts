@@ -24,6 +24,7 @@ import { createErClient } from "@bori/er";
 import { createObsController } from "./obs/controller.js";
 import { ChzzkCallbackError, createChzzkLink } from "./show/chzzk-link.js";
 import { createAutopilot } from "./show/autopilot.js";
+import { createDemoChats, parseDemoScript } from "./show/demo-chats.js";
 import { createPlayerCommand } from "./show/commands.js";
 import { createShowController } from "./show/controller.js";
 import { createErData } from "./show/er-data.js";
@@ -710,10 +711,27 @@ function scheduleMonologue() {
  * 대신 답변할 채팅을 대기 전에 고르게 되므로, 대기 중에 들어온 채팅은
  * 이번 차례의 후보가 아니라 다음 차례로 넘어간다.
  */
+/**
+ * 채팅이 들어온 코너(진행기 단계 세대). 코너가 바뀌면 지난 코너 채팅은 읽지 않는다(2026-10-15 사용자 결정).
+ * 채팅은 코너 시간에 맞춰 들어오므로 지난 코너 채팅에 늦게 답하면 흐름이 어긋난다.
+ */
+const chatCorner = new WeakMap<ChatMessage, number>();
+
+/** 지난 코너에 들어온 채팅을 대기열에서 버린다. 만료와 같이 센다. */
+function dropPastCornerChats() {
+  const epoch = show.epoch();
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    if (chatCorner.get(queue[index]) === epoch) continue;
+    queue.splice(index, 1);
+    droppedChats.expired += 1;
+  }
+}
+
 function scheduleNext() {
   // 코너 시간이 다 됐으면 새 답을 시작하지 않는다. 자동 진행이 연결 멘트 뒤 다음 코너로 넘긴다.
   if (responseTimer || speaking || showHold > 0 || state.status !== "live" || boriQuiet() || autopilot.holding()) return;
   dropExpiredChats();
+  dropPastCornerChats();
   syncQueueState();
   if (queue.length === 0) return;
 
@@ -727,6 +745,8 @@ function scheduleNext() {
   const generation = sessionGeneration;
   const session = broadcastSession;
   answering = { chat, session };
+  // 답을 만드는 사이 코너가 바뀌면 이 답은 내보내지 않는다.
+  const corner = show.epoch();
 
   const min = settings.responseDelayMinSeconds;
   const max = Math.max(min, settings.responseDelayMaxSeconds);
@@ -764,6 +784,13 @@ function scheduleNext() {
       if (generation !== sessionGeneration) return;
       answering = undefined;
       if (state.status !== "live") { speaking = false; return; }
+      if (corner !== show.epoch()) {
+        speaking = false;
+        droppedChats.expired += 1;
+        scheduleNext();
+        scheduleMonologue();
+        return;
+      }
 
       if (!result) {
         // 차단된 채팅은 조용히 넘기고 다음 후보로 넘어간다.
@@ -936,6 +963,7 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }, source: Ch
     queue.shift();
     droppedChats.queueLimit += 1;
   }
+  chatCorner.set(chat, show.epoch());
   queue.push(chat);
   syncQueueState();
   cancelMonologue();
@@ -1093,6 +1121,27 @@ const autopilot = createAutopilot({
 });
 setInterval(() => autopilot.tick(), 500).unref();
 
+/**
+ * 시연 채팅 대본(show/demo-chats.ts). 켜 두면 코너별 시간에 맞춰 시청자 채팅을 올리고 보리는 LLM으로 답한다.
+ * 대본은 docs/broadcast/demo-chats.json(BORI_DEMO_CHATS_FILE로 바꿀 수 있다). 기본은 꺼짐이고 스튜디오에서 켠다.
+ */
+const demoChatsFile = process.env.BORI_DEMO_CHATS_FILE ? resolve(process.env.BORI_DEMO_CHATS_FILE) : resolve(projectRoot, "docs/broadcast/demo-chats.json");
+const demoChats = createDemoChats({
+  stage: () => show.view().stage,
+  epoch: show.epoch,
+  live: () => state.status === "live",
+  load: () => {
+    try {
+      return parseDemoScript(JSON.parse(readFileSync(demoChatsFile, "utf8")));
+    } catch (error) {
+      console.error("[bori-server] 시연 채팅 대본을 읽지 못했습니다:", error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  },
+  post: chat => ingestChat({ content: chat.content, nickname: chat.nickname })?.code ?? null,
+});
+setInterval(() => demoChats.tick(), 500).unref();
+
 const playerCommand = createPlayerCommand({
   stage: () => show.view().stage,
   epoch: show.epoch,
@@ -1129,6 +1178,7 @@ function showState(): ShowState {
     connections: { chzzk: chzzk.status().state, obs: obs.status().state, er: erData.connection() },
     erRefreshProgress: erData.status().progress,
     onAir,
+    demoChats: demoChats.status(),
     auto: autopilot.status(),
   };
 }
@@ -1157,6 +1207,17 @@ function handleShowRoute(request: IncomingMessage, response: ServerResponse, met
     // 단계·장면·대시보드는 바로 바뀌고, 대사는 뒤에서 만든다.
     void advanceShow();
     sendJson(response, 200, showState());
+    return true;
+  }
+  if (method === "POST" && path === "/api/show/demo-chats") {
+    readBody(request, response, body => {
+      try {
+        const { enabled } = JSON.parse(body) as { enabled?: unknown };
+        if (typeof enabled !== "boolean") { sendJson(response, 400, { error: "enabled는 true 또는 false여야 합니다." }); return; }
+        if (!demoChats.setEnabled(enabled)) { sendJson(response, 409, { error: "시연 채팅 대본(docs/broadcast/demo-chats.json)을 읽지 못했습니다." }); return; }
+        sendJson(response, 200, showState());
+      } catch (error) { sendBodyError(response, error); }
+    });
     return true;
   }
   if (method === "POST" && path === "/api/show/auto") {
