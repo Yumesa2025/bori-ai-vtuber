@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BroadcastState, ChatMessage, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, VisibleChat } from "@bori/shared";
+import type { BroadcastState, ChatMessage, ChatSource, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, ShowState, VisibleChat } from "@bori/shared";
 import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { createAdapter as createProviderAdapter, createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
@@ -20,6 +20,13 @@ import { serveStatic, type StaticRoute } from "./http/static.js";
 import { isValidVoice, pickValidSettings, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch, type PatchResult } from "./http/settings.js";
 import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
 import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
+import { createErClient } from "@bori/er";
+import { createObsController } from "./obs/controller.js";
+import { ChzzkCallbackError, createChzzkLink } from "./show/chzzk-link.js";
+import { createPlayerCommand } from "./show/commands.js";
+import { createShowController } from "./show/controller.js";
+import { createErData } from "./show/er-data.js";
+import { buildGameData } from "./show/game-data.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 
@@ -53,6 +60,8 @@ let answering: { chat: ChatMessage; session: ConversationSession } | undefined;
 let monologueTimer: NodeJS.Timeout | undefined;
 /** 발화권. 답변을 말하는 동안에는 다음 답변도 혼잣말도 시작하지 않는다. */
 let speaking = false;
+/** 방송 진행기 대사가 발화권을 기다리는 수. 0보다 크면 새 채팅 답과 혼잣말을 시작하지 않는다. */
+let showHold = 0;
 /**
  * 방송 세션 세대. 시작할 때마다 증가한다.
  * LLM 호출은 비동기라 응답이 늦게 오는데, 그 사이 방송을 다시 시작했다면
@@ -603,7 +612,7 @@ function speak(response: CharacterResponse, audioId?: string) {
  */
 function scheduleMonologue() {
   if (monologueTimer || !settings.monologueEnabled) return;
-  if (state.status !== "live" || speaking || queue.length > 0) return;
+  if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0) return;
 
   const min = settings.monologueMinSeconds;
   const max = Math.max(min, settings.monologueMaxSeconds);
@@ -612,7 +621,7 @@ function scheduleMonologue() {
   monologueTimer = setTimeout(() => {
     monologueTimer = undefined;
     // 기다리는 동안 채팅이 들어왔거나 이미 말하고 있으면 혼잣말을 건너뛴다.
-    if (state.status !== "live" || speaking || queue.length > 0) { scheduleNext(); return; }
+    if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0) { scheduleNext(); return; }
 
     const monologue = makeMonologue();
     const generation = sessionGeneration;
@@ -647,7 +656,7 @@ function scheduleMonologue() {
  * 이번 차례의 후보가 아니라 다음 차례로 넘어간다.
  */
 function scheduleNext() {
-  if (responseTimer || speaking || state.status !== "live") return;
+  if (responseTimer || speaking || showHold > 0 || state.status !== "live") return;
   dropExpiredChats();
   syncQueueState();
   if (queue.length === 0) return;
@@ -671,12 +680,16 @@ function scheduleNext() {
     responseTimer = setTimeout(() => { responseTimer = undefined; finishResponseWait = undefined; resolve(); }, delay);
   });
 
+  // 방송 진행기가 켜져 있으면 채팅에서 캐릭터를 찾아 수치 줄을 붙인다. 진행기를 쓰지 않는 방송(idle)은 지금처럼 답한다.
+  const game = show.view().stage === "idle" ? null : buildGameData(chat.content, erContext());
+
   // 답변과 음성을 대기와 나란히 만든다. 실패는 각 함수가 안에서 처리한다.
   // 익명 채팅은 화자를 모르는 발언으로 넘겨 어떤 시청자의 기억도 꺼내지 않게 한다.
   const prepared = engine.respond(session, {
     content: chat.content,
     speaker: { ownerId: isAnonymousViewer(chat.viewerId) ? null : chat.viewerId },
     statusLines: broadcastStatusLines(),
+    ...(game ? { gameData: game.lines } : {}),
   }).then(async outcome => {
     // 만드는 사이 방송이 끝났거나 다시 시작했으면 음성도 오류 표시도 만들지 않는다. 답변은 아래에서 버린다.
     if (generation !== sessionGeneration) return null;
@@ -714,6 +727,8 @@ function scheduleNext() {
       answeredCount += 1;
       // 답변이 실제로 나갔을 때만 매크로 수명을 줄인다.
       engine.tickMacros(session);
+      // 캐릭터 질문 단계에서는 답과 함께 캐릭터 카드를 띄운다.
+      if (game && !result.crisis && show.view().stage === "qna") show.showCharacter(game.view);
 
       speak(result.response, result.audioId);
     })
@@ -770,6 +785,8 @@ function endBroadcast(): boolean {
   state = { ...state, status: "ended", queueSize: 0, currentResponse: undefined, currentAudioId: undefined, currentEmotion: "calm", visibleChats: [], visibleChatCount: 0 };
   // 기억 저장은 오래 걸릴 수 있으므로 응답을 막지 않는다.
   void persistSessionMemories(endedSession);
+  // 방송이 끝나면 진행기도 처음(대기 장면)으로 돌린다. 진행 중이던 대사는 세대가 바뀌어 버려진다.
+  void show.reset();
   return true;
 }
 
@@ -803,8 +820,9 @@ type ChatRejection = { code: "invalid" | "too_long" | "nickname_too_long" | "emp
 /**
  * 방송 채팅 하나를 검사해 큐에 넣는다. 받지 않으면 이유를 돌려준다.
  * 검사·중복·시청자별 상한·만료·큐 상한을 이 함수 한곳에서 처리한다. 받은 뒤 큐에서 밀려난 채팅은 droppedChats에 센다.
+ * 관리자 테스트 채팅(/api/chat)과 치지직 채팅이 같은 함수를 쓴다. source는 서버가 정하고 요청 본문에서 받지 않는다.
  */
-function ingestChat(input: { content?: unknown; nickname?: unknown }): ChatRejection | null {
+function ingestChat(input: { content?: unknown; nickname?: unknown }, source: ChatSource = "manual"): ChatRejection | null {
   if (typeof input.content !== "string" || (input.nickname !== undefined && typeof input.nickname !== "string")) {
     return { code: "invalid", error: "content와 nickname은 문자열이어야 합니다." };
   }
@@ -815,6 +833,8 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }): ChatRejec
   if (lengthOf(nickname) > NICKNAME_MAX_LENGTH) return { code: "nickname_too_long", error: `닉네임은 ${NICKNAME_MAX_LENGTH}자 이하여야 합니다.` };
   if (!content) return { code: "empty", error: "빈 채팅은 받지 않습니다." };
   if (state.status !== "live") return { code: "not_live", error: "방송 중이 아니라 채팅을 받지 않습니다." };
+  // 방송 진행 중의 명령(!전적)은 큐와 화면 채팅 목록에 올리지 않는다. 명령에 든 닉네임이 화면에 드러나지 않게 한다.
+  if (show.view().stage !== "idle" && playerCommand.handle(content)) return null;
 
   const viewerId = nickname ? viewerIdOf(nickname) : "virtual-viewer";
   // 중복은 같은 시청자의 같은 문장만이다. 다른 시청자가 같은 인사를 하면 각자의 채팅이다(a4 A4-20).
@@ -832,7 +852,7 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }): ChatRejec
     ...(nickname ? { viewerNickname: nickname } : {}),
     content,
     receivedAt: new Date().toISOString(),
-    source: "manual",
+    source,
     category: isQuestion(content) ? "question" : "normal",
   };
 
@@ -858,6 +878,181 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }): ChatRejec
   cancelMonologue();
   scheduleNext();
   return null;
+}
+
+// ── 방송 진행기와 외부 연동(W4) ──────────────────────────────
+// 진행 단계·OBS 장면·대시보드는 show/, OBS 제어는 obs/에 있다. 여기서는 만들고 잇기만 한다.
+
+/** 양의 정수 환경 변수. 없거나 틀리면 기본값. */
+const positiveIntEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+};
+
+const erApiKey = process.env.ER_API_KEY ?? "";
+/** 메타 집계 규모. 전체는 랭커 100명·3판(개인 키 초당 1회라 몇 분 걸린다). 확인용으로 줄일 수 있다. */
+const erData = createErData({
+  dataDir: dataRoot,
+  client: erApiKey ? createErClient({ apiKey: erApiKey, ...(process.env.BORI_ER_BASE_URL ? { baseUrl: process.env.BORI_ER_BASE_URL } : {}) }) : null,
+  rankers: positiveIntEnv("BORI_ER_RANKERS", 100),
+  gamesPerRanker: positiveIntEnv("BORI_ER_GAMES_PER_RANKER", 3),
+});
+erData.load();
+const erContext = () => ({ dictionary: erData.dictionary(), stats: erData.stats(), basis: erData.basis() });
+
+// OBS는 비밀번호가 있을 때만 연결한다. 없으면 장면 전환 없이 진행한다(off).
+const obsPassword = process.env.OBS_WEBSOCKET_PASSWORD ?? "";
+const obs = createObsController({ url: process.env.OBS_WEBSOCKET_URL ?? "ws://127.0.0.1:4455", password: obsPassword });
+if (obsPassword) obs.connect();
+
+/** 진행 대사가 지금 답이 끝나기를 기다리는 최대 시간. 넘으면 그 대사는 버린다. */
+const SHOW_FLOOR_WAIT_MS = 60_000;
+const SHOW_FLOOR_POLL_MS = 100;
+
+/** 지금 말하는 답이 끝날 때까지 기다린다. 그 사이 방송이 끝났거나 단계가 바뀌면 false. */
+async function waitForFloor(generation: number, isCurrent: () => boolean): Promise<boolean> {
+  const deadline = Date.now() + SHOW_FLOOR_WAIT_MS;
+  while (speaking) {
+    if (generation !== sessionGeneration || !isCurrent() || Date.now() > deadline) return false;
+    await new Promise(resolve => setTimeout(resolve, SHOW_FLOOR_POLL_MS));
+  }
+  return generation === sessionGeneration && isCurrent() && state.status === "live";
+}
+
+/**
+ * 진행 대사를 화면에 올린다. 채팅 답보다 먼저 말하되, 지금 말하는 답은 끊지 않고 끝나기를 기다린다.
+ * 기다리는 동안 새 채팅 답·혼잣말은 시작하지 않고, 대기 중인 답은 대기 시간을 건너뛰어 바로 내보낸다.
+ */
+async function presentShowLine(response: CharacterResponse, isCurrent: () => boolean): Promise<void> {
+  const generation = sessionGeneration;
+  const session = broadcastSession;
+  showHold += 1;
+  cancelMonologue();
+  cancelResponseWait();
+  try {
+    const audioId = await prepareAudio(response.reply);
+    if (!(await waitForFloor(generation, isCurrent))) return;
+    engine.record(session, { role: "bori", text: response.reply });
+    speak(response, audioId);
+  } finally {
+    showHold -= 1;
+    // 말하지 못하고 끝났으면 멈춰 둔 답·혼잣말을 다시 잡는다. 말했으면 표시가 끝날 때 speak가 잡는다.
+    if (!speaking) { scheduleNext(); scheduleMonologue(); }
+  }
+}
+
+/** 진행 지시로 대사를 만들어 말한다. 못 만들면 throw하고, 진행기가 고정 문장으로 대신한다. */
+async function speakShowDirective(directive: string, gameData: readonly string[], isCurrent: () => boolean): Promise<void> {
+  if (state.status !== "live") throw new Error("방송 중이 아니라 진행 대사를 하지 않습니다.");
+  const outcome = await engine.direct(broadcastSession, { directive, gameData, statusLines: broadcastStatusLines() });
+  if (!outcome.ok) throw new Error(outcome.reason);
+  if (!isCurrent()) return;
+  await presentShowLine(outcome.response, isCurrent);
+}
+
+/** 정해진 문장을 그대로 말한다. 진행 고정 문장과 !전적 안내에 쓴다. */
+async function sayShowLine(line: string, isCurrent: () => boolean): Promise<void> {
+  if (state.status !== "live") return;
+  await presentShowLine({ reply: line, emotion: { primary: "happy", intensity: 0.5, durationSeconds: 5 }, actions: [], source: "rule" }, isCurrent);
+}
+
+const show = createShowController({
+  obs,
+  speak: speakShowDirective,
+  say: sayShowLine,
+  er: { basis: () => erData.basis(), top5: () => erData.top5() },
+});
+const playerCommand = createPlayerCommand({
+  stage: () => show.view().stage,
+  epoch: show.epoch,
+  available: erData.available,
+  lookup: nickname => erData.lookupPlayer(nickname),
+  setDashboard: show.setDashboard,
+  speak: speakShowDirective,
+  say: sayShowLine,
+});
+
+// 치지직 채팅은 관리자 테스트 채팅과 같은 ingestChat으로 들어간다. 내용·닉네임은 로그에 남기지 않는다.
+// Redirect URL은 개발자 센터에 등록한 값과 글자까지 같아야 한다(http://localhost:4310/api/chzzk/callback).
+const chzzk = createChzzkLink({
+  clientId: process.env.CHZZK_CLIENT_ID ?? "",
+  clientSecret: process.env.CHZZK_CLIENT_SECRET ?? "",
+  redirectUri: `http://localhost:${port}/api/chzzk/callback`,
+  tokenFile: resolve(dataRoot, "chzzk-token.json"),
+  ...(process.env.BORI_CHZZK_BASE_URL ? { baseUrl: process.env.BORI_CHZZK_BASE_URL } : {}),
+  onChat: chat => {
+    const rejected = ingestChat({ content: chat.content, nickname: chat.nickname }, "chzzk");
+    // 방송 전 채팅(not_live)과 같은 시청자의 반복(duplicate)은 흔해서 남기지 않는다.
+    if (rejected && rejected.code !== "not_live" && rejected.code !== "duplicate") console.warn(`[bori-server] 치지직 채팅을 받지 않았습니다: ${rejected.code}`);
+  },
+});
+chzzk.start();
+console.log(`[bori-server] 방송 진행기: 이터널리턴 ${erData.connection()}, OBS ${obsPassword ? "연결 시도" : "끔(OBS_WEBSOCKET_PASSWORD 없음)"}, 치지직 ${chzzk.configured() ? chzzk.status().state : "끔(앱 키 없음)"}`);
+
+/** 화면·스튜디오가 읽는 진행 상태. 자막은 보리의 지금 답과 같다. */
+function showState(): ShowState {
+  return {
+    ...show.view(),
+    caption: state.currentResponse?.reply ?? "",
+    connections: { chzzk: chzzk.status().state, obs: obs.status().state, er: erData.connection() },
+    erRefreshProgress: erData.status().progress,
+  };
+}
+
+/** 치지직 콜백 화면. 코드·state·토큰은 담지 않는다. */
+function sendCallbackPage(response: ServerResponse, status: number, message: string) {
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'none'", "Cache-Control": "no-store" });
+  response.end(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>치지직 연결</title><p>${message}</p></html>`);
+}
+
+const callbackFailureMessages: Record<ChzzkCallbackError["kind"], string> = {
+  state: "로그인 요청이 만료되었거나 맞지 않습니다. 스튜디오에서 다시 로그인해 주세요.",
+  exchange: "치지직에서 토큰을 받지 못했습니다. 스튜디오에서 다시 로그인해 주세요.",
+  config: "치지직 앱 키(CHZZK_CLIENT_ID·CHZZK_CLIENT_SECRET)가 설정되지 않았습니다.",
+};
+
+/** 방송 진행·ER·치지직·OBS 라우트(구현 계획 1.2). 처리했으면 true. */
+function handleShowRoute(request: IncomingMessage, response: ServerResponse, method: string | undefined, path: string): boolean {
+  if (method === "GET" && path === "/api/show") { sendJson(response, 200, showState()); return true; }
+  if (method === "POST" && path === "/api/show/next") {
+    // 처음 단계에서 넘어가면 방송 세션을 연다. 이미 방송 중이면 그 세션을 그대로 쓴다.
+    if (show.view().stage === "idle" && state.status !== "live") startBroadcast();
+    // 단계·장면·대시보드는 바로 바뀌고, 대사는 뒤에서 만든다.
+    void show.next();
+    sendJson(response, 200, showState());
+    return true;
+  }
+  if (method === "POST" && path === "/api/show/prev") { void show.prev(); sendJson(response, 200, showState()); return true; }
+  if (method === "POST" && path === "/api/show/reset") {
+    void show.reset();
+    endBroadcast();
+    sendJson(response, 200, showState());
+    return true;
+  }
+  if (method === "POST" && path === "/api/er/refresh") { sendJson(response, 200, { started: erData.refresh() }); return true; }
+  if (method === "GET" && path === "/api/er/status") { sendJson(response, 200, erData.status()); return true; }
+  if (method === "GET" && path === "/api/chzzk/login") {
+    const url = chzzk.loginUrl();
+    if (!url) { sendJson(response, 503, { error: "치지직 앱 키(CHZZK_CLIENT_ID·CHZZK_CLIENT_SECRET)가 설정되지 않았습니다." }); return true; }
+    response.writeHead(302, { Location: url, "Cache-Control": "no-store" });
+    response.end();
+    return true;
+  }
+  if (method === "GET" && path === "/api/chzzk/callback") {
+    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    void chzzk.callback(query.get("code") ?? "", query.get("state") ?? "")
+      .then(() => sendCallbackPage(response, 200, "연결했습니다. 이 창을 닫아도 됩니다."))
+      .catch(error => {
+        const kind = error instanceof ChzzkCallbackError ? error.kind : "exchange";
+        console.warn(`[bori-server] 치지직 콜백 실패: ${kind}`);
+        sendCallbackPage(response, kind === "state" ? 400 : kind === "config" ? 503 : 502, callbackFailureMessages[kind]);
+      });
+    return true;
+  }
+  if (method === "GET" && path === "/api/chzzk/status") { sendJson(response, 200, chzzk.status()); return true; }
+  if (method === "POST" && path === "/api/chzzk/disconnect") { chzzk.disconnect(); sendJson(response, 200, { ok: true }); return true; }
+  if (method === "GET" && path === "/api/obs/status") { sendJson(response, 200, obs.status()); return true; }
+  return false;
 }
 
 /** 라우트를 고를 경로. 쿼리와 끝 슬래시는 뗀다. 전에는 request.url 전체를 비교해 "/api/state?x=1"이 404였다(점검 Q-4). */
@@ -908,7 +1103,8 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
   // HEAD는 GET 라우트로 처리한다. 본문은 Node가 HEAD 응답에서 빼고 보낸다(a1 L5).
   const method = request.method === "HEAD" ? "GET" : request.method;
   if (method === "GET" && path === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
-  if (method === "GET" && path === "/api/state") { sendJson(response, 200, { ...state, droppedChats }); return; }
+  if (method === "GET" && path === "/api/state") { sendJson(response, 200, { ...state, show: showState(), droppedChats }); return; }
+  if (handleShowRoute(request, response, method, path)) return;
   if (method === "GET" && path === "/api/settings") { sendJson(response, 200, settings); return; }
   // 장시간 운영 검사용 진단 값. 서버는 127.0.0.1에만 열리지만 같은 컴퓨터에서 온 요청인지 한 번 더 본다.
   if (method === "GET" && path === "/api/diagnostics") {
@@ -920,6 +1116,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
       status: state.status,
       queueSize: queue.length,
       speaking,
+      showHold,
       responsePending: responseTimer !== undefined,
       sessionGeneration,
       sessionTurns: broadcastSession.sessionTurns.length,
@@ -1152,7 +1349,8 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     readBody(request, response, body => {
       try {
         const parsed: unknown = JSON.parse(body);
-        const rejected = ingestChat(isPlainObject(parsed) ? parsed : {});
+        // 본문의 다른 키(source 등)는 넘기지 않는다.
+        const rejected = ingestChat(isPlainObject(parsed) ? { content: parsed.content, nickname: parsed.nickname } : {});
         if (rejected) { sendJson(response, 400, rejected); return; }
         sendJson(response, 200, state);
       } catch (error) { sendBodyError(response, error); }

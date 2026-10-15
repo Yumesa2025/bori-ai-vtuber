@@ -9,10 +9,12 @@
   },
   "dependencies": {
     "@bori/character": "0.1.0",
+    "@bori/er": "0.1.0",
     "@bori/live2d": "0.1.0",
     "@bori/llm": "0.1.0",
     "@bori/memory": "0.1.0",
     "@bori/shared": "0.1.0",
+    "obs-websocket-js": "5.0.8",
     "socket.io-client": "2.0.3"
   }
 }

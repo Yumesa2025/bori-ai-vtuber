@@ -83,6 +83,11 @@ export type Scenario = {
    * 서버가 답 뒤에 붙이는 도움 안내 문장은 평가하지 않는다. 모델이 쓴 답만 본다.
    */
   crisis?: boolean;
+  /**
+   * 방송 진행기가 [게임 데이터]에 넣는 수치 줄의 고정값(W4). 방송 시나리오만 쓴다.
+   * 서버처럼 요청의 gameData로 넘기고, 정적 평가는 섹션에 그대로 들어갔는지 본다.
+   */
+  gameData?: string[];
 };
 
 export type ScenarioSet = {
@@ -123,6 +128,7 @@ export function parseScenarioSet(raw: unknown): ScenarioSet {
     if (scenario.crisis !== undefined && typeof scenario.crisis !== "boolean") problems.push(`${where}: crisis는 true 또는 false여야 합니다.`);
 
     checkStatusLines(scenario, where, problems);
+    checkGameData(scenario, where, problems);
     checkFabricationGuard(scenario, where, problems);
 
     const fixture = scenario.memoryFixture;
@@ -161,6 +167,18 @@ function checkStatusLines(scenario: Scenario, where: string, problems: string[])
   for (const line of strings) {
     if (!isRelationshipLine(line)) problems.push(`${where}: 관계 맥락 계약 형식이 아닙니다: ${line}`);
   }
+}
+
+/** 게임 데이터 고정값. 서버는 방송 진행기에서만 넣으므로 방송 시나리오만 받는다. */
+function checkGameData(scenario: Scenario, where: string, problems: string[]) {
+  const lines: unknown = scenario.gameData;
+  if (lines === undefined) return;
+  if (!Array.isArray(lines) || lines.some(line => typeof line !== "string")) {
+    problems.push(`${where}: gameData는 문자열 배열이어야 합니다.`);
+    return;
+  }
+  if (lines.length === 0) problems.push(`${where}: gameData가 비어 있습니다. 게임 데이터가 없으면 칸을 지웁니다.`);
+  if (scenario.mode !== "broadcast") problems.push(`${where}: gameData는 방송 시나리오만 쓸 수 있습니다.`);
 }
 
 function checkFabricationGuard(scenario: Scenario, where: string, problems: string[]) {

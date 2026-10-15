@@ -8,7 +8,7 @@ import type { LlmRequest } from "./types.js";
  *   2. policy   모드별 대화 정책(방송 / 1:1)
  *   3. session  현재 세션 정보(방송 상황, 지금까지의 방송)
  *   4. memory   접근 가능한 기억. 없으면 없다고 적는다
- *   5. context  참고 정보(매크로)와 최근 대화
+ *   5. context  참고 정보(매크로)·게임 데이터와 최근 대화
  *   6. input    답할 입력
  *   7. output   응답 형식과 감정·모션 출력 규칙
  *
@@ -42,7 +42,7 @@ export function buildPromptLayers(request: LlmRequest): PromptLayer[] {
     session: { id: "session", message: "user", lines: sessionLayer(request, policy) },
     memory: { id: "memory", message: "user", lines: memoryLayer(request, policy) },
     context: { id: "context", message: "user", lines: contextLayer(request, policy) },
-    input: { id: "input", message: "user", lines: [`[${policy.sectionTitles.input}]`, quoteUserText(request.content)] },
+    input: { id: "input", message: "user", lines: inputLayer(request, policy) },
     output: { id: "output", message: "system", lines: outputLayer(request, policy) },
   };
   return promptLayerOrder.map(id => layers[id]);
@@ -88,8 +88,18 @@ function policyLayer(request: LlmRequest, policy: ConversationPolicy): string[] 
   const lines = [`[대화 정책: ${policy.title}]`, ...policy.rules];
   // 위기 신호가 감지된 턴에만 붙는다. 서버가 넣는 지침이라 사람이 쓴 글과 달리 system 메시지에 둔다.
   if (request.crisisGuidance && request.crisisGuidance.length > 0) lines.push("", "[위기 대응]", ...request.crisisGuidance);
+  // 방송 진행기가 단계에 들어갈 때만 붙는다. 위기 지침처럼 서버가 넣는 지시라 system 메시지에 둔다.
+  const directive = request.stageDirective?.trim();
+  if (directive) lines.push("", "[방송 단계]", `- ${directive}`);
   lines.push("", "[입력 취급]", ...inputHandlingLines(policy));
   return lines;
+}
+
+/** 답할 입력. 채팅 없이 진행 지시로만 말하는 턴은 빈 인용 대신 채팅이 없다고 적는다. */
+function inputLayer(request: LlmRequest, policy: ConversationPolicy): string[] {
+  const title = `[${policy.sectionTitles.input}]`;
+  if (request.content.trim().length === 0 && request.stageDirective?.trim()) return [title, "(채팅 없음. [방송 단계] 지시대로 말한다.)"];
+  return [title, quoteUserText(request.content)];
 }
 
 /**
@@ -176,6 +186,12 @@ function contextLayer(request: LlmRequest, policy: ConversationPolicy): string[]
   // 채팅에 나온 키워드로 켜진 정보. 기억 검색과 달리 임베딩 왕복이 없다.
   if (request.macroPrompts.length > 0) {
     lines.push("[참고 정보]", ...request.macroPrompts.map(entry => `- ${entry}`));
+  }
+
+  // 서버가 집계한 게임 수치. 모델이 수치를 지어내지 않게 이 섹션 밖의 숫자를 막는다.
+  if (request.gameData && request.gameData.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push("[게임 데이터]", ...request.gameData.map(line => `- ${neutralizeUserText(line)}`), "- 이 수치 밖의 숫자는 말하지 않는다. 없으면 모른다고 한다.");
   }
 
   if (request.recentTurns.length > 0) {
