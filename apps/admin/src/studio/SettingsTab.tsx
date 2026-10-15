@@ -12,7 +12,7 @@ const initialState: BroadcastState = { status: 'idle', layout: 'chat', currentEm
 const memoryScopeLabels: Record<string, string> = { character: '캐릭터', broadcast: '방송', private: '1:1' };
 // 감정·업체 표시 이름. 알 수 없는 값은 원문 그대로 보여 준다.
 const emotionLabels: Record<string, string> = { calm: '평온', happy: '기쁨', excited: '신남', greeting: '인사', gaming: '게임', crying: '울음', angry: '화남', sad: '슬픔', embarrassed: '당황', awkward: '어색함', curious: '호기심' };
-const providerLabels: Record<string, string> = { openai: 'OpenAI', elevenlabs: 'ElevenLabs' };
+const providerLabels: Record<string, string> = { openai: 'OpenAI', elevenlabs: 'ElevenLabs', fish: 'Fish Audio' };
 const usageFeatureLabels: Record<UsageFeature, string> = { reply: '답변', summary: '요약', digest: '기억 정리', embedding: '임베딩', tts: '음성' };
 const usageModeLabels: Record<UsageMode, string> = { broadcast: '방송', companion: '1:1', none: '공통' };
 // 추정 비용 표시. 계산할 수 있는 것이 없으면 추정 불가, 일부만 계산했으면 +를 붙인다.
@@ -29,7 +29,7 @@ function formatRowCost(row: UsageRow): string {
 const formatTokens = (totals: UsageTotals) => `${totals.inputTokens.toLocaleString()} / ${totals.outputTokens.toLocaleString()}`;
 
 type LlmView = { settings: LlmSettings; status: LlmStatus; companionStatus?: LlmStatus; providers: LlmProvider[]; defaultModels: Record<string, string>; macro: MacroStatus; systemPromptChars: number };
-type TtsView = { settings: { enabled: boolean; provider: string; model: string; voice: string; speed: number; stability: number; similarity: number }; voices: { id: string; name: string; description?: string }[]; providers: string[]; defaultModels: Record<string, string>; hasApiKey: boolean; hasElevenLabsKey: boolean; failureCount: number; lastError: string | null };
+type TtsView = { settings: { enabled: boolean; provider: string; model: string; voice: string; speed: number; stability: number; similarity: number }; voices: { id: string; name: string; description?: string }[]; providers: string[]; defaultModels: Record<string, string>; hasApiKey: boolean; hasElevenLabsKey: boolean; hasFishKey?: boolean; failureCount: number; lastError: string | null };
 type MemorySettings = { enabled: boolean; maxMemories: number; minSimilarity: number; retentionDays: number };
 type MemoryView = { settings: MemorySettings; count: number; records: { id: string; text: string; kind: string; scope: string; ownerId?: string; importance: number; repeatCount: number; createdAt: string }[] };
 
@@ -87,6 +87,7 @@ export default function SettingsTab() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [tts, setTts] = useState<TtsView | null>(null);
   const [elevenKeyInput, setElevenKeyInput] = useState('');
+  const [fishVoiceInput, setFishVoiceInput] = useState('');
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [companionStats, setCompanionStats] = useState<CompanionStats | null>(null);
   const [memory, setMemory] = useState<MemoryView | null>(null);
@@ -278,7 +279,7 @@ export default function SettingsTab() {
       {usage.prices.fileError && <div className="notice">단가 파일 오류: {usage.prices.fileError} 기본 단가만 씁니다.</div>}
       <p className="hint">{usage.prices.note} 단가 파일 {usage.prices.fileLoaded ? '적용 중' : '없음'}. 금액 뒤의 +는 단가나 토큰 정보가 없어 일부 호출이 빠졌다는 뜻입니다. 최근 31일 호출 {usage.last31Days.totals.calls}회, 추정 {formatCost(usage.last31Days.totals.estimatedCostUsd, usage.last31Days.totals.costComplete)}.</p>
     </section>}
-    {tts && <section className="panel"><h2>음성 (TTS)</h2><p>보리의 답변을 고른 업체(OpenAI·ElevenLabs)의 음성으로 읽습니다. 방송 화면에서 재생되고 입 모양도 소리에 맞춰 움직입니다. OpenAI는 LLM과 같은 API 키를 씁니다.</p>
+    {tts && <section className="panel"><h2>음성 (TTS)</h2><p>보리의 답변을 고른 업체(OpenAI·ElevenLabs·Fish Audio)의 음성으로 읽습니다. 방송 화면에서 재생되고 입 모양도 소리에 맞춰 움직입니다. OpenAI는 LLM과 같은 API 키를 쓰고, Fish Audio는 .env의 FISH_API_KEY를 씁니다.</p>
       <label className="toggle-row"><input type="checkbox" checked={tts.settings.enabled} disabled={!tts.hasApiKey} onChange={event => void saveTts({ enabled: event.target.checked })} /><span>음성 사용{!tts.hasApiKey && ' (API 키를 먼저 저장하세요)'}</span></label>
       <div className="settings-grid">
         <label>업체<select value={tts.settings.provider} onChange={event => void saveTts({ provider: event.target.value })}>{tts.providers.map(provider => <option key={provider} value={provider}>{providerLabels[provider] ?? provider}</option>)}</select></label>
@@ -288,6 +289,12 @@ export default function SettingsTab() {
       </div>
       {tts.settings.provider === 'openai'
         ? <div className="settings-grid"><label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.25', max: '4', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label></div>
+        : tts.settings.provider === 'fish'
+        ? <>
+          <div className="settings-grid"><label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.5', max: '2', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label></div>
+          <div className="chat-input-row"><input value={fishVoiceInput} onChange={event => setFishVoiceInput(event.target.value)} aria-label="Fish Audio 목소리 ID" placeholder="목소리 ID 32자리 (fish.audio/m/ 뒤의 값)" /><button onClick={() => { void saveTts({ voice: fishVoiceInput.trim() }); setFishVoiceInput(''); }} disabled={!fishVoiceInput.trim()}>목소리 적용</button></div>
+          <p className="hint">{tts.hasFishKey ? 'Fish Audio 키를 .env에서 읽었습니다.' : '.env에 FISH_API_KEY를 넣고 스튜디오를 다시 켜 주세요.'} 목록에는 내 계정에서 만든 목소리만 나옵니다. 공개 목소리는 fish.audio 목소리 페이지 주소(fish.audio/m/…)의 ID를 위 칸에 넣습니다. 속도는 0.5~2.0입니다.</p>
+        </>
         : <>
           <div className="settings-grid">
             <label>안정성{numberInput(ttsDrafts, ttsFields.stability, tts.settings.stability, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.stability) })}</label>

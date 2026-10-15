@@ -849,3 +849,13 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 - 장면 전환 영상 자리: `private-assets/obs/transition.webm·mov·mp4`가 있고 OBS에 스팅어 전환 "보리 전환"이 있으면 `obs:setup`이 경로·전환 시점(`BORI_OBS_TRANSITION_POINT_MS`, 없으면 ffprobe로 잰 길이의 절반)을 넣고 현재 전환으로 정한다. obs-websocket 5.x에는 전환을 만드는 요청이 없어 "보리 전환"은 OBS에서 한 번 손으로 만든다. 둘 중 하나라도 없으면 페이드 0.3초.
 - 검사: 실제 OBS에서 영상 없음 → 페이드, 임시 영상만 있음 → 안내 문구 + 페이드를 확인.
 - 전환 영상 적용(같은 날): 사용자가 만든 `stinger_moon.webm`(1920×1080, 60fps, VP9 알파, 2초)을 `transition.webm`으로 넣었다. 알파 평균으로 재니 화면을 다 덮는 구간이 0.53~1.23초라 기본 전환 시점(길이의 절반, 1000ms)을 그대로 쓴다. 사용자가 OBS에서 "보리 전환"을 만든 뒤 `obs:setup`을 돌리니 현재 전환이 "보리 전환"(path·tp_type 0·transition_point 1000)이 됐고, 보리-대기 ↔ 보리-메인 전환에서 SceneTransitionStarted → VideoEnded가 약 2.26초로 스팅어가 재생됐다(송출·녹화 꺼진 상태에서 확인 후 보리-대기로 되돌림).
+
+### 10.4 Fish Audio 음성(2026-10-15)
+
+사용자 요청으로 TTS 업체에 Fish Audio를 더했다(OpenAI·ElevenLabs에 이어 세 번째).
+
+- 합성: `POST https://api.fish.audio/v1/tts`, `Authorization: Bearer`, 모델은 `model` 헤더(기본 `s2.1-pro`), 본문 `text`·`reference_id`(목소리 모델 id 32자리)·`format: mp3`·`mp3_bitrate: 128`·`latency: normal`·`prosody.speed`(0.5~2.0으로 자름). 형식이 맞지 않는 목소리(다른 업체 이름)는 `reference_id`를 빼서 Fish 기본 목소리를 쓴다.
+- 목소리 목록: `GET /model?self=true&page_size=100`에서 학습이 끝난(`trained`) 내 목소리. 공개 목소리는 스튜디오 설정 탭의 "목소리 ID" 칸에 `fish.audio/m/` 뒤의 id를 넣는다.
+- 키: 루트 `.env`의 `FISH_API_KEY`로만 받는다(화면 입력·저장 없음). 주소는 `BORI_FISH_BASE_URL`로 바꿀 수 있다.
+- 요금: Fish 단가를 확인하지 않아 ElevenLabs처럼 비용은 비우고 호출 수·글자 수만 센다.
+- 검사: 단위 `test:unit` 810/810(Fish 6건·목소리 형식 1건 추가), 시나리오 operations·secrets 41/41, typecheck 통과. **실제 Fish API 호출은 미검증**(키를 아직 .env에 넣지 않음).

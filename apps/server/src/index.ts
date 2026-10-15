@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { BroadcastState, ChatMessage, ChatSource, CharacterResponse, CompanionStats, LlmProvider, LlmSettings, MacroPrompt, MacroStatus, QueueSettings, ShowState, VisibleChat } from "@bori/shared";
 import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
-import { createAdapter as createProviderAdapter, createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, summarizeBroadcast, supportedProviders, synthesizeSpeech, type TtsProvider, type TtsSettings } from "@bori/llm";
+import { createAdapter as createProviderAdapter, createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, summarizeBroadcast, supportedProviders, synthesizeSpeech, ttsApiKey, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
 import { bodyAction, createConversationEngine, createModeLlmClients, isCrisisContent, isQuestion, isUnsafeContent, pickNextChatIndex, withoutCrisisTurns, type ConversationSession } from "./conversation/index.js";
 import { cleanInputText, lengthOf } from "./input-text.js";
@@ -17,7 +17,7 @@ import { createApiKeySlot } from "./secret-store.js";
 import { createConfigFile } from "./config-file.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
 import { serveStatic, type StaticRoute } from "./http/static.js";
-import { isValidVoice, pickValidSettings, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch, type PatchResult } from "./http/settings.js";
+import { isValidVoice, pickValidSettings, ttsProviders, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch, type PatchResult } from "./http/settings.js";
 import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
 import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
 import { createErClient } from "@bori/er";
@@ -186,9 +186,11 @@ let elevenLabsApiKey = elevenLabsKey.current();
 const ttsConfigPath = resolve(dataRoot, "tts-config.json");
 const ttsConfigFile = createConfigFile(ttsConfigPath, "음성 설정");
 
-const ttsCredentials = () => ({ openAiApiKey: llmApiKey, elevenLabsApiKey });
+/** Fish Audio 키는 루트 .env의 FISH_API_KEY로만 받는다(화면 입력·저장 없음). */
+const fishApiKey = process.env.FISH_API_KEY ?? "";
+const ttsCredentials = () => ({ openAiApiKey: llmApiKey, elevenLabsApiKey, fishApiKey });
 /** 지금 설정으로 음성을 만들 수 있는지. */
-const ttsHasKey = () => (ttsSettings.provider === "elevenlabs" ? elevenLabsApiKey : llmApiKey).trim().length > 0;
+const ttsHasKey = () => ttsApiKey(ttsCredentials(), ttsSettings.provider).trim().length > 0;
 /** 생성한 음성과 그 재생 길이. 방송 화면이 받아가면 되므로 메모리에만 두고 오래된 것부터 버린다. */
 const audioCache = new Map<string, { audio: Buffer; durationMs: number }>();
 const AUDIO_CACHE_LIMIT = 30;
@@ -1201,11 +1203,12 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
       .then(voices => sendJson(response, 200, {
         settings: ttsSettings,
         voices,
-        providers: ["openai", "elevenlabs"],
+        providers: ttsProviders,
         defaultModels: defaultTtsModels,
         hasApiKey: ttsHasKey(),
         hasElevenLabsKey: elevenLabsApiKey.trim().length > 0,
         storedElevenLabsKeyUnreadable: elevenLabsKey.isUnreadable(),
+        hasFishKey: fishApiKey.trim().length > 0,
         failureCount: ttsFailureCount,
         lastError: ttsLastError,
       }));
@@ -1250,11 +1253,12 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
           .then(voices => sendJson(response, 200, {
             settings: ttsSettings,
             voices,
-            providers: ["openai", "elevenlabs"],
+            providers: ttsProviders,
             defaultModels: defaultTtsModels,
             hasApiKey: ttsHasKey(),
             hasElevenLabsKey: elevenLabsApiKey.trim().length > 0,
             storedElevenLabsKeyUnreadable: elevenLabsKey.isUnreadable(),
+            hasFishKey: fishApiKey.trim().length > 0,
             failureCount: ttsFailureCount,
             lastError: ttsLastError,
           }));
