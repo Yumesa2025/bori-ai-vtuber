@@ -809,10 +809,10 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 
 그 밖에 바꾼 것: 창 제목·문서 제목 "보리 스튜디오", 서버를 기다리는 동안 보이는 화면(CSP 있음), 관리자 빌드 base `/studio/`, 개발 실행(`npm run dev`)은 `--dev`로 예전처럼 서버를 띄우지 않고 Vite(`5174/studio/`)를 열고 `/companion`·`/private-*`를 서버로 넘긴다. 루트 `npm run studio`, 관리자 `start` 스크립트.
 
-검사(2026-10-15, `feature/studio`, `fix/audit-followup` 56a57d6 위):
+검사(2026-10-15, `feature/studio`, `fix/audit-followup` e8332ae 위):
 
 - 단위 25건 추가: `apps/admin/test/server-process.test.ts` 10(가짜 서버 스크립트로 health 대기·로그·자식 종료·먼저 끝남·시간 초과·바깥 서버 유지), `operate.test.ts` 15.
-- 결과: typecheck 10개 워크스페이스 통과, `test:unit` 796/796, `test` 341/341(`MOCK_PORT=4852 BORI_TEST_PORT=4853`), `eval:test` 94/94, `eval:typecheck` 통과, `eval:static` 통과 52·실패 0·범위 밖 4, `npm run build`(관리자·방송·1:1) 통과.
+- 결과: typecheck 10개 워크스페이스 통과, `test:unit` 797/797, `test` 342/342(`MOCK_PORT=4852 BORI_TEST_PORT=4853`. 처음 한 번은 rebase 전에 빌드한 `apps/broadcast/dist`에 새 `background.html`이 없어 1건 실패했고, 다시 빌드한 뒤 통과), `eval:test` 94/94, `eval:typecheck` 통과, `eval:static` 통과 52·실패 0·범위 밖 4, `npm run build`(관리자·방송·1:1) 통과.
 - **Electron 실제 실행**(임시 `BORI_DATA_DIR`, `BORI_SERVER_PORT=4850`, `BORI_ENV_FILE=""`로 실제 키 없이, mock LLM 4851). 창은 원격 디버깅 포트로 열어 DOM을 읽고 화면을 캡처했다(캡처는 커밋하지 않음).
   - 서버가 없을 때: 스튜디오가 서버를 띄우고 `http://127.0.0.1:4850/studio/`를 열었다. 세 탭(방송 운영·1:1 대화·설정)이 모두 그려졌고, 1:1 탭 iframe에 1:1 화면과 Live2D가 떴다. 운영 탭에서 Space → "① 오프닝"과 진행 대사(mock), 테스트 채팅 "재키 어때?" → 로그에 채팅·보리 답, OBS 주소(`…:4850/obs/character.html` 등. 이때는 6개였고 배경 페이지는 rebase 뒤 더했다). 창을 닫으니(WM_CLOSE) Electron과 서버 node가 함께 끝나고 4850이 비었다.
   - 서버가 이미 있을 때: 터미널에서 띄운 서버를 그대로 썼고("이미 떠 있는 서버를 씁니다"), 창을 닫은 뒤에도 그 서버는 살아 `/api/health`에 답했다.
