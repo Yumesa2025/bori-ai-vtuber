@@ -180,6 +180,9 @@ export async function run({ bori, mock, report }) {
 
     const empty = await bori.chat("   ");
     report.check("빈 채팅은 400 empty다", empty.status === 400 && empty.body?.code === "empty", JSON.stringify(empty.body));
+    // 다른 인코딩으로 보낸 한글은 서버에서 U+FFFD로 바뀐다. 깨진 글자가 방송 화면에 그대로 나가지 않게 받지 않는다.
+    const broken = await bori.chat("�� 15� ij��?");
+    report.check("깨진 글자(U+FFFD)가 든 채팅은 400 invalid_text다", broken.status === 400 && broken.body?.code === "invalid_text", JSON.stringify(broken.body));
     const first = await bori.chat("운영표시 반가워요 여러분", "가");
     const duplicate = await bori.chat("운영표시 반가워요 여러분", "가");
     const otherViewer = await bori.chat("운영표시 반가워요 여러분", "나");

@@ -815,7 +815,7 @@ function startBroadcast() {
 }
 
 /** 채팅을 받지 않은 이유. 화면·관리자가 이유별로 안내할 수 있게 나눈다(a4 A4-20). */
-type ChatRejection = { code: "invalid" | "too_long" | "nickname_too_long" | "empty" | "not_live" | "duplicate"; error: string };
+type ChatRejection = { code: "invalid" | "invalid_text" | "too_long" | "nickname_too_long" | "empty" | "not_live" | "duplicate"; error: string };
 
 /**
  * 방송 채팅 하나를 검사해 큐에 넣는다. 받지 않으면 이유를 돌려준다.
@@ -832,6 +832,8 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }, source: Ch
   const nickname = nicknameOf(input.nickname ?? "");
   if (lengthOf(nickname) > NICKNAME_MAX_LENGTH) return { code: "nickname_too_long", error: `닉네임은 ${NICKNAME_MAX_LENGTH}자 이하여야 합니다.` };
   if (!content) return { code: "empty", error: "빈 채팅은 받지 않습니다." };
+  // 다른 인코딩으로 보낸 한글은 본문을 읽을 때 U+FFFD로 바뀐다. 깨진 글자를 방송 화면·프롬프트에 내보내지 않는다.
+  if (content.includes("�")) return { code: "invalid_text", error: "글자가 깨진 채팅은 받지 않습니다. UTF-8로 보내 주세요." };
   if (state.status !== "live") return { code: "not_live", error: "방송 중이 아니라 채팅을 받지 않습니다." };
   // 방송 진행 중의 명령(!전적)은 큐와 화면 채팅 목록에 올리지 않는다. 명령에 든 닉네임이 화면에 드러나지 않게 한다.
   if (show.view().stage !== "idle" && playerCommand.handle(content)) return null;
