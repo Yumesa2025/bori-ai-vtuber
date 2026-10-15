@@ -11,6 +11,7 @@
     "dev:broadcast": "npm --workspace apps/broadcast run dev",
     "dev:admin": "npm --workspace apps/admin run dev",
     "dev:companion": "npm --workspace apps/companion run dev",
+    "studio": "npm run build:broadcast && npm run build:companion && npm run build:admin && npm --workspace apps/admin run start",
     "build": "npm run build:admin && npm run build:broadcast && npm run build:companion",
     "build:broadcast": "npm --workspace apps/broadcast run build",
     "build:admin": "npm --workspace apps/admin run build",

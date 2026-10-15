@@ -3,6 +3,10 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const devServer = { host: '127.0.0.1', port: 5174 };
+/** 서버가 빌드를 /studio/로 내준다(apps/server/src/index.ts의 staticRoutes). 개발 서버도 같은 경로로 연다. */
+const base = '/studio/';
+/** 개발 서버가 API·1:1 화면을 넘길 보리 서버. 스튜디오(electron/server-process.cjs)와 같이 BORI_SERVER_PORT를 따른다. */
+const serverUrl = `http://127.0.0.1:${process.env.BORI_SERVER_PORT || 4310}`;
 
 /**
  * 개발 서버용 CSP 보정.
@@ -11,7 +15,7 @@ const devServer = { host: '127.0.0.1', port: 5174 };
  * 해시는 플러그인이 내보내는 원문으로 계산하므로 플러그인을 올려도 맞는다. 빌드 산출물은 index.html 그대로다.
  */
 function devCsp(): Plugin {
-  const preamble = react.preambleCode.replace('__BASE__', '/');
+  const preamble = react.preambleCode.replace('__BASE__', base);
   const hash = createHash('sha256').update(preamble).digest('base64');
   return {
     name: 'bori-admin-dev-csp',
@@ -23,10 +27,12 @@ function devCsp(): Plugin {
 }
 
 export default defineConfig({
+  base,
   plugins: [react(), devCsp()],
   cacheDir: '../../.vite-cache/admin',
   server: {
     ...devServer,
-    proxy: { '/api': 'http://127.0.0.1:4310' },
+    // 1:1 대화 탭의 iframe(/companion/)과 그 안의 Live2D 자산(/private-*)도 서버가 내준 것을 쓴다.
+    proxy: { '/api': serverUrl, '/companion': serverUrl, '/private-': serverUrl },
   },
 });
