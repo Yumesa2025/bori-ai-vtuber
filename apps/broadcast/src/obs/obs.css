@@ -23,8 +23,8 @@
   --dashboard-bottom: 626px;
   --chat-top: 649px;
   --chat-bottom: 851px;
-  /* 자막(두 줄)이 이 아래 화면 끝까지 쓴다. */
-  --caption-top: 872px;
+  /* 자막(세 줄, 36px×1.4×3 + 위아래 여백 28px = 180px)이 이 아래 화면 끝까지 쓴다. */
+  --caption-top: 862px;
   font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
   color: var(--text);
 }
@@ -107,7 +107,7 @@ html.obs.framed .obs-panel { border-color: transparent; background: transparent;
 
 /* ── caption ── */
 /* 채팅 띠 아래 오른쪽 칸. 가운데 띄우면 보리 몸통과 채팅 띠에 걸친다. */
-.obs-caption { position: fixed; left: var(--panel-left); right: var(--panel-right); top: var(--caption-top); max-height: calc(1080px - var(--edge) - var(--caption-top)); margin: 0; padding: 14px 40px; border-radius: 24px; background: #fffffff2; box-shadow: 0 14px 40px #00000066; color: #141a33; font-size: 36px; font-weight: 700; line-height: 1.4; text-align: center; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.obs-caption { position: fixed; left: var(--panel-left); right: var(--panel-right); top: var(--caption-top); max-height: calc(1080px - var(--edge) - var(--caption-top)); margin: 0; padding: 14px 40px; border-radius: 24px; background: #fffffff2; box-shadow: 0 14px 40px #00000066; color: #141a33; font-size: 36px; font-weight: 700; line-height: 1.4; text-align: center; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 
 /* ── waiting · ending ── */
 .obs-fullscreen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; overflow: hidden; text-align: center; }

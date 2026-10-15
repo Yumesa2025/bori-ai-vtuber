@@ -8,15 +8,15 @@ import type { ShowStage } from "@bori/shared";
  * - 운영자가 직접 넘기면(단계 세대가 바뀌면) 그 코너의 시간을 새로 센다.
  */
 
-/** 코너별 시간(초). 방송 진행표: 오프닝 0:00~0:30, 브리핑 ~1:30, 질문 ~3:00, 전적 ~4:00, 엔딩 ~4:30. */
-export const CORNER_SECONDS: Record<ShowStage, number> = { idle: 0, opening: 30, briefing: 60, qna: 90, diagnosis: 60, ending: 30 };
+/** 코너별 시간(초). 모든 코너 30초(2026-10-15 사용자 결정). 오프닝 0:00~0:30, 브리핑 ~1:00, 질문 ~1:30, 전적 ~2:00, 엔딩 ~2:30. */
+export const CORNER_SECONDS: Record<ShowStage, number> = { idle: 0, opening: 30, briefing: 30, qna: 30, diagnosis: 30, ending: 30 };
 
 /** 시간이 다 됐을 때 다음 코너로 넘어가며 하는 말. 다음 코너의 첫 대사가 이어서 나오므로 짧게 둔다. */
 export const BRIDGE_LINES: Partial<Record<ShowStage, string>> = {
   opening: "그럼 바로 시작해 볼게요!",
   briefing: "TOP 5는 여기까지예요. 이제 다음으로 넘어가 볼게요!",
   qna: "질문 고마워요! 시간이 다 돼서 다음 코너로 넘어갈게요.",
-  diagnosis: "전적 진단은 여기까지예요. 이제 마무리해 볼게요!",
+  // 전적 진단은 진행기가 떠날 때 마무리 인사(stages.ts outro)를 하므로 따로 연결 멘트를 두지 않는다.
 };
 
 export type AutopilotStatus = {

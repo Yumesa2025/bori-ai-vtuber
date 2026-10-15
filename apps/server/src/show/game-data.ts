@@ -35,6 +35,11 @@ export function stageGameData(stage: ShowStage, ctx: StageContext): string[] {
   }
 }
 
+/** 마무리 인사(전적 진단을 떠날 때)에 붙이는 데이터. 오늘 이야기한 캐릭터만 넣는다. */
+export function outroGameData(ctx: StageContext): string[] {
+  return [ctx.mentioned.length > 0 ? `오늘 이야기한 캐릭터: ${ctx.mentioned.join(", ")}` : "오늘은 캐릭터 질문이 없었다."];
+}
+
 /**
  * 캐릭터 하나의 수치 줄. 주 무기는 넣지 않는다. 실모델이 "쌍검이라 빠르다"처럼 데이터에 없는 무기 특성을 지어냈다(무기는 대시보드 카드에만 보인다).
  * stats(많이 고른 순)가 있으면 그 안에서 몇 번째인지 붙인다. "많이 고르지만 성적은 중간" 같은 생각의 근거가 된다.

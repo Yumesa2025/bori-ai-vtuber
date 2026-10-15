@@ -11,7 +11,7 @@ import type { DashboardView, ErPlayerReport, ShowStage } from "@bori/shared";
  */
 
 /** 전적을 받은 뒤 보리에게 주는 지시. */
-export const PLAYER_DIRECTIVE = "이 전적을 분석하고 조언 한마디. 닉네임은 말하지 않는다.";
+export const PLAYER_DIRECTIVE = "방금 검색한 전적 결과가 [게임 데이터]에 있다. 판수·평균 순위·최근 순위 흐름·많이 한 캐릭터 중 눈에 띄는 것을 두세 문장으로 정리하고 조언을 한마디 붙인다. 수치는 주어진 것만 쓴다. 닉네임은 말하지 않고, 명령어 사용법은 다시 안내하지 않는다.";
 
 const COMMAND = /^!전적(?:\s+(.*))?$/s;
 /** 닉네임 길이 상한(글자). 넘으면 조회하지 않는다. */

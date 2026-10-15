@@ -16,7 +16,7 @@ export const emptyState: BroadcastState = { status: "idle", layout: "chat", curr
 // ── 예시 상태 ──
 // 화면 확인용 가짜 값이다. 실제 집계로 오해하지 않게 기준 문구에 "예시"를 밝힌다.
 const demoBasis: ErMetaBasis = {
-  seasonName: "시즌 21",
+  seasonName: "시즌 12",
   sampleGames: 7200,
   collectedAt: "2026-10-15T09:00:00.000Z",
   description: "예시 데이터 · 최근 상위 랭커 7,200판 기준",
@@ -40,7 +40,7 @@ export const demoDashboards: Record<string, DashboardView> = {
     status: "ready",
     report: {
       maskedNickname: "보리팬**",
-      seasonName: "시즌 21",
+      seasonName: "시즌 12",
       games: 48,
       avgRank: 3.6,
       top1Rate: 0.146,

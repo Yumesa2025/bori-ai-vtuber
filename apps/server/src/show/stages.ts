@@ -15,6 +15,11 @@ export type StageConfig = {
   directive: string;
   /** LLM으로 대사를 못 만들었을 때 그대로 말하는 문장. */
   fallbackLines: string[];
+  /**
+   * 이 단계에서 다음 단계로 넘어가기 직전에 하는 말. 말을 다 마친 뒤에 넘어간다.
+   * 엔딩은 말하지 않으므로 마무리 인사를 전적 진단을 떠날 때 한다(2026-10-15 사용자 결정).
+   */
+  outro?: { directive: string; fallbackLines: string[] };
 };
 
 /** 방송 진행 단계. 순서는 showStages(@bori/shared)를 따른다. */
@@ -43,6 +48,10 @@ export const stageConfig: Record<ShowStage, StageConfig> = {
     dashboard: () => ({ kind: "player", status: "waiting", report: null }),
     directive: "채팅에 '!전적 닉네임'을 치면 최근 전적을 봐 준다고 안내한다. 1~2문장.",
     fallbackLines: ["이제 전적 진단 시간이에요! 채팅에 '!전적 닉네임'을 적어 주세요."],
+    outro: {
+      directive: "오늘 방송을 마무리한다. 오늘 이야기한 캐릭터나 본 전적 중 기억에 남는 것을 한마디 돌아보고, 함께해 줘서 고맙다고 인사하고 다음 방송에서 또 만나자고 한다. 3문장 이내.",
+      fallbackLines: ["오늘 같이 메타도 보고 전적도 봐서 정말 즐거웠어요. 함께해 주셔서 고마워요, 다음 방송에서 또 만나요!"],
+    },
   },
   // 대기·엔딩 장면에서는 보리가 말하지 않는다(사용자 결정 2026-10-15). 마무리 인사는 엔딩 화면 글로만 보인다.
   ending: { scene: "보리-엔딩", dashboard: ctx => ({ kind: "summary", characters: ctx.mentioned }), directive: "", fallbackLines: [] },

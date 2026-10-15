@@ -34,7 +34,7 @@ test("랭크 통계로 가린 닉네임·평균 순위·최근 순위·주 캐�
   const { report, calls } = await lookup(playerRoutes());
   assert.deepEqual(report, {
     maskedNickname: "보리팬**",
-    seasonName: "시즌 21",
+    seasonName: "시즌 12",
     games: 40,
     avgRank: 3.45,
     top1Rate: 0.15,
@@ -78,7 +78,7 @@ test("통계가 모두 없으면 0경기 전적을 돌려준다", async () => {
   const empty = { code: 200, message: "Success", userStats: [] };
   const routes = { ...playerRoutes(), [RANKED]: empty, [NORMAL]: empty, [GAMES]: { code: 200, message: "Success", userGames: [] } };
   const { report } = await lookup(routes);
-  assert.deepEqual(report, { maskedNickname: "보리팬**", seasonName: "시즌 21", games: 0, avgRank: 0, top1Rate: 0, recentRanks: [], mainCharacters: [] });
+  assert.deepEqual(report, { maskedNickname: "보리팬**", seasonName: "시즌 12", games: 0, avgRank: 0, top1Rate: 0, recentRanks: [], mainCharacters: [] });
 });
 
 test("닉네임이 없으면 null", async () => {

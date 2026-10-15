@@ -316,7 +316,7 @@ export type ErCharacterStat = {
 
 /** 메타 집계의 기준. 화면과 보리 대사에 그대로 밝힌다. */
 export type ErMetaBasis = {
-  seasonName: string;    // 예: "시즌 21"
+  seasonName: string;    // 예: "시즌 12"(게임 표기. API는 Season21)
   sampleGames: number;   // 집계에 쓴 캐릭터-경기 수
   collectedAt: string;   // ISO 시각
   description: string;   // 예: "최근 7일 상위 랭커 7,200판 기준"

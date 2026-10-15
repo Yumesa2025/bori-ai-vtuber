@@ -423,13 +423,17 @@ const handleCompanionRoute = createCompanionHandler({
 let sessionStartedAt = 0;
 let answeredCount = 0;
 
-function broadcastStatusLines(): string[] {
+/**
+ * 보리에게 주는 방송 상황 줄. 코너 안내 줄은 채팅 답에만 넣는다(forChat).
+ * 진행 대사·전적 분석에 넣었더니 "!전적 닉네임을 적어 주세요" 안내만 되풀이하고 전적을 정리하지 않았다(2026-10-15 리허설).
+ */
+function broadcastStatusLines(options: { forChat?: boolean } = {}): string[] {
   if (state.status !== "live" || sessionStartedAt === 0) return [];
 
   const minutes = Math.floor((Date.now() - sessionStartedAt) / 60_000);
   const lines = [minutes < 1 ? "방송을 막 시작했다." : `방송을 시작한 지 ${minutes}분 지났다.`];
   if (answeredCount > 0) lines.push(`지금까지 채팅 ${answeredCount}개에 답했다.`);
-  const corner = CORNER_LINES[show.view().stage];
+  const corner = options.forChat ? CORNER_LINES[show.view().stage] : undefined;
   if (corner) lines.push(corner);
   return lines;
 }
@@ -654,7 +658,7 @@ let showDriven = false;
  */
 function boriQuiet(): boolean {
   const stage = show.view().stage;
-  return stage === "ending" || (stage === "idle" && showDriven);
+  return stage === "ending" || (stage === "idle" && showDriven) || show.isLeaving();
 }
 
 /**
@@ -740,7 +744,7 @@ function scheduleNext() {
   const prepared = engine.respond(session, {
     content: chat.content,
     speaker: { ownerId: isAnonymousViewer(chat.viewerId) ? null : chat.viewerId },
-    statusLines: broadcastStatusLines(),
+    statusLines: broadcastStatusLines({ forChat: true }),
     ...(game ? { gameData: game.lines } : {}),
   }).then(async outcome => {
     // 만드는 사이 방송이 끝났거나 다시 시작했으면 음성도 오류 표시도 만들지 않는다. 답변은 아래에서 버린다.
@@ -1025,6 +1029,7 @@ const show = createShowController({
   obs,
   speak: speakShowDirective,
   say: sayShowLine,
+  waitQuiet,
   er: { basis: () => erData.basis(), top5: () => erData.top5() },
 });
 /**

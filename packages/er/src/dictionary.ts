@@ -30,11 +30,22 @@ function parseL10n(text: string): Map<string, string> {
   return entries;
 }
 
-/** "Season21" → "시즌 21". 모르는 형식은 그대로 둔다. */
+/**
+ * 얼리 액세스 시즌 수. API 시즌 이름은 얼리 액세스부터 이어 세어 정식 출시 뒤 첫 시즌이 Season10이다.
+ * 게임 화면은 정식 시즌을 1부터 다시 센다(API Season21 = 정식 시즌 12, 2026-10-15 사용자 확인).
+ */
+export const EARLY_ACCESS_SEASONS = 9;
+
+/** API 시즌 번호 → 게임에 보이는 시즌 번호. 얼리 액세스 시즌(1~9)은 그대로 둔다. */
+export function officialSeasonNumber(apiNumber: number): number {
+  return apiNumber > EARLY_ACCESS_SEASONS ? apiNumber - EARLY_ACCESS_SEASONS : apiNumber;
+}
+
+/** "Season21" → "시즌 12", "Pre-Season21" → "프리시즌 12". 모르는 형식은 그대로 둔다. */
 function koreanSeasonName(name: string): string {
   const match = /^(Pre-)?Season\s*(\d+)$/i.exec(name.trim());
   if (!match) return name;
-  return `${match[1] ? "프리시즌" : "시즌"} ${match[2]}`;
+  return `${match[1] ? "프리시즌" : "시즌"} ${officialSeasonNumber(Number(match[2]))}`;
 }
 
 export async function loadDictionary(client: ErClient): Promise<ErDictionary> {

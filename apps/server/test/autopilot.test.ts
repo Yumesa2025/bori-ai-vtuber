@@ -89,13 +89,13 @@ describe("코너 자동 진행", () => {
 
   test("운영자가 직접 넘기면 그 코너의 시간을 새로 센다", async () => {
     const context = setup({ stage: "briefing" });
-    context.advance(50_000);
+    context.advance(25_000);
     context.moveTo("qna");
     context.autopilot.status();
-    context.advance(50_000);
+    context.advance(20_000);
     context.autopilot.tick();
     await settle(context.autopilot);
     assert.equal(context.stage(), "qna");
-    assert.equal(context.autopilot.status().elapsedSeconds, 50);
+    assert.equal(context.autopilot.status().elapsedSeconds, 20);
   });
 });
