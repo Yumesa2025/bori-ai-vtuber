@@ -41,7 +41,7 @@ test("자막은 show.caption, 없으면 현재 답", () => {
 
 test("전적 카드 상태 문구", () => {
   assert.equal(playerStatusText("waiting"), "채팅에 !전적 닉네임을 적어 주세요");
-  assert.equal(playerStatusText("loading"), "찾아보는 중…");
+  assert.equal(playerStatusText("loading"), "전적을 검색하고 있어요");
   assert.equal(playerStatusText("not-found"), "닉네임을 찾지 못했어요");
   assert.equal(playerStatusText("ready"), null);
 });

@@ -88,7 +88,7 @@ function DashboardBody({ view }: { view: DashboardView }) {
     case "character": return <CharacterCard query={view.query} stat={view.stat} suggestions={view.suggestions} />;
     case "player": {
       const text = playerStatusText(view.status);
-      if (text || !view.report) return <div className="obs-pending"><p className={`obs-message${view.status === "loading" ? " obs-dots" : ""}`}>{text ?? playerStatusText("not-found")}</p></div>;
+      if (text || !view.report) return <div className="obs-pending">{view.status === "loading" && <div className="obs-spinner" aria-hidden="true" />}<p className={`obs-message${view.status === "loading" ? " obs-dots" : ""}`}>{text ?? playerStatusText("not-found")}</p></div>;
       return <PlayerReport report={view.report} />;
     }
     case "summary":

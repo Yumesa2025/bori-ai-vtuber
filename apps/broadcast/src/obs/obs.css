@@ -88,7 +88,10 @@ html.obs.framed .obs-panel { border-color: transparent; background: transparent;
 .obs-ranks li.top { background: var(--gold); color: #1d1606; }
 .obs-mains { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 28px; font-weight: 700; }
 .obs-mains span { color: var(--text-dim); font-weight: 600; }
-.obs-pending { display: grid; place-items: center; height: 100%; text-align: center; }
+.obs-pending { display: grid; place-items: center; align-content: center; gap: 32px; height: 100%; text-align: center; }
+/* 전적 검색 중 로딩 고리. 금색 한 칸이 돈다. */
+.obs-spinner { width: 110px; height: 110px; border-radius: 50%; border: 10px solid #ffd68c33; border-top-color: var(--gold); animation: obs-spin 0.9s linear infinite; }
+@keyframes obs-spin { to { transform: rotate(360deg); } }
 .obs-pending .obs-message { font-size: 48px; }
 .obs-dots::after { content: ""; animation: obs-dots 1.2s steps(4) infinite; }
 @keyframes obs-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }

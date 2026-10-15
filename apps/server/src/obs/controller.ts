@@ -139,6 +139,29 @@ export function createObsController(options: { url: string; password: string; re
       }
     },
 
+    /** 입력 소스 볼륨(dB). 연결되지 않았거나 소스가 없으면 null. */
+    async volume(inputName: string): Promise<number | null> {
+      const obs = client;
+      if (!obs || state !== "connected") return null;
+      try {
+        const result = await withTimeout(obs.call("GetInputVolume", { inputName }), requestTimeoutMs);
+        return result.inputVolumeDb;
+      } catch {
+        return null;
+      }
+    },
+
+    /** 입력 소스 볼륨(dB)을 바꾼다. 연결되지 않았거나 실패해도 throw하지 않는다. */
+    async setVolume(inputName: string, inputVolumeDb: number): Promise<void> {
+      const obs = client;
+      if (!obs || state !== "connected") return;
+      try {
+        await withTimeout(obs.call("SetInputVolume", { inputName, inputVolumeDb }), requestTimeoutMs);
+      } catch {
+        // 배경음악이 없는 OBS도 있다. 볼륨 조절 실패는 진행을 막지 않는다.
+      }
+    },
+
     status: (): ObsStatus => ({ state, currentScene, lastError }),
 
     /** 연결을 끊고 다시 연결하지 않는다. */
