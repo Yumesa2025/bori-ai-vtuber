@@ -220,6 +220,10 @@ function outputLayer(request: LlmRequest, policy: ConversationPolicy): string[] 
     "[출력 규칙]",
     `- reply는 ${request.maxReplyLength}자 이내의 한국어 존댓말 ${policy.replySentences}이다.`,
     `- emotion.primary는 다음 중 하나여야 한다: ${request.allowedEmotions.join(", ")}`,
+    // 2026-10-15 리허설: "기분이 좋아졌어요"에 당황한 얼굴(embarrassed → 멍한 표정)이 나왔다. 이름만으로는 얼굴을 몰라 설명을 준다.
+    ...(request.emotionDescriptions
+      ? ["- 감정마다 보리 얼굴이 이렇게 보인다. 답의 말과 얼굴이 어긋나지 않게 고른다.", ...request.allowedEmotions.filter(name => request.emotionDescriptions?.[name]).map(name => `  - ${name}: ${request.emotionDescriptions?.[name]}`)]
+      : []),
     "- emotion.intensity는 0과 1 사이, durationSeconds는 1과 60 사이다.",
     "- 이모지와 마크다운을 쓰지 않는다.",
     "",

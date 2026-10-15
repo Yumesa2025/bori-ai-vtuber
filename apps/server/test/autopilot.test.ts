@@ -5,11 +5,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ShowStage } from "@bori/shared";
-import { BRIDGE_LINES, CORNER_SECONDS, createAutopilot } from "../src/show/autopilot.js";
+import { BRIDGE_LINES, CORNER_SECONDS, createAutopilot, QNA_EXTRA_SECONDS } from "../src/show/autopilot.js";
 
 const order: ShowStage[] = ["idle", "opening", "briefing", "qna", "diagnosis", "ending"];
 
-function setup(options: { stage?: ShowStage; enabled?: boolean; onAir?: boolean } = {}) {
+function setup(options: { stage?: ShowStage; enabled?: boolean; onAir?: boolean; pending?: () => boolean } = {}) {
   let stage: ShowStage = options.stage ?? "qna";
   let epoch = 1;
   let clock = 0;
@@ -26,6 +26,7 @@ function setup(options: { stage?: ShowStage; enabled?: boolean; onAir?: boolean 
     waitQuiet: async () => undefined,
     next: async () => { stage = order[Math.min(order.length - 1, order.indexOf(stage) + 1)]; epoch += 1; },
     finish: async () => { finished += 1; },
+    ...(options.pending ? { pendingFocus: options.pending } : {}),
     enabled: options.enabled ?? true,
     now: () => clock,
   });
@@ -109,6 +110,29 @@ describe("코너 자동 진행", () => {
     assert.equal(context.stage(), "ending");
     assert.equal(context.finished(), 1);
     assert.equal(context.autopilot.holding(), false);
+  });
+
+  test("질문 코너에 답하지 않은 캐릭터 질문이 남아 있으면 시간을 더 쓰고, 상한이 되면 넘어간다", async () => {
+    let pending = true;
+    const context = setup({ pending: () => pending });
+    context.advance(CORNER_SECONDS.qna * 1000);
+    context.autopilot.tick();
+    await settle(context.autopilot);
+    assert.equal(context.stage(), "qna");
+    assert.equal(context.autopilot.holding(), false);
+
+    context.advance(QNA_EXTRA_SECONDS * 1000);
+    context.autopilot.tick();
+    await settle(context.autopilot);
+    assert.equal(context.stage(), "diagnosis");
+
+    // 질문이 다 처리되면 늘린 시간을 기다리지 않는다.
+    pending = false;
+    const done = setup({ pending: () => false });
+    done.advance(CORNER_SECONDS.qna * 1000);
+    done.autopilot.tick();
+    await settle(done.autopilot);
+    assert.equal(done.stage(), "diagnosis");
   });
 
   test("꺼져 있으면 시간이 지나도 넘어가지 않는다", async () => {

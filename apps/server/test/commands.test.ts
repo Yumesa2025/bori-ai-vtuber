@@ -94,6 +94,23 @@ describe("!전적", () => {
     assert.equal(last?.kind === "player" ? last.status : null, "ready");
   });
 
+  test("전적 줄은 요청한 시청자의 전적이라고 밝히고, 분석 지시도 보리 것으로 말하지 않게 한다", async () => {
+    const { command, spoken } = setup();
+    command.handle("!전적 보리팬클럽");
+    await command.idle();
+    assert.match(spoken[0].gameData[0], /요청한 시청자의 전적/);
+    assert.match(spoken[0].directive, /보리의 것이 아니라/);
+  });
+
+  test("검색 안내 문장은 돌려 쓴다", async () => {
+    const { command, said } = setup();
+    command.handle("!전적 첫째");
+    await command.idle();
+    command.handle("!전적 둘째");
+    await command.idle();
+    assert.notEqual(said[0], said[1]);
+  });
+
   test("대사 줄에는 원래 닉네임도 가린 닉네임도 없다", async () => {
     const { command, spoken } = setup();
     command.handle("!전적 보리팬클럽");

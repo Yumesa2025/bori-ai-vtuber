@@ -17,3 +17,19 @@ export function withoutOpinionQuestions(reply: string): string {
   if (kept.length === 0 || kept.length === parts.length) return reply;
   return kept.join(" ");
 }
+
+/** 기쁜 말. 이 말이 든 답에 당황·슬픔·화남 얼굴이 나오면 어긋난다. */
+const POSITIVE_WORDS = /좋아(요|졌|서|하|해)|기뻐|기쁘|고마워|고맙|감사해|신나|신났|행복|즐거|설레/;
+/** 기쁜 말과 함께 나오면 어긋나는 감정. 표정이 당황(멍함)·말문 막힘·슬픔·울음·화남이다. */
+const CLASHING_EMOTIONS = new Set(["embarrassed", "awkward", "sad", "crying", "angry"]);
+/** 그 감정의 짝 모션. 감정을 바꾸면 같이 뺀다(모션이 있으면 짝 표정이 감정 표정을 덮어쓴다). */
+const CLASHING_MOTIONS = new Set(["kuqi", "shengqi"]);
+
+/**
+ * 답의 말과 얼굴을 맞춘다. "기분이 좋아졌어요"에 당황한 얼굴이 나온 일이 있어(2026-10-15 리허설),
+ * 기쁜 말이 있는데 감정이 어긋나면 happy로 바꾸고 어긋나는 모션을 뺀다. 그 밖에는 그대로 둔다.
+ */
+export function withMatchingEmotion<T extends { reply: string; emotion: { primary: string }; actions: readonly { name: string }[] }>(response: T): T {
+  if (!POSITIVE_WORDS.test(response.reply) || !CLASHING_EMOTIONS.has(response.emotion.primary)) return response;
+  return { ...response, emotion: { ...response.emotion, primary: "happy" }, actions: response.actions.filter(action => !CLASHING_MOTIONS.has(action.name)) };
+}

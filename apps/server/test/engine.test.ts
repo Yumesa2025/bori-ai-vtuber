@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
+import { boriEmotionDescriptions, boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
 import { buildSystemPrompt, type LlmAdapter, type LlmOutcome, type LlmRequest } from "@bori/llm";
 import type { MemoryAccess, MemorySearchHit, MemorySettings } from "@bori/memory";
 import type { LlmSettings, MacroPrompt } from "@bori/shared";
@@ -374,6 +374,7 @@ describe("시스템 프롬프트 크기", () => {
       macroPrompts: [],
       broadcastStatus: [],
       allowedEmotions: boriEmotionNames,
+      emotionDescriptions: boriEmotionDescriptions,
       allowedMotions: boriMotionGroupNames.map(name => ({ name, description: boriMotionDescriptions[name] })),
       maxReplyLength: h.llmSettings.maxReplyLength,
       timeoutMs: h.llmSettings.timeoutMs,
