@@ -30,8 +30,6 @@ export function stageGameData(stage: ShowStage, ctx: StageContext): string[] {
     case "briefing":
       if (ctx.top5.length === 0 || !ctx.basis) return [NO_META_LINE];
       return [...ctx.top5.map((stat, index) => `${index + 1}위: ${statSummary(stat)}`), basisLine(ctx.basis)];
-    case "ending":
-      return [ctx.mentioned.length > 0 ? `오늘 이야기한 캐릭터: ${ctx.mentioned.join(", ")}` : "오늘은 캐릭터 질문이 없었다."];
     default:
       return [];
   }
