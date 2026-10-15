@@ -729,6 +729,9 @@ function dropPastCornerChats() {
   }
 }
 
+/** 진행기 방송의 채팅 답 대기(초). 설정값이 더 짧으면 설정값을 쓴다. */
+const SHOW_RESPONSE_DELAY_SECONDS = { min: 1, max: 2 };
+
 /** 인사 채팅. 오프닝에서 먼저 받는다. */
 const GREETING = /안녕|하이|ㅎㅇ|반가|하잉|방가|\bhi\b|hello/i;
 
@@ -770,8 +773,9 @@ function scheduleNext() {
   // 답을 만드는 사이 코너가 바뀌면 이 답은 내보내지 않는다.
   const corner = show.epoch();
 
-  const min = settings.responseDelayMinSeconds;
-  const max = Math.max(min, settings.responseDelayMaxSeconds);
+  // 진행기 방송은 코너 시간이 정해져 있어 "사람처럼" 기다리는 시간을 1~2초로 줄인다. 5~10초씩 기다리면 질문 코너에서 질문을 다 못 받았다(2026-10-15 리허설).
+  const min = showDriven ? Math.min(settings.responseDelayMinSeconds, SHOW_RESPONSE_DELAY_SECONDS.min) : settings.responseDelayMinSeconds;
+  const max = Math.max(min, showDriven ? Math.min(settings.responseDelayMaxSeconds, SHOW_RESPONSE_DELAY_SECONDS.max) : settings.responseDelayMaxSeconds);
   const delay = (min + Math.random() * (max - min)) * 1000;
   const waited = new Promise<void>(resolve => {
     finishResponseWait = resolve;
@@ -1141,6 +1145,8 @@ const autopilot = createAutopilot({
   waitQuiet,
   next: advanceShow,
   finish: fadeOutBgm,
+  // 지금 코너에 들어온 캐릭터·메타 질문(점수 3 이상)이 아직 남아 있는지.
+  pendingFocus: () => queue.some(chat => chatCorner.get(chat) === show.epoch() && chatRelevance(chat.content) >= 3),
   enabled: process.env.BORI_SHOW_AUTO_ADVANCE !== "0",
 });
 setInterval(() => autopilot.tick(), 500).unref();

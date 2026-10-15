@@ -11,7 +11,7 @@ import type { DashboardView, ErPlayerReport, ShowStage } from "@bori/shared";
  */
 
 /** 전적을 받은 뒤 보리에게 주는 지시. */
-export const PLAYER_DIRECTIVE = "방금 검색한 전적 결과가 [게임 데이터]에 있다. 판수·평균 순위·최근 순위 흐름·많이 한 캐릭터 중 눈에 띄는 것을 두세 문장으로 정리하고 조언을 한마디 붙인다. 수치는 주어진 것만 쓴다. 닉네임은 말하지 않고, 명령어 사용법은 다시 안내하지 않는다.";
+export const PLAYER_DIRECTIVE = "방금 검색한 전적 결과가 [게임 데이터]에 있다. 이 전적은 보리의 것이 아니라 채팅으로 요청한 시청자의 것이다. '제 전적', '저는'처럼 보리 것으로 말하지 말고 '이분', '요청해 주신 분'처럼 말한다. 판수·평균 순위·최근 순위 흐름·많이 한 캐릭터 중 눈에 띄는 것을 두세 문장으로 정리하고 조언을 한마디 붙인다. 수치는 주어진 것만 쓴다. 닉네임은 말하지 않고, 명령어 사용법은 다시 안내하지 않는다.";
 
 const COMMAND = /^!전적(?:\s+(.*))?$/s;
 /** 닉네임 길이 상한(글자). 넘으면 조회하지 않는다. */
@@ -20,7 +20,12 @@ const NICKNAME_MAX_LENGTH = 30;
 const NOTICE_COOLDOWN_MS = 15_000;
 
 const LINES = {
-  searching: "오, 전적이 들어왔네요! 한번 검색해 볼까요? 잠깐만요!",
+  // 전적 검색 안내는 여러 번 나오므로 문장을 돌려 쓴다(같은 대사 되풀이 방지, 2026-10-15 리허설).
+  searching: [
+    "오, 전적이 들어왔네요! 한번 검색해 볼까요? 잠깐만요!",
+    "좋아요, 이번 전적도 바로 찾아볼게요! 잠시만요.",
+    "전적 요청 또 왔네요! 어떤 기록일지 검색해 볼게요.",
+  ],
   otherStage: "전적 진단 때 봐 드릴게요!",
   busy: "잠깐만요, 지금 보고 있어요!",
   noNickname: "닉네임도 같이 적어 주세요! 예를 들면 '!전적 닉네임'처럼요.",
@@ -34,9 +39,13 @@ const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
 const rank = (value: number) => `${value.toFixed(1)}위`;
 
 /** 보리 대사에 붙이는 전적 줄. 닉네임은 넣지 않는다. */
+/** 보리 대사에 붙이는 전적 줄의 머리. 보리가 자기 전적처럼 말한 일이 있어(2026-10-15 리허설) 누구 전적인지 밝힌다. */
+export const REPORT_OWNER_LINE = "아래는 채팅으로 요청한 시청자의 전적이다(보리의 전적이 아니다).";
+
 export function reportLines(report: ErPlayerReport): string[] {
-  if (report.games === 0) return [`기준: ${report.seasonName}`, "이번 기준으로 기록된 경기가 없다."];
+  if (report.games === 0) return [REPORT_OWNER_LINE, `기준: ${report.seasonName}`, "이번 기준으로 기록된 경기가 없다."];
   return [
+    REPORT_OWNER_LINE,
     `기준: ${report.seasonName}`,
     `판수: ${report.games}판`,
     `평균 순위: ${rank(report.avgRank)}`,
@@ -67,6 +76,8 @@ export function createPlayerCommand(deps: {
   const now = deps.now ?? Date.now;
   /** 지금 처리 중인 조회. 없으면 null. */
   let running: Promise<void> | null = null;
+  /** 검색 안내 문장을 돌려 쓰는 순번. */
+  let searchCount = 0;
   const lastNoticeAt = new Map<string, number>();
 
   /** 안내 문장. 같은 문장은 NOTICE_COOLDOWN_MS 안에 다시 말하지 않는다. */
@@ -90,7 +101,7 @@ export function createPlayerCommand(deps: {
     }
     player("loading");
     // 보리가 "검색해 볼까요?" 하는 동안 조회를 같이 돌린다. 결과는 그 말이 끝난 뒤에 보여 준다.
-    const searching = deps.say(LINES.searching, isCurrent).catch(error => console.error("[bori-server] 전적 검색 안내 실패:", error));
+    const searching = deps.say(LINES.searching[searchCount++ % LINES.searching.length], isCurrent).catch(error => console.error("[bori-server] 전적 검색 안내 실패:", error));
     let report: ErPlayerReport | null;
     try {
       report = await deps.lookup(nickname);

@@ -31,6 +31,12 @@ export type AutopilotStatus = {
   elapsedSeconds: number;
 };
 
+/**
+ * 질문 코너에서 아직 답하지 않은 캐릭터·메타 질문이 남아 있으면 목표 시간을 이만큼 더 쓴다(2026-10-15 사용자 요청:
+ * 질문 코너에 나온 캐릭터 이름은 무시하지 말고 다 봐 주기). 끝없이 늘지 않게 상한을 둔다.
+ */
+export const QNA_EXTRA_SECONDS = 30;
+
 /** 보리가 말하는 코너. 이 코너에서만 시간이 되면 채팅 답을 미룬다. */
 const TALK_STAGES: ReadonlySet<ShowStage> = new Set(["opening", "briefing", "qna", "diagnosis"]);
 
@@ -49,6 +55,8 @@ export function createAutopilot(deps: {
   next: () => Promise<void>;
   /** 엔딩 화면을 보여 준 뒤 한 번 부른다(배경음악을 서서히 줄여 멈춘다). */
   finish: () => Promise<void>;
+  /** 지금 코너에 아직 답하지 않은 캐릭터·메타 질문이 있는지. 질문 코너는 있으면 시간을 더 쓴다. */
+  pendingFocus?: () => boolean;
   enabled?: boolean;
   now?: () => number;
 }) {
@@ -75,7 +83,12 @@ export function createAutopilot(deps: {
     if (stage === "idle") return deps.onAir();
     return CORNER_SECONDS[stage] > 0;
   };
-  const overdue = () => { observe(); return timed() && now() - stageStartedAt >= CORNER_SECONDS[deps.stage()] * 1000; };
+  const limitMs = () => {
+    const stage = deps.stage();
+    const extra = stage === "qna" && deps.pendingFocus?.() ? QNA_EXTRA_SECONDS : 0;
+    return (CORNER_SECONDS[stage] + extra) * 1000;
+  };
+  const overdue = () => { observe(); return timed() && now() - stageStartedAt >= limitMs(); };
 
   async function advance(at: number) {
     advancing = true;
