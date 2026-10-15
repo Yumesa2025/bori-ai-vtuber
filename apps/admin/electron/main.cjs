@@ -30,8 +30,8 @@ const repoRoot = path.resolve(__dirname, "../../..");
 const port = resolveServerPort(process.env.BORI_SERVER_PORT);
 const defaultUrl = devMode ? DEFAULT_ADMIN_URL : `http://127.0.0.1:${port}/studio/`;
 
-/** 서버가 뜰 때까지 보여 줄 화면. */
-const loadingPage = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>${WINDOW_TITLE}</title><body style="margin:0;padding:32px;color:#f3a9c8;background:#17131a;font-family:Arial,sans-serif">보리 서버를 띄우는 중입니다…</body></html>`)}`;
+/** 서버가 뜰 때까지 보여 줄 화면. 스크립트가 없으므로 CSP로 모두 막고 인라인 스타일만 연다. */
+const loadingPage = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${WINDOW_TITLE}</title><body style="margin:0;padding:32px;color:#f3a9c8;background:#17131a;font-family:Arial,sans-serif">보리 서버를 띄우는 중입니다…</body></html>`)}`;
 
 function createWindow() {
   // preload가 없어 렌더러에 열어 둔 IPC가 없으므로 sandbox를 켜도 잃는 기능이 없다.
