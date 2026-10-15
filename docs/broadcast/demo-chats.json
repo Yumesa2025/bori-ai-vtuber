@@ -1,18 +1,43 @@
 {
-  "description": "4분 시연용 시청자 채팅 대본. 코너마다 '코너 시작 뒤 몇 초(after)'에 채팅을 올린다. 보리는 LLM으로 답한다. 스튜디오 운영 탭의 '시연 채팅 자동 재생'을 켜면 쓴다. 전적 진단 줄의 닉네임은 실제 이터널리턴 닉네임으로 바꾼다.",
+  "description": "4분 시연용 시청자 채팅 대본. 코너마다 '코너 시작 뒤 몇 초(after)'에 채팅을 올린다. 보리는 LLM으로 답한다. 스튜디오 운영 탭의 '시연 채팅 자동 재생'을 켜면 쓴다.",
   "corners": {
     "opening": [
-      { "after": 12, "nickname": "시청자1", "content": "보리 안녕하세요! 방송 기다렸어요" }
+      {
+        "after": 12,
+        "nickname": "시청자1",
+        "content": "보리 안녕하세요! 방송 기다렸어요"
+      }
     ],
     "briefing": [
-      { "after": 30, "nickname": "시청자2", "content": "오 재키 1위네" }
+      {
+        "after": 30,
+        "nickname": "시청자2",
+        "content": "오 재키 1위네"
+      }
     ],
     "qna": [
-      { "after": 8, "nickname": "시청자3", "content": "재키 어때?" },
-      { "after": 38, "nickname": "시청자1", "content": "요즘 1티어 뭐야?" }
+      {
+        "after": 8,
+        "nickname": "시청자3",
+        "content": "재키 어때?"
+      },
+      {
+        "after": 38,
+        "nickname": "시청자1",
+        "content": "요즘 1티어 뭐야?"
+      }
     ],
     "diagnosis": [
-      { "after": 10, "nickname": "시청자2", "content": "!전적 닉네임" }
+      {
+        "after": 10,
+        "nickname": "시청자2",
+        "content": "!전적 카이렌렌"
+      },
+      {
+        "after": 40,
+        "nickname": "시청자3",
+        "content": "!전적 카이라라"
+      }
     ]
   }
 }
