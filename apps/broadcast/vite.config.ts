@@ -6,7 +6,7 @@ import { privateAssetAliases, privateAssets } from "../../tools/vite/private-ass
 
 const projectRoot = resolve(__dirname, "../..");
 /** OBS 브라우저 소스 페이지. 주소는 /obs/<이름>.html이다. */
-const obsPages = ["character", "dashboard", "caption", "chat", "waiting", "ending"];
+const obsPages = ["character", "dashboard", "caption", "chat", "waiting", "ending", "background"];
 
 export default defineConfig({
   resolve: { alias: privateAssetAliases(projectRoot) },
