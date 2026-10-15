@@ -635,6 +635,8 @@ function cancelMonologue() {
 function speak(response: CharacterResponse, audioId?: string) {
   speaking = true;
   cancelMonologue();
+  // 표정 문제를 되짚을 수 있게 고른 감정·모션 이름만 남긴다. 대사 내용은 남기지 않는다.
+  console.log(`[bori-server] 보리 표정: ${response.emotion.primary}, 모션: ${response.actions.map(action => action.name).join(",") || "없음"} (${response.source})`);
   // 음성이 있으면 실제 음성 길이만큼 말풍선을 둔다. 전에는 글자 수로 어림해(글자당 110ms, 최대 15초) 긴 답의 음성이 잘렸다(a4 A4-12).
   const audioMs = audioId ? audioCache.get(audioId)?.durationMs : undefined;
   const displayMs = audioMs !== undefined ? Math.max(RESPONSE_DISPLAY_MS, Math.min(AUDIO_DISPLAY_MAX_MS, audioMs + AUDIO_DISPLAY_TAIL_MS)) : RESPONSE_DISPLAY_MS;

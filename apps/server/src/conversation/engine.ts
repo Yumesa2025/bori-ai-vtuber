@@ -1,12 +1,12 @@
 import { boriCrisisHelpLine, boriCrisisLines, boriCrisisReplies, conversationPolicies, type ConversationMode, type ConversationPolicy } from "@bori/character";
-import { boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
+import { boriEmotionDescriptions, boriEmotionNames, boriMotionDescriptions, boriMotionGroupNames } from "@bori/live2d";
 import { buildSystemPrompt, createAdapter, currentDateLine, summarizeSessionProgress, type createLlmClient, type LlmRequest } from "@bori/llm";
 import { isAnonymousViewer, type EmbeddingProvider, type MemoryAccess, type MemorySettings, type MemoryStore } from "@bori/memory";
 import type { CharacterResponse, LlmSettings, MacroPrompt } from "@bori/shared";
 import { activateMacros, clearMacros, tickMacros } from "./macros.js";
 import { calmCrisisResponse, crisisResponse, crisisTurnMask, evaluateRules, fallbackResponse, isCrisisContent, isInCrisisContext, refusalResponse } from "./rules.js";
 import { createSessionState, pickReply, pushTurn, restoreTurns, type ConversationSession, type SessionTurn } from "./session.js";
-import { withoutOpinionQuestions } from "./reply-style.js";
+import { withMatchingEmotion, withoutOpinionQuestions } from "./reply-style.js";
 
 export type LlmClient = Pick<ReturnType<typeof createLlmClient>, "isCircuitOpen" | "respond">;
 
@@ -123,6 +123,7 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
       ...context,
       currentDate: currentDateLine(Date.now()),
       allowedEmotions: boriEmotionNames,
+      emotionDescriptions: boriEmotionDescriptions,
       allowedMotions,
       maxReplyLength: settings.maxReplyLength,
       timeoutMs: settings.timeoutMs,
@@ -199,11 +200,12 @@ export function createConversationEngine(deps: ConversationEngineDeps) {
    * 규칙을 쓰지 않는 모드(1:1)는 위험 차단만 거치고 바로 LLM으로 간다.
    * 위험 입력은 blocked를 돌려준다. 실패를 어디에 알릴지는 호출하는 쪽이 정한다.
    */
-  /** 방송 답에서 시청자에게 의견을 묻는 문장을 뺀다(reply-style.ts). 1:1은 그대로 둔다. */
+  /** 답의 말과 얼굴을 맞추고(방송·1:1), 방송 답에서는 시청자에게 의견을 묻는 문장을 뺀다(reply-style.ts). */
   function styled(session: ConversationSession, response: CharacterResponse): CharacterResponse {
-    if (session.mode !== "broadcast") return response;
-    const reply = withoutOpinionQuestions(response.reply);
-    return reply === response.reply ? response : { ...response, reply };
+    const matched = withMatchingEmotion(response);
+    if (session.mode !== "broadcast") return matched;
+    const reply = withoutOpinionQuestions(matched.reply);
+    return reply === matched.reply ? matched : { ...matched, reply };
   }
 
   async function respond(session: ConversationSession, input: RespondInput): Promise<RespondResult> {

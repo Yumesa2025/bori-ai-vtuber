@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { withoutOpinionQuestions } from "../src/conversation/reply-style.js";
+import { withMatchingEmotion, withoutOpinionQuestions } from "../src/conversation/reply-style.js";
 
 test("끝에 붙은 의견 묻기 문장을 뺀다", () => {
   assert.equal(withoutOpinionQuestions("재키는 픽률이 8.1%로 높아요. 여러분은 어떻게 생각하시나요?"), "재키는 픽률이 8.1%로 높아요.");
@@ -18,4 +18,18 @@ test("의견을 묻지 않는 답과 소수점은 그대로다", () => {
 
 test("그 문장뿐인 답은 비우지 않고 그대로 둔다", () => {
   assert.equal(withoutOpinionQuestions("어떻게 생각하세요?"), "어떻게 생각하세요?");
+});
+
+test("기쁜 말에 당황·슬픔·화남 얼굴이 붙으면 happy로 바꾸고 어긋나는 모션을 뺀다", () => {
+  const response = { reply: "목소리 칭찬 고마워요! 기분이 좋아졌어요.", emotion: { primary: "embarrassed", intensity: 0.6, durationSeconds: 5 }, actions: [{ name: "kuqi", priority: 2, layer: "body" }, { name: "xingxingyan", priority: 1, layer: "body" }] };
+  const matched = withMatchingEmotion(response);
+  assert.equal(matched.emotion.primary, "happy");
+  assert.deepEqual(matched.actions.map(action => action.name), ["xingxingyan"]);
+});
+
+test("말과 얼굴이 어긋나지 않으면 그대로 둔다", () => {
+  const sad = { reply: "7연패라니 많이 속상하시겠어요.", emotion: { primary: "sad", intensity: 0.5, durationSeconds: 5 }, actions: [] };
+  assert.equal(withMatchingEmotion(sad), sad);
+  const happy = { reply: "고마워요!", emotion: { primary: "happy", intensity: 0.5, durationSeconds: 5 }, actions: [] };
+  assert.equal(withMatchingEmotion(happy), happy);
 });

@@ -86,6 +86,24 @@ export const boriEmotionMap: Record<string, { expression?: BoriExpressionName; m
   curious: {},
 };
 
+/**
+ * LLM에게 넘길 감정 설명. 감정 이름만 주었을 때 칭찬에 기뻐하는 답에 embarrassed를 골라 멍한(당황한) 얼굴이 나왔다(2026-10-15 리허설).
+ * 실제 얼굴과 쓰지 않는 상황을 함께 적는다. [초안 · 검토 필요]
+ */
+export const boriEmotionDescriptions: Record<string, string> = {
+  happy: "눈이 별처럼 반짝이는 밝은 얼굴. 기쁨, 칭찬받아 좋을 때, 고마움, 즐거움.",
+  excited: "happy와 같은 반짝이는 얼굴. 신나고 들뜰 때.",
+  greeting: "반짝이는 얼굴. 반가운 인사.",
+  gaming: "게임패드를 든 얼굴. 게임 데이터·캐릭터 이야기를 할 때.",
+  crying: "눈물을 흘리는 얼굴. 많이 슬프거나 안타까울 때만.",
+  angry: "머리에서 김이 나는 얼굴. 장난스러운 삐침에만.",
+  sad: "시무룩한 얼굴. 아쉬움, 서운함, 위로할 때.",
+  embarrassed: "멍하니 굳은, 당황한 얼굴. 예상 못 한 말에 놀라 당황할 때만. 칭찬받아 기쁘거나 쑥스럽게 좋아할 때는 쓰지 않고 happy를 쓴다.",
+  awkward: "어이없어 말문이 막힌 얼굴. 황당한 말을 들었을 때만. 기쁜 답에는 쓰지 않는다.",
+  calm: "기본 얼굴. 차분한 설명, 안내.",
+  curious: "기본 얼굴. 궁금해하거나 생각할 때.",
+};
+
 /** 모션 우선순위. Cubism 샘플의 PriorityIdle=1, PriorityNormal=2, PriorityForce=3과 맞춘다. */
 export const boriMotionPriority = { idle: 1, normal: 2, force: 3 } as const;
 

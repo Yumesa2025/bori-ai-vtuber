@@ -51,6 +51,8 @@ export type LlmRequest = {
   gameData?: readonly string[];
   /** 허용된 감정 이름. 이 밖의 값은 검증에서 걸러진다. */
   allowedEmotions: readonly string[];
+  /** 감정마다 화면에 보이는 얼굴과 쓰는·쓰지 않는 상황. 있으면 프롬프트에 함께 적는다. */
+  emotionDescriptions?: Readonly<Record<string, string>>;
   /**
    * 허용된 모션. 이름이 무슨 동작인지 알 수 없는 값이라 설명을 함께 넘긴다.
    * 설명이 없으면 모델이 모션을 거의 고르지 못한다.
