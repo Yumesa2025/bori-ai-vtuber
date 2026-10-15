@@ -1,5 +1,5 @@
 /**
- * OBS character 페이지. 보리 Live2D를 화면 왼쪽 1/3에 투명 배경으로 그리고 TTS 음성을 낸다.
+ * OBS character 페이지. 보리 Live2D를 화면 왼쪽(대시보드 틀 앞까지)에 투명 배경으로 그리고 TTS 음성을 낸다.
  * OBS에서 이 소스만 "Control audio via OBS"를 켠다.
  */
 import { useEffect, useRef, useState } from "react";
