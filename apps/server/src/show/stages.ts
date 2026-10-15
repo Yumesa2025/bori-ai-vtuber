@@ -44,10 +44,6 @@ export const stageConfig: Record<ShowStage, StageConfig> = {
     directive: "채팅에 '!전적 닉네임'을 치면 최근 전적을 봐 준다고 안내한다. 1~2문장.",
     fallbackLines: ["이제 전적 진단 시간이에요! 채팅에 '!전적 닉네임'을 적어 주세요."],
   },
-  ending: {
-    scene: "보리-엔딩",
-    dashboard: ctx => ({ kind: "summary", characters: ctx.mentioned }),
-    directive: "오늘 이야기한 캐릭터 중 기억에 남는 것에 대한 보리의 감상을 한마디 하고 마무리 인사를 한다. 2문장.",
-    fallbackLines: ["오늘 같이 메타 살펴봐 줘서 고마워요. 다음에 또 만나요!"],
-  },
+  // 대기·엔딩 장면에서는 보리가 말하지 않는다(사용자 결정 2026-10-15). 마무리 인사는 엔딩 화면 글로만 보인다.
+  ending: { scene: "보리-엔딩", dashboard: ctx => ({ kind: "summary", characters: ctx.mentioned }), directive: "", fallbackLines: [] },
 };

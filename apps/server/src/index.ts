@@ -608,13 +608,25 @@ function speak(response: CharacterResponse, audioId?: string) {
   }, displayMs);
 }
 
+/** 진행기(오프닝 시작)로 연 방송인지. 진행기 없이 연 방송(/api/session/start)은 대기 단계에서도 예전처럼 답한다. */
+let showDriven = false;
+
+/**
+ * 대기·엔딩 장면에서는 보리가 채팅에 답하지 않고 혼잣말도 하지 않는다(사용자 결정 2026-10-15).
+ * 그 사이 들어온 채팅은 대기열에 남았다가 만료되면 버려진다. 이전 단계로 돌아가면 다시 답한다.
+ */
+function boriQuiet(): boolean {
+  const stage = show.view().stage;
+  return stage === "ending" || (stage === "idle" && showDriven);
+}
+
 /**
  * 채팅이 없을 때만 혼잣말을 예약한다.
  * 대기 중에 채팅이 들어오면 취소하므로 새 채팅 반응이 항상 우선이다.
  */
 function scheduleMonologue() {
   if (monologueTimer || !settings.monologueEnabled) return;
-  if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0) return;
+  if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0 || boriQuiet()) return;
 
   const min = settings.monologueMinSeconds;
   const max = Math.max(min, settings.monologueMaxSeconds);
@@ -623,7 +635,7 @@ function scheduleMonologue() {
   monologueTimer = setTimeout(() => {
     monologueTimer = undefined;
     // 기다리는 동안 채팅이 들어왔거나 이미 말하고 있으면 혼잣말을 건너뛴다.
-    if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0) { scheduleNext(); return; }
+    if (state.status !== "live" || speaking || showHold > 0 || queue.length > 0 || boriQuiet()) { scheduleNext(); return; }
 
     const monologue = makeMonologue();
     const generation = sessionGeneration;
@@ -658,7 +670,7 @@ function scheduleMonologue() {
  * 이번 차례의 후보가 아니라 다음 차례로 넘어간다.
  */
 function scheduleNext() {
-  if (responseTimer || speaking || showHold > 0 || state.status !== "live") return;
+  if (responseTimer || speaking || showHold > 0 || state.status !== "live" || boriQuiet()) return;
   dropExpiredChats();
   syncQueueState();
   if (queue.length === 0) return;
@@ -777,6 +789,7 @@ function endBroadcast(): boolean {
   sessionGeneration += 1;
   queue.length = 0;
   speaking = false;
+  showDriven = false;
   const endedSession = broadcastSession;
   // 대화 기록은 기억 저장에 써야 하므로 세션은 그대로 두고 매크로만 내린다.
   engine.clearMacros(endedSession);
@@ -1021,6 +1034,7 @@ function handleShowRoute(request: IncomingMessage, response: ServerResponse, met
   if (method === "POST" && path === "/api/show/next") {
     // 처음 단계에서 넘어가면 방송 세션을 연다. 이미 방송 중이면 그 세션을 그대로 쓴다.
     if (show.view().stage === "idle" && state.status !== "live") startBroadcast();
+    if (show.view().stage === "idle") showDriven = true;
     // 단계·장면·대시보드는 바로 바뀌고, 대사는 뒤에서 만든다.
     void show.next();
     sendJson(response, 200, showState());

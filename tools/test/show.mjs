@@ -151,7 +151,7 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
   {
     const scenes = [obs.currentScene()];
     const stages = [];
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       const { moved, spoke } = await nextAndSpeak();
       stages.push(moved.stage);
       report.check(`${moved.stage} 단계에 들어가면 보리가 그 단계 대사를 말한다`, Boolean(spoke));
@@ -171,6 +171,19 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
         report.check("diagnosis 대시보드는 전적 대기 카드다", JSON.stringify((await show()).dashboard) === JSON.stringify({ kind: "player", status: "waiting", report: null }));
       }
     }
+    // 엔딩에서는 보리가 말하지 않는다(사용자 결정 2026-10-15). 단계 대사도, 채팅 답도 없다.
+    await bori.waitForIdle();
+    const directivesBefore = (await directiveCalls()).length;
+    const ending = await post("/api/show/next");
+    stages.push(ending.stage);
+    await waitUntil(async () => obs.currentScene() === "보리-엔딩", 5000);
+    scenes.push(obs.currentScene());
+    const endingChat = await bori.chat("엔딩에서도 대답해 줘?");
+    await new Promise(resolve => setTimeout(resolve, 4000));
+    const endingAnswers = (await mock.answerCalls()).filter(entry => entry.user.includes("엔딩에서도 대답해 줘?"));
+    report.check("ending에 들어가도 단계 대사를 만들지 않는다", (await directiveCalls()).length === directivesBefore);
+    report.check("ending에서 들어온 채팅에 보리가 답하지 않는다", endingChat.status === 200 && endingAnswers.length === 0, `status=${endingChat.status} answers=${endingAnswers.length}`);
+
     report.check("next×5 단계 순서는 opening→briefing→qna→diagnosis→ending이다", stages.join(",") === "opening,briefing,qna,diagnosis,ending", stages.join(","));
     report.check("장면은 대기→메인→메인→메인→전적→엔딩 순서로 바뀐다", scenes.join(",") === "보리-대기,보리-메인,보리-메인,보리-메인,보리-전적,보리-엔딩", scenes.join(","));
     const extra = await post("/api/show/next");
@@ -227,8 +240,10 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
     await obs.close();
     const down = await waitUntil(async () => (await bori.get("/api/obs/status")).body?.state !== "connected", 10_000);
     report.check("OBS가 꺼지면 OBS 상태가 connected가 아니다", Boolean(down));
+    // 엔딩은 말하지 않으므로 질문 단계로 한 칸 돌아갔다가(prev는 말하지 않는다) 전적 단계로 넘어가며 대사를 본다.
+    await post("/api/show/prev");
     const { moved, spoke } = await nextAndSpeak();
-    report.check("OBS가 꺼져 있어도 다음 단계로 가고 보리가 말한다", moved.stage === "ending" && Boolean(spoke));
+    report.check("OBS가 꺼져 있어도 다음 단계로 가고 보리가 말한다", moved.stage === "diagnosis" && Boolean(spoke));
     report.check("진행 상태의 OBS 연결도 connected가 아니다", (await show()).connections.obs !== "connected");
   }
 

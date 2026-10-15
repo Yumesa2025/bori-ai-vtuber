@@ -107,7 +107,7 @@ describe("단계 이동", () => {
     assert.deepEqual(controller.view().dashboard, { kind: "player", status: "waiting", report: null });
   });
 
-  test("엔딩 대시보드와 대사에는 이번 방송에서 띄운 캐릭터가 들어간다", async () => {
+  test("엔딩 대시보드에는 이번 방송에서 띄운 캐릭터가 들어가고, 엔딩에서는 말하지 않는다", async () => {
     const { controller, spoken } = setup();
     await controller.next();
     controller.showCharacter({ kind: "character", query: "재키 어때?", stat: top[0], suggestions: [], basis });
@@ -115,7 +115,8 @@ describe("단계 이동", () => {
     controller.showCharacter({ kind: "character", query: "아야는?", stat: top[1], suggestions: [], basis });
     for (let i = 0; i < 4; i += 1) await controller.next();
     assert.deepEqual(controller.view().dashboard, { kind: "summary", characters: ["재키", "아야"] });
-    assert.match(spoken.at(-1)!.gameData.join("\n"), /재키, 아야/);
+    // 오프닝·브리핑·질문·진단 4단계만 말한다.
+    assert.equal(spoken.length, 4);
   });
 
   test("reset하면 띄운 캐릭터 기록도 지운다", async () => {
