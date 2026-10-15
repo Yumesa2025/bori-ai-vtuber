@@ -64,7 +64,7 @@ export default function OperateTab({ active }: { active: boolean }) {
   // 버튼 비활성화는 다시 그린 뒤에야 걸리므로, 빠르게 두 번 누른 것은 ref로 막는다.
   const movingRef = useRef(false);
   /** 진행 동작을 보내고 돌려받은 진행 상태로 바로 맞춘다. 한 번에 하나만 보낸다. */
-  async function moveShow(action: 'next' | 'prev' | 'reset', done: string) {
+  async function moveShow(action: 'next' | 'prev' | 'reset' | 'on-air', done: string) {
     if (movingRef.current) return;
     movingRef.current = true;
     setMoving(true);
@@ -148,6 +148,7 @@ export default function OperateTab({ active }: { active: boolean }) {
     <section className="panel stage-panel">
       <div className="stage-head"><div><p className="eyebrow">현재 단계</p><div className="stage-now">{show ? stageLabel(stage) : '확인 중'}</div>{show && <p className="hint">OBS 장면 {show.scene}{state?.status === 'live' ? ' · 방송 세션 중' : ''}</p>}</div></div>
       <div className="button-row">
+        {stage === 'idle' && <button onClick={() => void moveShow('on-air', '방송을 켰습니다. 대기 화면 영상과 배경음악이 처음부터 재생됩니다. 치지직 송출·녹화는 OBS에서 시작해 주세요.')} disabled={!serverOnline || moving || show?.onAir === true}>{show?.onAir ? '방송 켜짐(대기 화면·음악)' : '방송 켜기'}</button>}
         <button className="primary stage-next" onClick={goNext} disabled={!canNext}>{nextLabel(stage)}{stage !== 'ending' && <kbd>Space</kbd>}</button>
         <button onClick={() => void moveShow('prev', '이전 단계로 돌아갔습니다. 보리는 다시 말하지 않습니다.')} disabled={!serverOnline || stage === 'idle' || moving}>이전</button>
         <button onClick={goReset} disabled={!serverOnline || moving}>처음으로</button>

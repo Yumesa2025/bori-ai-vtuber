@@ -354,6 +354,8 @@ export type ShowState = {
   connections: ShowConnections;
   /** ER 데이터 갱신 진행률 0~1, 갱신 중이 아니면 null. */
   erRefreshProgress: number | null;
+  /** "방송 켜기"를 눌러 대기 화면 영상과 배경음악이 처음부터 재생 중인지. 처음으로 돌아가면 false. */
+  onAir?: boolean;
   /** 코너 자동 진행. 지금 코너에 주어진 시간(초, 제한 없으면 0)과 지난 시간(초). */
   auto?: { enabled: boolean; stageSeconds: number; elapsedSeconds: number };
 };

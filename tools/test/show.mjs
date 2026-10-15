@@ -150,6 +150,17 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
     report.check("치지직 토큰 파일은 암호화되어 있다", tokenFile.length > 0 && !tokenFile.includes("fake-access-") && !tokenFile.includes("fake-refresh-"));
   }
 
+  // ── 방송 켜기: 대기 장면에서 대기 영상과 배경음악을 처음부터 튼다 ──────────────
+  {
+    const before = obs.requests.length;
+    const onAir = await post("/api/show/on-air");
+    const media = obs.requests.slice(before).filter(entry => entry.requestType === "TriggerMediaInputAction");
+    report.check("방송 켜기는 대기 영상과 배경음악을 처음부터 튼다", onAir.onAir === true && onAir.stage === "idle"
+      && media.some(entry => entry.inputName === "보리 배경음악" && entry.mediaAction.endsWith("RESTART"))
+      && media.some(entry => entry.inputName === "보리 대기 영상" && entry.mediaAction.endsWith("RESTART")), JSON.stringify(media));
+    report.check("방송 켜기 뒤에도 장면은 보리-대기다", obs.currentScene() === "보리-대기");
+  }
+
   // ── next×5: 장면 순서와 단계 대사 ────────────────────────────────
   {
     const scenes = [obs.currentScene()];
@@ -196,7 +207,10 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
     const extra = await post("/api/show/next");
     report.check("ending에서 next는 그대로 ending이다", extra.stage === "ending");
 
+    const resetFrom = obs.requests.length;
     const reset = await post("/api/show/reset");
+    await waitUntil(async () => obs.requests.slice(resetFrom).some(entry => entry.inputName === "보리 배경음악"), 5000);
+    report.check("처음으로 돌아가면 배경음악을 멈추고 방송 켜기 전으로 돌린다", reset.onAir === false && obs.requests.slice(resetFrom).some(entry => entry.inputName === "보리 배경음악" && entry.mediaAction.endsWith("STOP")));
     await waitUntil(async () => obs.currentScene() === "보리-대기", 5000);
     const state = await bori.state();
     report.check("reset은 idle·대기 장면으로 가고 방송을 끝낸다", reset.stage === "idle" && obs.currentScene() === "보리-대기" && state.status === "ended");
