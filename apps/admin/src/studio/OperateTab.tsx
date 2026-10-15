@@ -4,7 +4,7 @@ import { isSubmitEnter } from '../keys';
 import { createPoller, SETTINGS_POLL_MS } from '../poll';
 import { readError } from '../form';
 import { getJson, isServerUp, JSON_HEADERS, MUTATION_TIMEOUT_MS, openChzzkLogin, postAction, readJson, request, type ChzzkStatusView, type ObsStatusView } from './api';
-import { connectionBadge, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection, type ConnectionState, type ErStatusView, type ShowLog } from './operate';
+import { connectionBadge, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection, viewerChatBody, type ConnectionState, type ErStatusView, type ShowLog } from './operate';
 
 /** 운영 탭 폴링 간격. 진행자가 단계·연결을 보고 바로 다음 동작을 정하므로 1초로 받는다. */
 const OPERATE_POLL_MS = 1000;
@@ -29,6 +29,7 @@ export default function OperateTab({ active }: { active: boolean }) {
   const [tts, setTts] = useState<TtsView | null>(null);
   const [log, setLog] = useState<ShowLog>(emptyShowLog);
   const [message, setMessage] = useState('');
+  const [nickname, setNickname] = useState('시청자1');
   const [notice, setNotice] = useState('');
   const [moving, setMoving] = useState(false);
   const pollers = useRef<{ status: ReturnType<typeof createPoller>; slow: ReturnType<typeof createPoller> } | null>(null);
@@ -112,13 +113,14 @@ export default function OperateTab({ active }: { active: boolean }) {
   }
   async function connectChzzk() { setNotice((await openChzzkLogin()) ?? '기본 브라우저에서 치지직 로그인을 마친 뒤 이 창으로 돌아오세요.'); }
   async function submitTestChat() {
-    if (!message.trim()) return;
+    const body = viewerChatBody(message, nickname);
+    if (!body) return;
     if (state?.status !== 'live') { setNotice('먼저 "다음 단계"로 방송을 시작해 주세요.'); return; }
-    const response = await request('/api/chat', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ content: message }) }, MUTATION_TIMEOUT_MS);
+    const response = await request('/api/chat', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) }, MUTATION_TIMEOUT_MS);
     if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 요청을 보내지 못했습니다.'); return; }
     if (!response.ok) { setNotice(`채팅을 넣지 못했습니다. ${await readError(response, '이미 들어온 채팅이거나 처리할 수 없는 채팅입니다.')}`); return; }
     setMessage('');
-    setNotice('테스트 채팅을 넣었습니다.');
+    setNotice(body.nickname ? `${body.nickname}의 채팅을 넣었습니다.` : '익명 채팅을 넣었습니다.');
     pollers.current?.status.runNow();
   }
   async function copyUrl(label: string, url: string) {
@@ -166,8 +168,8 @@ export default function OperateTab({ active }: { active: boolean }) {
       </article>
     </section>
     <section className="control-grid">
-      <article className="panel"><h2>테스트 채팅</h2><p>치지직 채팅이 끊겼을 때 대신 입력합니다. 익명 채팅으로 들어갑니다.</p>
-        <div className="chat-input-row"><input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (isSubmitEnter(event)) void submitTestChat(); }} placeholder="예: 재키 어때?" aria-label="테스트 채팅" /><button onClick={() => void submitTestChat()}>입력</button></div>
+      <article className="panel"><h2>시청자 채팅</h2><p>리허설에서는 여기서 시청자 채팅을 칩니다. 닉네임은 방송 화면에 나오지 않고 시청자 구분에만 씁니다. 한 시청자의 채팅은 대기열에 3건까지라 여러 개를 빨리 칠 때는 닉네임을 바꿔 주세요.</p>
+        <div className="chat-input-row"><input className="chat-nickname" value={nickname} onChange={event => setNickname(event.target.value)} placeholder="닉네임(비우면 익명)" aria-label="시청자 닉네임" maxLength={20} /><input value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (isSubmitEnter(event)) void submitTestChat(); }} placeholder="예: 재키 어때?" aria-label="시청자 채팅" /><button onClick={() => void submitTestChat()}>입력</button></div>
         <h2 className="subheading">최근 채팅·보리 답</h2>
         {log.lines.length === 0 ? <p className="hint">아직 채팅이 없습니다.</p> : <ol className="show-log">{log.lines.map(line => <li key={line.key} className={`log-${line.kind}`}><span>{line.kind === 'chat' ? '채팅' : '보리'}</span>{line.text}</li>)}</ol>}
       </article>

@@ -135,3 +135,15 @@ export function isNextShortcut(event: ShortcutEvent): boolean {
   if (!event.target) return true;
   return !typingTags.has(event.target.tagName) && !event.target.isContentEditable;
 }
+
+/**
+ * 운영 탭 시청자 채팅의 요청 본문. 리허설에서는 치지직 채팅 대신 여기서 시청자 채팅을 친다.
+ * 닉네임은 방송 화면에 나오지 않고 시청자를 구분하는 데만 쓴다. 서버가 한 시청자의 채팅을 대기열에 3건까지만 두므로
+ * 익명 하나로 빠르게 치면 뒤 채팅이 버려진다. 비우면 익명 채팅이다.
+ */
+export function viewerChatBody(content: string, nickname: string): { content: string; nickname?: string } | null {
+  const text = content.trim();
+  if (!text) return null;
+  const name = nickname.trim();
+  return name ? { content: text, nickname: name } : { content: text };
+}

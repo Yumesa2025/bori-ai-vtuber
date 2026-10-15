@@ -35,3 +35,5 @@
 .obs-urls li { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
 .obs-urls code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dcccd8; user-select: all; }
 .obs-urls button { padding: 6px 12px; font-size: 12px; }
+/* 시청자 채팅의 닉네임 칸은 좁게, 내용 칸이 나머지를 쓴다. */
+.chat-input-row input.chat-nickname { flex: 0 0 140px; }

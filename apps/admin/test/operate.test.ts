@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { showStages, type BroadcastState, type VisibleChat } from "@bori/shared";
-import { connectionBadge, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection } from "../src/studio/operate";
+import { connectionBadge, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection, viewerChatBody } from "../src/studio/operate";
 
 describe("단계 이름", () => {
   test("단계마다 번호 붙은 이름을 준다", () => {
@@ -144,5 +144,15 @@ describe("Space 단축키", () => {
     assert.equal(isNextShortcut(key({ repeat: true })), false);
     assert.equal(isNextShortcut(key({ isComposing: true })), false);
     assert.equal(isNextShortcut(key({ key: "Enter" })), false);
+  });
+});
+
+describe("시청자 채팅 입력", () => {
+  test("닉네임을 적으면 함께 보내고, 비우면 익명으로 보낸다", () => {
+    assert.deepEqual(viewerChatBody(" 재키 어때? ", " 시청자1 "), { content: "재키 어때?", nickname: "시청자1" });
+    assert.deepEqual(viewerChatBody("안녕하세요", "   "), { content: "안녕하세요" });
+  });
+  test("내용이 비어 있으면 보내지 않는다", () => {
+    assert.equal(viewerChatBody("   ", "시청자1"), null);
   });
 });
