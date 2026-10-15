@@ -13,14 +13,18 @@
   --text: #f5f7ff;
   --text-dim: #c3cbe6;
   --edge: 36px;
-  /* 보리 영역(왼쪽 1/3) 바로 오른쪽에서 패널이 시작한다. */
-  --panel-left: 700px;
+  /*
+   * 오른쪽 칸 배치는 메인 배경 영상(private-assets/obs/main-loop.mp4)의 금테 틀 두 개에 맞춘다.
+   * 큰 틀(x 788–1860, y 36–625)에 대시보드, 작은 틀(y 649–850)에 채팅, 그 아래에 자막을 둔다.
+   */
+  --panel-left: 788px;
+  --panel-right: 60px;
   --dashboard-top: 36px;
-  --dashboard-bottom: 666px;
-  --chat-top: 682px;
+  --dashboard-bottom: 626px;
+  --chat-top: 649px;
+  --chat-bottom: 851px;
   /* 자막(두 줄)이 이 아래 화면 끝까지 쓴다. */
-  --chat-bottom: 892px;
-  --caption-top: 906px;
+  --caption-top: 872px;
   font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
   color: var(--text);
 }
@@ -32,6 +36,8 @@ html.obs.opaque, html.obs.opaque body { background: var(--navy-solid); }
 
 /* 반투명 남색 패널. 게임 화면 위에서도 글씨가 읽히도록 그림자를 둔다. */
 .obs-panel { border: 2px solid var(--navy-line); border-radius: 28px; background: var(--navy); box-shadow: 0 18px 50px #00000059; }
+/* 배경 영상의 금테 틀이 패널 자리를 그려 주므로(소스 주소 ?frame=video) 패널 자체 테두리·바탕은 지운다. */
+html.obs.framed .obs-panel { border-color: transparent; background: transparent; box-shadow: none; }
 .obs-title { margin: 0; color: var(--gold); font-weight: 800; letter-spacing: -.01em; }
 
 /* ── character ── */
@@ -42,8 +48,8 @@ html.obs.opaque, html.obs.opaque body { background: var(--navy-solid); }
 .obs-audio-unlock { position: fixed; left: 40px; top: 40px; padding: 12px 22px; border: 0; border-radius: 999px; background: var(--gold); color: #1d1606; font-size: 24px; font-weight: 700; cursor: pointer; }
 
 /* ── dashboard ── */
-.obs-dashboard { position: fixed; left: var(--panel-left); right: var(--edge); top: var(--dashboard-top); height: calc(var(--dashboard-bottom) - var(--dashboard-top)); display: flex; flex-direction: column; padding: 32px 48px 22px; }
-.obs-dashboard-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+.obs-dashboard { position: fixed; left: var(--panel-left); right: var(--panel-right); top: var(--dashboard-top); height: calc(var(--dashboard-bottom) - var(--dashboard-top)); display: flex; flex-direction: column; padding: 24px 48px 20px; }
+.obs-dashboard-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 12px; }
 .obs-dashboard-head .obs-title { font-size: 48px; }
 .obs-eyebrow { color: var(--text-dim); font-size: 28px; font-weight: 600; }
 .obs-dashboard-body { flex: 1; min-height: 0; overflow: hidden; }
@@ -57,10 +63,10 @@ html.obs.opaque, html.obs.opaque body { background: var(--navy-solid); }
 .obs-steps { display: flex; gap: 18px; margin: 8px 0 0; padding: 0; list-style: none; }
 .obs-steps li { padding: 12px 22px; border-radius: 999px; background: #ffffff14; font-size: 28px; font-weight: 600; }
 
-.obs-top5 { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.obs-top5 { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .obs-top5-head, .obs-top5-row { display: grid; grid-template-columns: 76px 1.4fr 1fr 1fr 1fr 1.2fr; align-items: center; gap: 12px; padding: 0 22px; }
 .obs-top5-head { margin-bottom: 10px; color: var(--text-dim); font-size: 24px; font-weight: 600; }
-.obs-top5-row { height: 64px; border-radius: 18px; background: #ffffff10; font-size: 32px; font-weight: 700; animation: obs-row-in .55s cubic-bezier(.2, .8, .2, 1) both; }
+.obs-top5-row { height: 58px; border-radius: 18px; background: #ffffff10; font-size: 32px; font-weight: 700; animation: obs-row-in .55s cubic-bezier(.2, .8, .2, 1) both; }
 .obs-top5-row.first { background: linear-gradient(90deg, #ffd68c40, #ffd68c12); box-shadow: inset 0 0 0 2px #ffd68c80; }
 .obs-rank { color: var(--gold); font-size: 40px; font-weight: 900; }
 .obs-num { font-variant-numeric: tabular-nums; }
@@ -91,7 +97,7 @@ html.obs.opaque, html.obs.opaque body { background: var(--navy-solid); }
 .obs-summary li { padding: 16px 30px; border-radius: 999px; background: #ffd68c26; color: var(--gold); font-size: 40px; font-weight: 800; }
 
 /* ── chat ── */
-.obs-chat { position: fixed; left: var(--panel-left); right: var(--edge); top: var(--chat-top); height: calc(var(--chat-bottom) - var(--chat-top)); display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 12px 32px; }
+.obs-chat { position: fixed; left: var(--panel-left); right: var(--panel-right); top: var(--chat-top); height: calc(var(--chat-bottom) - var(--chat-top)); display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 12px 32px; }
 .obs-chat-line { display: flex; align-items: center; gap: 14px; margin: 0; overflow: hidden; font-size: 30px; font-weight: 600; line-height: 1.4; white-space: nowrap; text-overflow: ellipsis; animation: obs-chat-in .35s ease-out both; }
 .obs-chat-line::before { content: ""; flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: #ffffff59; }
 .obs-chat-line.command { color: var(--gold); }
@@ -101,7 +107,7 @@ html.obs.opaque, html.obs.opaque body { background: var(--navy-solid); }
 
 /* ── caption ── */
 /* 채팅 띠 아래 오른쪽 칸. 가운데 띄우면 보리 몸통과 채팅 띠에 걸친다. */
-.obs-caption { position: fixed; left: var(--panel-left); right: var(--edge); top: var(--caption-top); max-height: calc(1080px - var(--edge) - var(--caption-top)); margin: 0; padding: 14px 40px; border-radius: 24px; background: #fffffff2; box-shadow: 0 14px 40px #00000066; color: #141a33; font-size: 36px; font-weight: 700; line-height: 1.4; text-align: center; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.obs-caption { position: fixed; left: var(--panel-left); right: var(--panel-right); top: var(--caption-top); max-height: calc(1080px - var(--edge) - var(--caption-top)); margin: 0; padding: 14px 40px; border-radius: 24px; background: #fffffff2; box-shadow: 0 14px 40px #00000066; color: #141a33; font-size: 36px; font-weight: 700; line-height: 1.4; text-align: center; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 
 /* ── waiting · ending ── */
 .obs-fullscreen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; overflow: hidden; text-align: center; }
