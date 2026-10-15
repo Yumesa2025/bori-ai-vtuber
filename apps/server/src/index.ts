@@ -1032,6 +1032,50 @@ const show = createShowController({
   waitQuiet,
   er: { basis: () => erData.basis(), top5: () => erData.top5() },
 });
+/** OBS 미디어 소스 이름. tools/obs/setup-show.mjs의 이름과 같아야 한다. 소스가 없으면 조용히 넘어간다. */
+const OBS_BGM = "보리 배경음악";
+const OBS_WAITING_VIDEO = "보리 대기 영상";
+/** "방송 켜기"(오프닝 앞 단계)를 눌렀는지. 처음으로 돌아가면 끈다(2026-10-15 사용자 요청). */
+let onAir = false;
+
+/** 방송 켜기: 대기 장면으로 가서 대기 영상과 배경음악을 처음부터 튼다. 치지직 송출·녹화는 운영자가 OBS에서 직접 시작한다. */
+async function turnOnAir() {
+  onAir = true;
+  await obs.setScene("보리-대기");
+  await Promise.all([obs.media(OBS_WAITING_VIDEO, "restart"), obs.media(OBS_BGM, "restart")]);
+}
+
+/**
+ * 다음 단계로. 대기에서 넘어가면 방송 세션을 열고(이미 방송 중이면 그 세션), 방송 켜기를 건너뛰었으면 배경음악만 튼다.
+ * 스튜디오의 "다음 단계"와 코너 자동 진행이 같이 쓴다.
+ */
+function advanceShow(): Promise<void> {
+  if (show.view().stage === "idle") {
+    // 장면은 진행기가 메인으로 바꾸므로 음악만 튼다.
+    if (!onAir) { onAir = true; void obs.media(OBS_BGM, "restart"); }
+    if (state.status !== "live") startBroadcast();
+    showDriven = true;
+  }
+  return show.next();
+}
+
+/** 엔딩 배경음악을 서서히 줄여 멈춘다(약 6초). 멈춘 뒤 볼륨은 원래대로 돌려 둔다(다음 방송 켜기 때 같은 크기로). */
+const BGM_FADE_STEPS = 20;
+const BGM_FADE_STEP_MS = 300;
+const BGM_SILENT_DB = -60;
+async function fadeOutBgm(): Promise<void> {
+  const original = await obs.volume(OBS_BGM);
+  if (original === null) return;
+  for (let step = 1; step <= BGM_FADE_STEPS; step += 1) {
+    // 처음으로 돌아가는 등 엔딩을 벗어나면 줄이기를 멈추고 볼륨을 돌린다.
+    if (show.view().stage !== "ending") break;
+    await obs.setVolume(OBS_BGM, original + (BGM_SILENT_DB - original) * (step / BGM_FADE_STEPS));
+    await new Promise(resolve => setTimeout(resolve, BGM_FADE_STEP_MS));
+  }
+  if (show.view().stage === "ending") await obs.media(OBS_BGM, "stop");
+  await obs.setVolume(OBS_BGM, original);
+}
+
 /**
  * 코너 자동 진행. 시간이 다 되면 하던 말을 마치고 연결 멘트 뒤 다음 코너로 넘어간다(show/autopilot.ts).
  * 기본으로 켜고, BORI_SHOW_AUTO_ADVANCE=0이면 끈다(통합 검사는 직접 넘긴다). 스튜디오에서 켜고 끌 수 있다.
@@ -1039,10 +1083,12 @@ const show = createShowController({
 const autopilot = createAutopilot({
   stage: () => show.view().stage,
   epoch: show.epoch,
-  ready: () => state.status === "live" && !speaking && showHold === 0,
+  onAir: () => onAir,
+  ready: () => !speaking && showHold === 0,
   say: sayShowLine,
   waitQuiet,
-  next: () => show.next(),
+  next: advanceShow,
+  finish: fadeOutBgm,
   enabled: process.env.BORI_SHOW_AUTO_ADVANCE !== "0",
 });
 setInterval(() => autopilot.tick(), 500).unref();
@@ -1074,19 +1120,6 @@ const chzzk = createChzzkLink({
 });
 chzzk.start();
 console.log(`[bori-server] 방송 진행기: 이터널리턴 ${erData.connection()}, OBS ${obsPassword ? "연결 시도" : "끔(OBS_WEBSOCKET_PASSWORD 없음)"}, 치지직 ${chzzk.configured() ? chzzk.status().state : "끔(앱 키 없음)"}`);
-
-/** OBS 미디어 소스 이름. tools/obs/setup-show.mjs의 이름과 같아야 한다. 소스가 없으면 조용히 넘어간다. */
-const OBS_BGM = "보리 배경음악";
-const OBS_WAITING_VIDEO = "보리 대기 영상";
-/** "방송 켜기"(오프닝 앞 단계)를 눌렀는지. 처음으로 돌아가면 끈다(2026-10-15 사용자 요청). */
-let onAir = false;
-
-/** 방송 켜기: 대기 장면으로 가서 대기 영상과 배경음악을 처음부터 튼다. 치지직 송출·녹화는 운영자가 OBS에서 직접 시작한다. */
-async function turnOnAir() {
-  onAir = true;
-  await obs.setScene("보리-대기");
-  await Promise.all([obs.media(OBS_WAITING_VIDEO, "restart"), obs.media(OBS_BGM, "restart")]);
-}
 
 /** 화면·스튜디오가 읽는 진행 상태. 자막은 보리의 지금 답과 같다. */
 function showState(): ShowState {
@@ -1121,13 +1154,8 @@ function handleShowRoute(request: IncomingMessage, response: ServerResponse, met
     return true;
   }
   if (method === "POST" && path === "/api/show/next") {
-    // 방송 켜기를 건너뛰고 오프닝을 시작하면 배경음악만 틀어 둔다(장면은 진행기가 메인으로 바꾼다).
-    if (show.view().stage === "idle" && !onAir) { onAir = true; void obs.media(OBS_BGM, "restart"); }
-    // 처음 단계에서 넘어가면 방송 세션을 연다. 이미 방송 중이면 그 세션을 그대로 쓴다.
-    if (show.view().stage === "idle" && state.status !== "live") startBroadcast();
-    if (show.view().stage === "idle") showDriven = true;
     // 단계·장면·대시보드는 바로 바뀌고, 대사는 뒤에서 만든다.
-    void show.next();
+    void advanceShow();
     sendJson(response, 200, showState());
     return true;
   }

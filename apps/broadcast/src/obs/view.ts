@@ -43,7 +43,7 @@ type PlayerStatus = Extract<DashboardView, { kind: "player" }>["status"];
 export function playerStatusText(status: PlayerStatus): string | null {
   switch (status) {
     case "waiting": return "채팅에 !전적 닉네임을 적어 주세요";
-    case "loading": return "찾아보는 중…";
+    case "loading": return "전적을 검색하고 있어요";
     case "not-found": return "닉네임을 찾지 못했어요";
     case "error": return "전적을 불러오지 못했어요. 잠시 뒤 다시 해 볼게요";
     case "ready": return null;
