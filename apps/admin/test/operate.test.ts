@@ -66,9 +66,9 @@ describe("연결 표시", () => {
 });
 
 describe("OBS 주소", () => {
-  test("서버 주소 아래 OBS 페이지 6개를 준다", () => {
+  test("서버 주소 아래 OBS 페이지 7개(배경 포함)를 준다", () => {
     const urls = obsUrls("http://127.0.0.1:4310");
-    assert.deepEqual(urls.map(item => item.url), ["character", "dashboard", "caption", "chat", "waiting", "ending"].map(name => `http://127.0.0.1:4310/obs/${name}.html`));
+    assert.deepEqual(urls.map(item => item.url), ["character", "dashboard", "caption", "chat", "waiting", "ending", "background"].map(name => `http://127.0.0.1:4310/obs/${name}.html`));
     assert.ok(urls.every(item => item.label.length > 0));
   });
 

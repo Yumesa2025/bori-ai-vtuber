@@ -800,8 +800,8 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 | 계획 단계 | 내용 | 위치 |
 |---|---|---|
 | 1. 서버 실행 | `findRunningServer(port)`: `/api/health`가 200이고 `service: "bori-server"`면 true. `startServer`: 저장소 루트에서 `node --import tsx apps/server/src/index.ts`, `BORI_SERVER_PORT`를 명시해 넘김, 출력은 `studio-server.log`(지난 실행은 previous), health까지 최대 20초, 자식이 먼저 끝나거나 시간 초과면 자식을 끄고 로그 경로를 담아 실패. `ensureServer`: 이미 있으면 그 서버를 쓰고 끌 때 건드리지 않음. `.env`는 서버가 읽음(F7) | `apps/admin/electron/server-process.cjs` |
-| 2. 운영 순수 함수 | `stageLabel`("① 오프닝" 등), `nextLabel`("메타 브리핑 시작" 등, 엔딩이면 "끝"), `connectionBadge`(색·문구), `llmConnection`·`ttsConnection`, `obsUrls(base)` 6개, `erSummary`(시즌·판 수·마지막 갱신 시각·진행률), `mergeShowLog`(최근 채팅·보리 답 10줄, 밀려난 채팅 다시 넣지 않음), `isNextShortcut`(입력칸·버튼·반복·조합 중 Space 무시) | `apps/admin/src/studio/operate.ts` |
-| 3. 운영 탭 | 현재 단계 큰 글씨·OBS 장면, "다음 단계"(Space)·"이전"·"처음으로"(확인창), 빠른 두 번 누르기 막음. 연결 상태 5개와 "치지직 연결"(기본 브라우저, 앱 키 없으면 이유 안내). 이터널리턴 데이터 기준과 "데이터 갱신"(진행률·마지막 오류). 테스트 채팅(IME 가드 `keys.ts`), 최근 채팅·답 10줄, OBS 주소 복사 6개. 1초 폴링(`poll.ts`), TTS는 30초 | `apps/admin/src/studio/OperateTab.tsx`·`api.ts` |
+| 2. 운영 순수 함수 | `stageLabel`("① 오프닝" 등), `nextLabel`("메타 브리핑 시작" 등, 엔딩이면 "끝"), `connectionBadge`(색·문구), `llmConnection`·`ttsConnection`, `obsUrls(base)` 7개(통합 브랜치에 생긴 메인 배경 포함), `erSummary`(시즌·판 수·마지막 갱신 시각·진행률), `mergeShowLog`(최근 채팅·보리 답 10줄, 밀려난 채팅 다시 넣지 않음), `isNextShortcut`(입력칸·버튼·반복·조합 중 Space 무시) | `apps/admin/src/studio/operate.ts` |
+| 3. 운영 탭 | 현재 단계 큰 글씨·OBS 장면, "다음 단계"(Space)·"이전"·"처음으로"(확인창), 빠른 두 번 누르기 막음. 연결 상태 5개와 "치지직 연결"(기본 브라우저, 앱 키 없으면 이유 안내). 이터널리턴 데이터 기준과 "데이터 갱신"(진행률·마지막 오류). 테스트 채팅(IME 가드 `keys.ts`), 최근 채팅·답 10줄, OBS 주소 복사 7개. 1초 폴링(`poll.ts`), TTS는 30초 | `apps/admin/src/studio/OperateTab.tsx`·`api.ts` |
 | 4. 1:1 탭 | 서버가 내주는 `/companion/`을 iframe으로. 1:1 빌드 base를 `/companion/`으로 바꿨다(API·Live2D 자산은 절대 경로라 그대로). CSP `frame-src 'self'` | `apps/admin/src/studio/CompanionTab.tsx`, `apps/companion/vite.config.ts`, `apps/admin/index.html` |
 | 5. 설정 탭 | 기존 관리 화면을 그대로 옮기고(폼 덮어쓰기 방지·폴링 그대로) 치지직 연결·연결 해제와 OBS 상태(지금 장면·마지막 오류) 칸을 더했다. 연결 해제는 채팅만 끊고 저장한 로그인은 남는다(W4 동작) | `apps/admin/src/studio/SettingsTab.tsx` |
 | 6. 실행 확인 | 아래 "검사" | - |
@@ -814,7 +814,7 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 - 단위 25건 추가: `apps/admin/test/server-process.test.ts` 10(가짜 서버 스크립트로 health 대기·로그·자식 종료·먼저 끝남·시간 초과·바깥 서버 유지), `operate.test.ts` 15.
 - 결과: typecheck 10개 워크스페이스 통과, `test:unit` 796/796, `test` 341/341(`MOCK_PORT=4852 BORI_TEST_PORT=4853`), `eval:test` 94/94, `eval:typecheck` 통과, `eval:static` 통과 52·실패 0·범위 밖 4, `npm run build`(관리자·방송·1:1) 통과.
 - **Electron 실제 실행**(임시 `BORI_DATA_DIR`, `BORI_SERVER_PORT=4850`, `BORI_ENV_FILE=""`로 실제 키 없이, mock LLM 4851). 창은 원격 디버깅 포트로 열어 DOM을 읽고 화면을 캡처했다(캡처는 커밋하지 않음).
-  - 서버가 없을 때: 스튜디오가 서버를 띄우고 `http://127.0.0.1:4850/studio/`를 열었다. 세 탭(방송 운영·1:1 대화·설정)이 모두 그려졌고, 1:1 탭 iframe에 1:1 화면과 Live2D가 떴다. 운영 탭에서 Space → "① 오프닝"과 진행 대사(mock), 테스트 채팅 "재키 어때?" → 로그에 채팅·보리 답, OBS 주소 6개(`…:4850/obs/character.html` 등). 창을 닫으니(WM_CLOSE) Electron과 서버 node가 함께 끝나고 4850이 비었다.
+  - 서버가 없을 때: 스튜디오가 서버를 띄우고 `http://127.0.0.1:4850/studio/`를 열었다. 세 탭(방송 운영·1:1 대화·설정)이 모두 그려졌고, 1:1 탭 iframe에 1:1 화면과 Live2D가 떴다. 운영 탭에서 Space → "① 오프닝"과 진행 대사(mock), 테스트 채팅 "재키 어때?" → 로그에 채팅·보리 답, OBS 주소(`…:4850/obs/character.html` 등. 이때는 6개였고 배경 페이지는 rebase 뒤 더했다). 창을 닫으니(WM_CLOSE) Electron과 서버 node가 함께 끝나고 4850이 비었다.
   - 서버가 이미 있을 때: 터미널에서 띄운 서버를 그대로 썼고("이미 떠 있는 서버를 씁니다"), 창을 닫은 뒤에도 그 서버는 살아 `/api/health`에 답했다.
   - `npm run studio` 전체(빌드 3개 → 실행): 위와 같이 서버를 띄우고 열고, 창을 닫으면 서버가 꺼졌다.
   - 서버가 뜨지 못할 때(워크트리의 `@bori/er` 링크가 빠진 상태에서 우연히 확인): 자식이 코드 1로 끝나자 기다리지 않고 로그 경로를 담은 오류 창을 띄웠다.

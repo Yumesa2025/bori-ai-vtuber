@@ -60,7 +60,7 @@ export function ttsConnection(view: { settings: { enabled: boolean }; hasApiKey:
   return view.settings.enabled && view.hasApiKey ? "connected" : "off";
 }
 
-/** OBS 브라우저 소스 주소. 구현 계획 1.4의 순서와 같다. */
+/** OBS 브라우저 소스 주소. 구현 계획 1.4의 6개에, 메인·전적 장면 맨 아래 불투명 배경(tools/obs/setup-show.mjs)을 더한다. */
 const obsPages = [
   { name: "character", label: "캐릭터" },
   { name: "dashboard", label: "대시보드" },
@@ -68,6 +68,7 @@ const obsPages = [
   { name: "chat", label: "채팅" },
   { name: "waiting", label: "대기 화면" },
   { name: "ending", label: "엔딩 화면" },
+  { name: "background", label: "메인 배경" },
 ] as const;
 
 export function obsUrls(base: string): Array<{ name: string; label: string; url: string }> {

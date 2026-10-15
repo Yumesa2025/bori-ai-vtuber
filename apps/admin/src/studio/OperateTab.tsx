@@ -171,7 +171,7 @@ export default function OperateTab({ active }: { active: boolean }) {
         <h2 className="subheading">최근 채팅·보리 답</h2>
         {log.lines.length === 0 ? <p className="hint">아직 채팅이 없습니다.</p> : <ol className="show-log">{log.lines.map(line => <li key={line.key} className={`log-${line.kind}`}><span>{line.kind === 'chat' ? '채팅' : '보리'}</span>{line.text}</li>)}</ol>}
       </article>
-      <article className="panel"><h2>OBS 브라우저 소스 주소</h2><p>OBS 브라우저 소스에 붙여 넣습니다. 크기는 모두 1920×1080입니다.</p>
+      <article className="panel"><h2>OBS 브라우저 소스 주소</h2><p>OBS 브라우저 소스에 붙여 넣습니다. 크기는 모두 1920×1080입니다. <code>npm run obs:setup</code>을 쓰면 장면과 소스를 한 번에 만듭니다.</p>
         <ul className="obs-urls">{obsUrls(window.location.origin).map(item => <li key={item.name}><span className="obs-label">{item.label}</span><code>{item.url}</code><button onClick={() => void copyUrl(item.label, item.url)}>복사</button></li>)}</ul>
       </article>
     </section>
