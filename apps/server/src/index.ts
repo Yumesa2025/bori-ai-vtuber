@@ -10,7 +10,7 @@ import type { ConversationMode } from "@bori/character";
 import { boriExpressionNames, boriMotionGroupNames, isBoriExpression, isBoriMotionGroup } from "@bori/live2d";
 import { createAdapter as createProviderAdapter, createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, isBroadcastMemoryText, summarizeBroadcast, supportedProviders, synthesizeSpeech, ttsApiKey, type TtsProvider, type TtsSettings } from "@bori/llm";
 import { createMemoryStore, createOpenAiEmbedding, defaultMemorySettings, extractMemoryCandidates, isAnonymousViewer, isStorableMemory, type EmbeddingProvider, type MemorySettings } from "@bori/memory";
-import { bodyAction, createConversationEngine, createModeLlmClients, isCrisisContent, isQuestion, isUnsafeContent, pickNextChatIndex, withoutCrisisTurns, type ConversationSession } from "./conversation/index.js";
+import { bodyAction, createConversationEngine, createModeLlmClients, isChatter, isCrisisContent, isQuestion, isUnsafeContent, pickNextChatIndex, withoutCrisisTurns, type ConversationSession } from "./conversation/index.js";
 import { cleanInputText, lengthOf } from "./input-text.js";
 import { COMPANION_LOCAL_OWNER, createCompanionHandler, createPrivateMemoryDigest } from "./companion/index.js";
 import { createApiKeySlot } from "./secret-store.js";
@@ -20,7 +20,7 @@ import { serveStatic, type StaticRoute } from "./http/static.js";
 import { isValidVoice, pickValidSettings, ttsProviders, validateLlmSettingsPatch, validateMemorySettingsPatch, validateQueueSettingsPatch, validateTtsSettingsPatch, type PatchResult } from "./http/settings.js";
 import { buildUsageReport, createUsageStore, loadPriceTable, trackAdapter, trackEmbedding } from "./usage/index.js";
 import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
-import { createErClient } from "@bori/er";
+import { createErClient, findCharacter } from "@bori/er";
 import { createObsController } from "./obs/controller.js";
 import { ChzzkCallbackError, createChzzkLink } from "./show/chzzk-link.js";
 import { createAutopilot } from "./show/autopilot.js";
@@ -28,7 +28,7 @@ import { createDemoChats, parseDemoScript } from "./show/demo-chats.js";
 import { createPlayerCommand } from "./show/commands.js";
 import { createShowController } from "./show/controller.js";
 import { createErData } from "./show/er-data.js";
-import { buildGameData } from "./show/game-data.js";
+import { buildGameData, META_QUESTION } from "./show/game-data.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 
@@ -436,6 +436,8 @@ function broadcastStatusLines(options: { forChat?: boolean } = {}): string[] {
   if (answeredCount > 0) lines.push(`지금까지 채팅 ${answeredCount}개에 답했다.`);
   const corner = options.forChat ? CORNER_LINES[show.view().stage] : undefined;
   if (corner) lines.push(corner);
+  // 채팅이 몰릴 때 보리가 분위기를 알고 이끌 수 있게 기다리는 채팅 수를 알려 준다. 다른 시청자의 글은 넣지 않는다.
+  if (options.forChat && queue.length > 0) lines.push(`답을 기다리는 다른 채팅이 ${queue.length}개 더 있다. 고른 채팅에 답하되 채팅창 분위기를 짧게 받아도 된다.`);
   return lines;
 }
 
@@ -727,6 +729,26 @@ function dropPastCornerChats() {
   }
 }
 
+/** 인사 채팅. 오프닝에서 먼저 받는다. */
+const GREETING = /안녕|하이|ㅎㅇ|반가|하잉|방가|\bhi\b|hello/i;
+
+/**
+ * 지금 코너에 맞는 채팅일수록 높은 점수. 시끌벅적한 채팅에서 보리가 코너에 맞는 채팅을 골라 흐름을 이끈다(2026-10-15 사용자 요청).
+ * 오프닝은 인사, 브리핑·질문은 캐릭터·메타 이야기, 전적 진단은 전적 이야기를 먼저 고른다. 그다음은 질문, 나머지 순이다.
+ */
+function chatRelevance(content: string): number {
+  const question = isQuestion(content) ? 1 : 0;
+  const dictionary = erData.dictionary();
+  const aboutGame = META_QUESTION.test(content) || (dictionary !== null && findCharacter(content, dictionary).match !== null);
+  switch (show.view().stage) {
+    case "opening": return GREETING.test(content) ? 3 : question;
+    case "briefing":
+    case "qna": return aboutGame ? 3 + question : question;
+    case "diagnosis": return /전적/.test(content) ? 3 : question;
+    default: return question;
+  }
+}
+
 function scheduleNext() {
   // 코너 시간이 다 됐으면 새 답을 시작하지 않는다. 자동 진행이 연결 멘트 뒤 다음 코너로 넘긴다.
   if (responseTimer || speaking || showHold > 0 || state.status !== "live" || boriQuiet() || autopilot.holding()) return;
@@ -736,7 +758,7 @@ function scheduleNext() {
   if (queue.length === 0) return;
 
   // 질문을 먼저 고르되, 오래 기다린 채팅은 질문에 밀리지 않게 한다.
-  const chat = queue.splice(pickNextChatIndex(queue), 1)[0];
+  const chat = queue.splice(pickNextChatIndex(queue, Date.now(), chatRelevance), 1)[0];
   syncQueueState();
 
   // 생성이 끝나기 전에 혼잣말이 끼어들지 않도록 발화권을 먼저 잡는다.
@@ -950,6 +972,8 @@ function ingestChat(input: { content?: unknown; nickname?: unknown }, source: Ch
   // 방송 화면에 넘기는 목록에는 화면에 필요한 값만 담는다.
   // viewerId도 닉네임에서 만든 값이라 함께 빼야 닉네임이 드러나지 않는다.
   pushVisibleChat({ id: chat.id, content: chat.content, receivedAt: chat.receivedAt, ...(chat.category ? { category: chat.category } : {}) });
+  // "ㅋㅋㅋ" 같은 반응은 채팅 띠에만 보이고 보리 답 큐에는 넣지 않는다.
+  if (isChatter(chat.content)) return null;
 
   dropExpiredChats();
   // 한 시청자가 큐를 차지하지 못하게, 그 시청자의 대기가 상한이면 가장 오래된 것을 버리고 새 채팅을 받는다.

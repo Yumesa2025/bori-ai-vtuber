@@ -66,7 +66,7 @@ export type GameDataContext = { dictionary: ErDictionary | null; stats: readonly
 /** 캐릭터를 못 찾았을 때 캐릭터 질문으로 볼 말. "세"는 "세상"과 겹쳐 물음 꼴만 본다. */
 const CHARACTER_QUESTION = /어때|좋아|추천|쎄|센가|세\?|세냐|세요\?|강해/;
 /** 특정 캐릭터 없이 전체 판도를 묻는 말. "1티어 뭐야", "메타 어때", "추천해 줘", "뭐가 제일 쎄". */
-const META_QUESTION = /티어|메타|추천|사기\s*캐|(뭐가|누가)\s*(제일\s*)?(좋|쎄|세|강)/;
+export const META_QUESTION = /티어|메타|추천|사기\s*캐|(뭐가|누가)\s*(제일\s*)?(좋|쎄|세|강)/;
 /** 대시보드 카드에 보일 질문 글 길이(글자). */
 const QUERY_MAX_LENGTH = 40;
 

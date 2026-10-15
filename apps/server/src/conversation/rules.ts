@@ -104,15 +104,31 @@ export const isQuestion = (content: string) => content.includes("?") || content.
 export const QUEUE_WAIT_LIMIT_MS = 30_000;
 
 /**
- * 방송 큐에서 다음에 답할 채팅의 위치를 고른다. 큐는 들어온 순서라 맨 앞이 가장 오래 기다린 채팅이다.
- * 질문을 먼저 고르되, 맨 앞 채팅이 QUEUE_WAIT_LIMIT_MS 넘게 기다렸으면 그것부터 답한다.
- * 질문만 고르면 질문이 계속 들어오는 동안 일반 채팅은 끝없이 밀리다 큐 상한에 걸려 버려진다.
+ * 답할 거리가 없는 짧은 반응("ㅋㅋㅋ", "ㅠㅠ", "ㅇㅇ"). 화면 채팅 띠에는 올리되 보리는 답하지 않는다(2026-10-15 사용자 요청:
+ * 시끌벅적한 채팅에서 보리가 고를 만한 채팅을 골라 이끌기). 다른 글자가 섞이면 반응으로 보지 않는다.
  */
-export function pickNextChatIndex(queue: readonly { content: string; receivedAt: string }[], now = Date.now()): number {
+export const isChatter = (content: string) => /^[ㅋㅎㅠㅜㅇㄷㄱㄴㅡ~!?.,^\s]+$/.test(content.trim());
+
+/**
+ * 방송 큐에서 다음에 답할 채팅의 위치를 고른다. 큐는 들어온 순서라 맨 앞이 가장 오래 기다린 채팅이다.
+ * 점수(relevance)가 가장 높은 채팅을 고르고, 같으면 먼저 온 것을 고른다. 기본 점수는 질문 1, 나머지 0이다.
+ * 방송 진행기는 코너에 맞는 채팅(질문 코너의 캐릭터 질문 등)에 높은 점수를 준다.
+ * 맨 앞 채팅이 QUEUE_WAIT_LIMIT_MS 넘게 기다렸으면 그것부터 답한다. 점수만 보면 낮은 채팅이 끝없이 밀리다 버려진다.
+ */
+export function pickNextChatIndex(
+  queue: readonly { content: string; receivedAt: string }[],
+  now = Date.now(),
+  relevance: (content: string) => number = content => (isQuestion(content) ? 1 : 0),
+): number {
   if (queue.length === 0) return -1;
   if (now - Date.parse(queue[0].receivedAt) >= QUEUE_WAIT_LIMIT_MS) return 0;
-  const question = queue.findIndex(item => isQuestion(item.content));
-  return question >= 0 ? question : 0;
+  let best = 0;
+  let bestScore = relevance(queue[0].content);
+  for (let index = 1; index < queue.length; index += 1) {
+    const score = relevance(queue[index].content);
+    if (score > bestScore) { best = index; bestScore = score; }
+  }
+  return best;
 }
 
 /** 지난 대화를 묻는 표현. 규칙 문장으로는 답할 수 없으므로 기억을 볼 수 있는 LLM에게 넘긴다. */

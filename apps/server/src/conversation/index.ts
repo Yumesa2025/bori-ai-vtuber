@@ -16,5 +16,5 @@ export {
 } from "./engine.js";
 export { RECENT_TURN_LIMIT, type ConversationSession, type SessionTurn, type Turn } from "./session.js";
 export { MACRO_ACTIVE_LIMIT } from "./macros.js";
-export { bodyAction, crisisTurnMask, isCrisisContent, isCrisisReply, isInCrisisContext, isQuestion, isUnsafeContent, pickNextChatIndex, QUEUE_WAIT_LIMIT_MS, withoutCrisisTurns } from "./rules.js";
+export { bodyAction, crisisTurnMask, isCrisisContent, isCrisisReply, isChatter, isInCrisisContext, isQuestion, isUnsafeContent, pickNextChatIndex, QUEUE_WAIT_LIMIT_MS, withoutCrisisTurns } from "./rules.js";
 export { createModeLlmClients, type ModeLlmClients } from "./llm-clients.js";
