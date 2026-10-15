@@ -8,6 +8,10 @@
  * 배경 영상이 private-assets/obs/에 있으면(저장소에 올리지 않는 사용자 자산) 반복 재생 미디어 소스로 넣고, 그 자리의 페이지 항목은 숨긴다(지우지 않음).
  *   waiting-loop.mp4 → 보리-대기 화면 전체, main-loop.mp4 → 보리-메인·전적 맨 아래층, ending-loop.mp4 → 보리-엔딩 화면 전체. 영상을 빼고 다시 돌리면 페이지 배경으로 돌아간다.
  *
+ * 배경음악(private-assets/obs/bgm.mp3)이 있으면 반복 재생 소스 "보리 배경음악"을 네 장면 모두에 넣는다(장면이 바뀌어도 끊기지 않는다).
+ * 볼륨은 -20dB이고, 보리 목소리("보리 캐릭터")가 나올 때 압축 필터(사이드체인)로 자동으로 낮춘다. 처음 만들 때는 멈춰 두고,
+ * 스튜디오 "방송 켜기"가 처음부터 튼다(서버 POST /api/show/on-air). 이미 있으면 재생 상태는 건드리지 않는다.
+ *
  * 장면 전환 영상(private-assets/obs/transition.webm·mov·mp4)이 있으면 스팅어 전환 "보리 전환"에 넣고 현재 전환으로 정한다.
  * obs-websocket에는 전환을 새로 만드는 요청이 없어, OBS 장면 전환 칸의 + → 스팅어로 "보리 전환"을 한 번 만들어 두어야 한다.
  * 전환 시점(영상이 화면을 다 덮는 때)은 BORI_OBS_TRANSITION_POINT_MS(밀리초), 없으면 ffprobe로 잰 영상 길이의 절반이다.
@@ -49,6 +53,10 @@ const VIDEOS = {
 const hasVideo = key => existsSync(VIDEOS[key].file);
 const pick = key => (hasVideo(key) ? key : VIDEOS[key].replaces);
 const nameOf = key => (VIDEOS[key] ?? SOURCES[key]).name;
+// 배경음악. 서버의 OBS_BGM 이름과 같아야 한다.
+const BGM = { name: "보리 배경음악", file: resolve("private-assets/obs/bgm.mp3"), volumeDb: -20 };
+const DUCKING_FILTER = "보리 목소리 덕킹";
+
 // 장면 전환 영상. 알파 채널이 있는 webm·mov를 먼저 찾는다.
 const TRANSITION_NAME = "보리 전환";
 const transitionFile = ["webm", "mov", "mp4"].map(ext => resolve(`private-assets/obs/transition.${ext}`)).find(file => existsSync(file));
@@ -161,6 +169,38 @@ for (const key of Object.keys(VIDEOS).filter(hasVideo)) {
   await obs.call("SetInputMute", { inputName: VIDEOS[key].name, inputMuted: true });
 }
 
+// 배경음악: 네 장면 모두의 맨 아래에 같은 소스를 넣어 장면이 바뀌어도 이어 재생한다.
+if (existsSync(BGM.file)) {
+  const bgmSettings = { is_local_file: true, local_file: BGM.file, looping: true, restart_on_activate: false, close_when_inactive: false, clear_on_media_end: false, hw_decode: false };
+  let created = false;
+  for (const sceneName of Object.keys(SCENES)) {
+    const { sceneItems } = await obs.call("GetSceneItemList", { sceneName });
+    if (sceneItems.some(item => item.sourceName === BGM.name)) continue;
+    if (existingInputs.has(BGM.name)) {
+      await obs.call("CreateSceneItem", { sceneName, sourceName: BGM.name });
+    } else {
+      await obs.call("CreateInput", { sceneName, inputName: BGM.name, inputKind: "ffmpeg_source", inputSettings: bgmSettings });
+      existingInputs.add(BGM.name);
+      created = true;
+      console.log(`소스 생성: ${BGM.name}`);
+    }
+    console.log(`  ${sceneName} ← ${BGM.name}`);
+  }
+  await obs.call("SetInputSettings", { inputName: BGM.name, inputSettings: bgmSettings, overlay: true });
+  await obs.call("SetInputVolume", { inputName: BGM.name, inputVolumeDb: BGM.volumeDb });
+  // 보리 목소리가 나오면 배경음악을 낮춘다. 사이드체인은 보리 캐릭터 소스(OBS 오디오로 받는 브라우저 소스)다.
+  const duckingSettings = { ratio: 8, threshold: -40, attack_time: 10, release_time: 400, output_gain: 0, sidechain_source: SOURCES.character.name };
+  const { filters } = await obs.call("GetSourceFilterList", { sourceName: BGM.name });
+  if (filters.some(filter => filter.filterName === DUCKING_FILTER)) {
+    await obs.call("SetSourceFilterSettings", { sourceName: BGM.name, filterName: DUCKING_FILTER, filterSettings: duckingSettings, overlay: true });
+  } else {
+    await obs.call("CreateSourceFilter", { sourceName: BGM.name, filterName: DUCKING_FILTER, filterKind: "compressor_filter", filterSettings: duckingSettings });
+    console.log(`필터 생성: ${BGM.name} ← ${DUCKING_FILTER}`);
+  }
+  // 처음 만들 때만 멈춰 둔다. 방송 중에 다시 돌려도 음악이 끊기지 않게 이미 있던 소스는 건드리지 않는다.
+  if (created) await obs.call("TriggerMediaInputAction", { inputName: BGM.name, mediaAction: "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP" });
+}
+
 // 전환 영상과 스팅어 "보리 전환"이 있으면 그것을, 아니면 페이드 0.3초(설계 9절)를 쓴다. 페이드 전환도 없으면 그대로 둔다.
 const { transitions } = await obs.call("GetSceneTransitionList");
 const stinger = transitions.find(transition => transition.transitionName === TRANSITION_NAME && transition.transitionKind === "obs_stinger_transition");
@@ -179,6 +219,7 @@ if (transitionFile && stinger) {
   console.log(`전환: ${fade.transitionName} 0.3초`);
 }
 
+console.log(`${BGM.name}: ${existsSync(BGM.file) ? `${BGM.file} (${BGM.volumeDb}dB, 보리 목소리에 맞춰 자동으로 낮춤)` : "파일 없음"}`);
 for (const [key, video] of Object.entries(VIDEOS)) console.log(`${video.name}: ${hasVideo(key) ? video.file : "파일 없음, 페이지 배경 사용"}`);
 console.log(`준비 완료. 소스 주소 ${BASE}/*.html`);
 obs.close();

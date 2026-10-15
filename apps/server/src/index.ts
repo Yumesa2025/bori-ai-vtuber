@@ -1075,6 +1075,19 @@ const chzzk = createChzzkLink({
 chzzk.start();
 console.log(`[bori-server] 방송 진행기: 이터널리턴 ${erData.connection()}, OBS ${obsPassword ? "연결 시도" : "끔(OBS_WEBSOCKET_PASSWORD 없음)"}, 치지직 ${chzzk.configured() ? chzzk.status().state : "끔(앱 키 없음)"}`);
 
+/** OBS 미디어 소스 이름. tools/obs/setup-show.mjs의 이름과 같아야 한다. 소스가 없으면 조용히 넘어간다. */
+const OBS_BGM = "보리 배경음악";
+const OBS_WAITING_VIDEO = "보리 대기 영상";
+/** "방송 켜기"(오프닝 앞 단계)를 눌렀는지. 처음으로 돌아가면 끈다(2026-10-15 사용자 요청). */
+let onAir = false;
+
+/** 방송 켜기: 대기 장면으로 가서 대기 영상과 배경음악을 처음부터 튼다. 치지직 송출·녹화는 운영자가 OBS에서 직접 시작한다. */
+async function turnOnAir() {
+  onAir = true;
+  await obs.setScene("보리-대기");
+  await Promise.all([obs.media(OBS_WAITING_VIDEO, "restart"), obs.media(OBS_BGM, "restart")]);
+}
+
 /** 화면·스튜디오가 읽는 진행 상태. 자막은 보리의 지금 답과 같다. */
 function showState(): ShowState {
   return {
@@ -1082,6 +1095,7 @@ function showState(): ShowState {
     caption: state.currentResponse?.reply ?? "",
     connections: { chzzk: chzzk.status().state, obs: obs.status().state, er: erData.connection() },
     erRefreshProgress: erData.status().progress,
+    onAir,
     auto: autopilot.status(),
   };
 }
@@ -1101,7 +1115,14 @@ const callbackFailureMessages: Record<ChzzkCallbackError["kind"], string> = {
 /** 방송 진행·ER·치지직·OBS 라우트(구현 계획 1.2). 처리했으면 true. */
 function handleShowRoute(request: IncomingMessage, response: ServerResponse, method: string | undefined, path: string): boolean {
   if (method === "GET" && path === "/api/show") { sendJson(response, 200, showState()); return true; }
+  if (method === "POST" && path === "/api/show/on-air") {
+    if (show.view().stage !== "idle") { sendJson(response, 409, { error: "방송 켜기는 오프닝 전(대기)에만 할 수 있습니다." }); return true; }
+    void turnOnAir().finally(() => sendJson(response, 200, showState()));
+    return true;
+  }
   if (method === "POST" && path === "/api/show/next") {
+    // 방송 켜기를 건너뛰고 오프닝을 시작하면 배경음악만 틀어 둔다(장면은 진행기가 메인으로 바꾼다).
+    if (show.view().stage === "idle" && !onAir) { onAir = true; void obs.media(OBS_BGM, "restart"); }
     // 처음 단계에서 넘어가면 방송 세션을 연다. 이미 방송 중이면 그 세션을 그대로 쓴다.
     if (show.view().stage === "idle" && state.status !== "live") startBroadcast();
     if (show.view().stage === "idle") showDriven = true;
@@ -1123,6 +1144,9 @@ function handleShowRoute(request: IncomingMessage, response: ServerResponse, met
   }
   if (method === "POST" && path === "/api/show/prev") { void show.prev(); sendJson(response, 200, showState()); return true; }
   if (method === "POST" && path === "/api/show/reset") {
+    // 처음으로 돌아가면 배경음악을 멈추고 방송 켜기 전으로 돌린다.
+    onAir = false;
+    void obs.media(OBS_BGM, "stop");
     void show.reset();
     endBroadcast();
     sendJson(response, 200, showState());

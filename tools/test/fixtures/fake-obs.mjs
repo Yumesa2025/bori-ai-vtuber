@@ -66,7 +66,8 @@ export async function startFakeObs({ port, host = "127.0.0.1", password = "", sc
 
   function handleRequest(socket, d) {
     const sceneName = d.requestData?.sceneName;
-    requests.push({ requestType: d.requestType, ...(typeof sceneName === "string" ? { sceneName } : {}) });
+    const { inputName, mediaAction } = d.requestData ?? {};
+    requests.push({ requestType: d.requestType, ...(typeof sceneName === "string" ? { sceneName } : {}), ...(typeof inputName === "string" ? { inputName, mediaAction } : {}) });
     switch (d.requestType) {
       case "GetCurrentProgramScene":
         return respond(socket, d, { ok: true, data: { currentProgramSceneName: currentScene, sceneName: currentScene } });
@@ -78,6 +79,9 @@ export async function startFakeObs({ port, host = "127.0.0.1", password = "", sc
         respond(socket, d, { ok: true });
         broadcastEvent("CurrentProgramSceneChanged", { sceneName });
         return;
+      // 배경음악·대기 영상 재생·정지. 소스가 있다고 보고 받기만 한다(검사는 requests로 본다).
+      case "TriggerMediaInputAction":
+        return respond(socket, d, { ok: true });
       default:
         return respond(socket, d, { ok: false, code: 204, comment: "Unknown request type." });
     }

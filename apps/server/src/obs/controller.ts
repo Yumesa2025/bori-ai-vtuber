@@ -123,6 +123,22 @@ export function createObsController(options: { url: string; password: string; re
       }
     },
 
+    /**
+     * 미디어 소스(배경음악·대기 영상)를 처음부터 틀거나 멈춘다. 그 소스가 OBS에 없으면(영상·음악을 넣지 않은 경우) 조용히 넘어간다.
+     * 연결되지 않았거나 실패해도 throw하지 않는다.
+     */
+    async media(inputName: string, action: "restart" | "stop"): Promise<void> {
+      const obs = client;
+      if (!obs || state !== "connected") return;
+      const mediaAction = action === "restart" ? "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART" : "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP";
+      try {
+        await withTimeout(obs.call("TriggerMediaInputAction", { inputName, mediaAction }), requestTimeoutMs);
+      } catch (error) {
+        if (error instanceof OBSWebSocketError && error.code === RESOURCE_NOT_FOUND) return;
+        lastError = `OBS 미디어 '${inputName}'을(를) ${action === "restart" ? "재생하지" : "멈추지"} 못했습니다.`;
+      }
+    },
+
     status: (): ObsStatus => ({ state, currentScene, lastError }),
 
     /** 연결을 끊고 다시 연결하지 않는다. */
