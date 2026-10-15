@@ -28,7 +28,7 @@ import { createDemoChats, parseDemoScript } from "./show/demo-chats.js";
 import { createPlayerCommand } from "./show/commands.js";
 import { createShowController } from "./show/controller.js";
 import { createErData } from "./show/er-data.js";
-import { buildGameData, META_QUESTION } from "./show/game-data.js";
+import { buildGameData, isMetaQuestion } from "./show/game-data.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 
@@ -739,7 +739,7 @@ const GREETING = /안녕|하이|ㅎㅇ|반가|하잉|방가|\bhi\b|hello/i;
 function chatRelevance(content: string): number {
   const question = isQuestion(content) ? 1 : 0;
   const dictionary = erData.dictionary();
-  const aboutGame = META_QUESTION.test(content) || (dictionary !== null && findCharacter(content, dictionary).match !== null);
+  const aboutGame = isMetaQuestion(content) || (dictionary !== null && findCharacter(content, dictionary).match !== null);
   switch (show.view().stage) {
     case "opening": return GREETING.test(content) ? 3 : question;
     case "briefing":
@@ -1082,7 +1082,7 @@ const show = createShowController({
   speak: speakShowDirective,
   say: sayShowLine,
   waitQuiet,
-  er: { basis: () => erData.basis(), top5: () => erData.top5() },
+  er: { basis: () => erData.basis(), top5: () => erData.top5(), stats: () => erData.stats() },
 });
 /** OBS 미디어 소스 이름. tools/obs/setup-show.mjs의 이름과 같아야 한다. 소스가 없으면 조용히 넘어간다. */
 const OBS_BGM = "보리 배경음악";

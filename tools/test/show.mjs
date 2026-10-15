@@ -180,6 +180,9 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
         report.check("briefing 대사 요청에 TOP 5 게임 데이터가 들어간다", Boolean(call?.user.includes("[게임 데이터]") && call.user.includes("1위: 재키") && call.user.includes("8.1%")));
         const revealed = await waitUntil(async () => { const view = (await show()).dashboard; return view.kind === "top5" && view.revealed === 5; }, 15_000);
         report.check("briefing 대사 뒤 TOP 5가 5까지 열린다", Boolean(revealed));
+        const reasons = await waitUntil(async () => (await directiveCalls()).find(entry => entry.system.includes("TOP 5에 왜 들었는지") && entry.user.includes("1등 비율이 높은 순서")), 15_000);
+        report.check("TOP 5가 다 열리면 왜 TOP 5인지 데이터(집계 전체 순서)로 해설하는 대사를 만든다", Boolean(reasons));
+        await bori.waitForIdle();
       }
       if (moved.stage === "diagnosis") {
         report.check("diagnosis 대시보드는 전적 대기 카드다", JSON.stringify((await show()).dashboard) === JSON.stringify({ kind: "player", status: "waiting", report: null }));

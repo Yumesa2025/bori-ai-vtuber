@@ -2,38 +2,147 @@
   "description": "4분 시연용 시청자 채팅 대본. 시청자 4명(냥펀치·재키장인·솔랭지옥·보리팬1호)이 반말로 시끌벅적하게 친다. 코너마다 '코너 시작 뒤 몇 초(after)'에 올린다. 보리는 LLM으로 답하고, 코너에 맞는 채팅을 골라 흐름을 이끄는지 본다. ㅋㅋ·ㅠㅠ 같은 반응은 화면에만 보이고 보리는 답하지 않는다. 스튜디오 운영 탭의 '시연 채팅 자동 재생'을 켜면 쓴다.",
   "corners": {
     "opening": [
-      { "after": 1, "nickname": "냥펀치", "content": "보리 하이~" },
-      { "after": 2, "nickname": "재키장인", "content": "하이하이" },
-      { "after": 3, "nickname": "솔랭지옥", "content": "오 방송 켰다" },
-      { "after": 4, "nickname": "보리팬1호", "content": "보리야 안녕!! 기다렸어" },
-      { "after": 9, "nickname": "냥펀치", "content": "ㅋㅋㅋㅋ" },
-      { "after": 14, "nickname": "솔랭지옥", "content": "오늘 뭐 보는데?" }
+      {
+        "after": 1,
+        "nickname": "냥펀치",
+        "content": "보리 하이~"
+      },
+      {
+        "after": 2,
+        "nickname": "재키장인",
+        "content": "하이하이"
+      },
+      {
+        "after": 3,
+        "nickname": "솔랭지옥",
+        "content": "오 방송 켰다"
+      },
+      {
+        "after": 4,
+        "nickname": "보리팬1호",
+        "content": "보리야 안녕!! 기다렸어"
+      },
+      {
+        "after": 9,
+        "nickname": "냥펀치",
+        "content": "ㅋㅋㅋㅋ"
+      },
+      {
+        "after": 14,
+        "nickname": "솔랭지옥",
+        "content": "오늘 뭐 보는데?"
+      }
     ],
     "briefing": [
-      { "after": 6, "nickname": "재키장인", "content": "재키 또 1위냐 ㅋㅋ" },
-      { "after": 9, "nickname": "냥펀치", "content": "ㅋㅋㅋ" },
-      { "after": 14, "nickname": "솔랭지옥", "content": "아 배고프다" },
-      { "after": 20, "nickname": "보리팬1호", "content": "1등 비율 제일 높은 애 누구야?" },
-      { "after": 28, "nickname": "냥펀치", "content": "재키 국밥캐 인정" },
-      { "after": 38, "nickname": "재키장인", "content": "ㅇㅇ" }
+      {
+        "after": 6,
+        "nickname": "재키장인",
+        "content": "오 TOP 5 떴다"
+      },
+      {
+        "after": 9,
+        "nickname": "냥펀치",
+        "content": "ㅋㅋㅋ"
+      },
+      {
+        "after": 14,
+        "nickname": "솔랭지옥",
+        "content": "아 배고프다"
+      },
+      {
+        "after": 20,
+        "nickname": "보리팬1호",
+        "content": "1등 비율 제일 높은 애 누구야?"
+      },
+      {
+        "after": 28,
+        "nickname": "냥펀치",
+        "content": "2위 의외인데?"
+      },
+      {
+        "after": 38,
+        "nickname": "재키장인",
+        "content": "ㅇㅇ"
+      }
     ],
     "qna": [
-      { "after": 3, "nickname": "재키장인", "content": "재키 어때?" },
-      { "after": 5, "nickname": "냥펀치", "content": "ㅋㅋㅋㅋㅋ" },
-      { "after": 7, "nickname": "솔랭지옥", "content": "요즘 1티어 뭐야?" },
-      { "after": 12, "nickname": "보리팬1호", "content": "보리 목소리 귀엽다" },
-      { "after": 18, "nickname": "냥펀치", "content": "피오라는 요즘 별로야?" },
-      { "after": 26, "nickname": "솔랭지옥", "content": "나 오늘 7연패함 ㅠㅠ" },
-      { "after": 34, "nickname": "보리팬1호", "content": "레니 할만해?" },
-      { "after": 45, "nickname": "재키장인", "content": "ㅋㅋ" }
+      {
+        "after": 3,
+        "nickname": "재키장인",
+        "content": "재키 어때?"
+      },
+      {
+        "after": 5,
+        "nickname": "냥펀치",
+        "content": "ㅋㅋㅋㅋㅋ"
+      },
+      {
+        "after": 7,
+        "nickname": "솔랭지옥",
+        "content": "요즘 1티어 뭐야?"
+      },
+      {
+        "after": 12,
+        "nickname": "보리팬1호",
+        "content": "보리 목소리 귀엽다"
+      },
+      {
+        "after": 18,
+        "nickname": "냥펀치",
+        "content": "피오라는 요즘 별로야?"
+      },
+      {
+        "after": 26,
+        "nickname": "솔랭지옥",
+        "content": "나 오늘 7연패함 ㅠㅠ"
+      },
+      {
+        "after": 32,
+        "nickname": "보리팬1호",
+        "content": "레니 할만해?"
+      },
+      {
+        "after": 40,
+        "nickname": "재키장인",
+        "content": "니키 요즘 쎔?"
+      },
+      {
+        "after": 48,
+        "nickname": "냥펀치",
+        "content": "ㅋㅋ"
+      }
     ],
     "diagnosis": [
-      { "after": 4, "nickname": "보리팬1호", "content": "전적 봐줘!!" },
-      { "after": 8, "nickname": "냥펀치", "content": "!전적 카이렌렌" },
-      { "after": 12, "nickname": "솔랭지옥", "content": "와 궁금하다" },
-      { "after": 20, "nickname": "재키장인", "content": "ㅋㅋㅋ" },
-      { "after": 40, "nickname": "재키장인", "content": "!전적 카이라라" },
-      { "after": 46, "nickname": "솔랭지옥", "content": "내 전적은 보지마 ㅋㅋ" }
+      {
+        "after": 4,
+        "nickname": "보리팬1호",
+        "content": "전적 봐줘!!"
+      },
+      {
+        "after": 8,
+        "nickname": "냥펀치",
+        "content": "!전적 카이렌렌"
+      },
+      {
+        "after": 12,
+        "nickname": "솔랭지옥",
+        "content": "와 궁금하다"
+      },
+      {
+        "after": 20,
+        "nickname": "재키장인",
+        "content": "ㅋㅋㅋ"
+      },
+      {
+        "after": 40,
+        "nickname": "재키장인",
+        "content": "!전적 카이라라"
+      },
+      {
+        "after": 46,
+        "nickname": "솔랭지옥",
+        "content": "내 전적은 보지마 ㅋㅋ"
+      }
     ]
   }
 }

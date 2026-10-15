@@ -7,7 +7,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ErCharacterStat, ErMetaBasis } from "@bori/shared";
 import type { ErDictionary } from "@bori/er";
-import { buildGameData, stageGameData } from "../src/show/game-data.js";
+import { buildGameData, isMetaQuestion, stageGameData, top5ReasonLines } from "../src/show/game-data.js";
 
 const dictionary: ErDictionary = {
   characters: [
@@ -103,8 +103,20 @@ describe("buildGameData", () => {
       const result = buildGameData(question, ctx);
       assert.ok(result, question);
       assert.equal(result.view, null, question);
-      assert.deepEqual(result.lines, ["많이 고른 순 1위: 재키 (랭커 픽률 8.1%, 평균 순위 3.4위, 1등 비율 12.0%)", "많이 고른 순 2위: 피오라 (랭커 픽률 1.4%, 평균 순위 4.3위, 1등 비율 8.0%)", "기준: 시즌 9 최근 상위 랭커 7,200판"], question);
+      assert.deepEqual(result.lines, [
+        "많이 고른 순 1위: 재키 (랭커 픽률 8.1%, 평균 순위 3.4위, 1등 비율 12.0%)",
+        "많이 고른 순 2위: 피오라 (랭커 픽률 1.4%, 평균 순위 4.3위, 1등 비율 8.0%)",
+        "많이 고른 상위 2명 중 1등 비율이 가장 높은 캐릭터: 재키 (랭커 픽률 8.1%, 평균 순위 3.4위, 1등 비율 12.0%)",
+        "많이 고른 상위 2명 중 평균 순위가 가장 좋은 캐릭터: 재키 (랭커 픽률 8.1%, 평균 순위 3.4위, 1등 비율 12.0%)",
+        "기준: 시즌 9 최근 상위 랭커 7,200판",
+      ], question);
     }
+  });
+
+  test("기록 낱말과 최상급이 함께 있으면 전체를 묻는 말로 본다. 게임과 상관없는 최상급은 아니다", () => {
+    assert.equal(isMetaQuestion("1등 비율 제일 높은 애 누구야?"), true);
+    assert.equal(isMetaQuestion("평균 순위 가장 좋은 캐릭 누구?"), true);
+    assert.equal(isMetaQuestion("보리 제일 좋아하는 노래 뭐야?"), false);
   });
 
   test("전체를 묻는 말이어도 메타 집계가 없으면 데이터가 없다고 적는다", () => {
@@ -112,13 +124,24 @@ describe("buildGameData", () => {
   });
 });
 
+describe("top5ReasonLines", () => {
+  test("TOP 5마다 수치와 집계 전체에서의 순서(많이 고른·평균 순위·1등 비율)를 넣는다", () => {
+    const lines = top5ReasonLines({ basis, top5: [jackie], stats: [jackie], mentioned: [] });
+    assert.equal(lines[0], "1위 재키 (랭커 픽률 8.1%, 평균 순위 3.4위, 1등 비율 12.0%) — 집계 캐릭터 1명 중 많이 고른 순서 1번째, 평균 순위가 좋은 순서 1번째, 1등 비율이 높은 순서 1번째");
+    assert.match(lines.at(-1)!, /^기준:/);
+  });
+  test("집계가 없으면 데이터가 없다고 적는다", () => {
+    assert.deepEqual(top5ReasonLines({ basis: null, top5: [], stats: [], mentioned: [] }), ["이터널리턴 메타 데이터가 아직 없다."]);
+  });
+});
+
 describe("stageGameData", () => {
   test("메타가 없으면 데이터가 없다고 적는다", () => {
-    assert.deepEqual(stageGameData("briefing", { basis: null, top5: [], mentioned: [] }), ["이터널리턴 메타 데이터가 아직 없다."]);
+    assert.deepEqual(stageGameData("briefing", { basis: null, top5: [], stats: [], mentioned: [] }), ["이터널리턴 메타 데이터가 아직 없다."]);
   });
 
   test("qna·diagnosis 단계는 데이터를 붙이지 않는다", () => {
-    assert.deepEqual(stageGameData("qna", { basis, top5: [jackie], mentioned: [] }), []);
-    assert.deepEqual(stageGameData("diagnosis", { basis, top5: [jackie], mentioned: [] }), []);
+    assert.deepEqual(stageGameData("qna", { basis, top5: [jackie], stats: [jackie], mentioned: [] }), []);
+    assert.deepEqual(stageGameData("diagnosis", { basis, top5: [jackie], stats: [jackie], mentioned: [] }), []);
   });
 });

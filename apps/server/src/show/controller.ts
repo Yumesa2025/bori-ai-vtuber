@@ -1,5 +1,5 @@
 import { showStages, type DashboardView, type ErCharacterStat, type ErMetaBasis, type ObsSceneName, type ShowStage } from "@bori/shared";
-import { outroGameData, stageGameData } from "./game-data.js";
+import { outroGameData, stageGameData, top5ReasonLines } from "./game-data.js";
 import { stageConfig, type StageContext } from "./stages.js";
 
 /**
@@ -16,7 +16,8 @@ export type ShowControllerDeps = {
   speak: (directive: string, gameData: readonly string[], isCurrent: () => boolean) => Promise<void>;
   /** 정해진 문장을 그대로 말한다. 대사를 못 만들었을 때 쓴다. */
   say: (line: string, isCurrent: () => boolean) => Promise<void>;
-  er: { basis(): ErMetaBasis | null; top5(): ErCharacterStat[] };
+  /** stats는 집계 캐릭터 전체(많이 고른 순). 없으면 TOP 5만 본다. */
+  er: { basis(): ErMetaBasis | null; top5(): ErCharacterStat[]; stats?(): ErCharacterStat[] };
   /** 보리가 지금 하는 말을 다 마칠 때까지 기다린다. 떠날 때 대사(outro) 뒤 넘어가기 전에 쓴다. 없으면 기다리지 않는다. */
   waitQuiet?: () => Promise<void>;
   /** TOP 5를 한 줄씩 여는 간격. 기본 1.2초. */
@@ -30,7 +31,7 @@ const DEFAULT_REVEAL_INTERVAL_MS = 1200;
 export function createShowController(deps: ShowControllerDeps) {
   const revealIntervalMs = deps.revealIntervalMs ?? DEFAULT_REVEAL_INTERVAL_MS;
   let stage: ShowStage = "idle";
-  let dashboard: DashboardView = stageConfig.idle.dashboard({ basis: deps.er.basis(), top5: [], mentioned: [] });
+  let dashboard: DashboardView = stageConfig.idle.dashboard({ basis: deps.er.basis(), top5: [], stats: [], mentioned: [] });
   /** 이번 방송에서 대시보드에 띄운 캐릭터. 처음 띄운 순서를 지킨다. */
   let mentioned: string[] = [];
   /** 단계를 옮기는 중(장면 전환·대사 생성). 이 동안 next·prev는 무시한다. 빠른 두 번 누르기를 막는다. */
@@ -41,7 +42,7 @@ export function createShowController(deps: ShowControllerDeps) {
   let epoch = 0;
   let revealTimer: ReturnType<typeof setInterval> | undefined;
 
-  const context = (): StageContext => ({ basis: deps.er.basis(), top5: deps.er.top5(), mentioned: [...mentioned] });
+  const context = (): StageContext => ({ basis: deps.er.basis(), top5: deps.er.top5(), stats: deps.er.stats?.() ?? deps.er.top5(), mentioned: [...mentioned] });
 
   function stopReveal() {
     if (revealTimer) clearInterval(revealTimer);
@@ -67,13 +68,27 @@ export function createShowController(deps: ShowControllerDeps) {
     }
   }
 
-  /** briefing 대사가 나간 뒤 TOP 5를 한 줄씩 연다. */
+  /** briefing 대사가 나간 뒤 TOP 5를 한 줄씩 연다. 다 열리면 그 단계의 afterReveal 대사(왜 TOP 5인지)를 한다. */
   function startReveal(current: number) {
     revealTimer = setInterval(() => {
       if (current !== epoch || dashboard.kind !== "top5") { stopReveal(); return; }
-      if (dashboard.revealed >= dashboard.items.length) { stopReveal(); return; }
+      if (dashboard.revealed >= dashboard.items.length) { stopReveal(); void speakAfterReveal(current); return; }
       dashboard = { ...dashboard, revealed: dashboard.revealed + 1 };
     }, revealIntervalMs);
+  }
+
+  async function speakAfterReveal(current: number) {
+    const after = stageConfig[stage].afterReveal;
+    const isCurrent = () => current === epoch;
+    if (!after || !isCurrent()) return;
+    try {
+      await deps.speak(after.directive, top5ReasonLines(context()), isCurrent);
+    } catch (error) {
+      if (!isCurrent()) return;
+      console.error("[bori-server] TOP 5 해설 대사 생성 실패, 고정 문장으로 말합니다:", error instanceof Error ? error.message : String(error));
+      const line = after.fallbackLines[0];
+      if (line) await deps.say(line, isCurrent).catch(sayError => console.error("[bori-server] TOP 5 해설 고정 문장 실패:", sayError));
+    }
   }
 
   async function move(next: ShowStage, options: { speak: boolean }) {
