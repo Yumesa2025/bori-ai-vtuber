@@ -6,7 +6,7 @@
  * 범위는 관리자 화면 입력값과 기본값, 통합 검사가 쓰는 값을 모두 받도록 정했다.
  */
 import type { LlmSettings, QueueSettings } from "@bori/shared";
-import { openAiVoices, supportedProviders, type TtsProvider, type TtsSettings } from "@bori/llm";
+import { FISH_VOICE_ID, openAiVoices, supportedProviders, type TtsProvider, type TtsSettings } from "@bori/llm";
 import type { MemorySettings } from "@bori/memory";
 import { normalizeApiKey } from "../secret-store.js";
 
@@ -134,11 +134,13 @@ export function validateMemorySettingsPatch(input: unknown): PatchResult<MemoryS
 
 // ── 음성 합성 ────────────────────────────────────────────────
 
-export const ttsProviders: readonly TtsProvider[] = ["openai", "elevenlabs"];
+export const ttsProviders: readonly TtsProvider[] = ["openai", "elevenlabs", "fish"];
 
-/** 업체별 목소리 허용 목록. OpenAI는 고정 목록, ElevenLabs는 voice id 형식. */
+/** 업체별 목소리 허용 목록. OpenAI는 고정 목록, ElevenLabs는 voice id 형식, Fish Audio는 32자리 모델 id. */
 export function isValidVoice(provider: TtsProvider, voice: string): boolean {
-  return provider === "openai" ? (openAiVoices as readonly string[]).includes(voice) : ELEVENLABS_VOICE_ID.test(voice);
+  if (provider === "openai") return (openAiVoices as readonly string[]).includes(voice);
+  if (provider === "fish") return FISH_VOICE_ID.test(voice);
+  return ELEVENLABS_VOICE_ID.test(voice);
 }
 
 /** 키는 설정과 함께 오지만 설정에 병합하지 않는다. 검증만 여기서 한다. */

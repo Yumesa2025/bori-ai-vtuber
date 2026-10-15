@@ -131,6 +131,9 @@ describe("음성 설정", () => {
     assert.ok(isValidVoice("elevenlabs", "21m00Tcm4TlvDq8ikWAM"));
     assert.ok(!isValidVoice("elevenlabs", "../voices"));
     assert.ok(!isValidVoice("elevenlabs", "a".repeat(65)));
+    assert.ok(isValidVoice("fish", "0123456789abcdef0123456789abcdef"));
+    assert.ok(!isValidVoice("fish", "nova"));
+    assert.ok(!isValidVoice("fish", "../model"));
   });
 
   test("목소리는 바뀐 뒤의 업체 기준으로 본다", () => {

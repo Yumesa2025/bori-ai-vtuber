@@ -3,18 +3,19 @@ import { redactError, redactSecrets } from "./redact.js";
 /** 프록시나 호환 엔드포인트로 돌릴 때 환경변수로 바꾼다. */
 const OPENAI_BASE_URL = process.env.BORI_OPENAI_BASE_URL ?? "https://api.openai.com/v1";
 const ELEVENLABS_BASE_URL = process.env.BORI_ELEVENLABS_BASE_URL ?? "https://api.elevenlabs.io/v1";
+const FISH_BASE_URL = process.env.BORI_FISH_BASE_URL ?? "https://api.fish.audio";
 
 /** 지원하는 음성 합성 업체. 어댑터를 추가하면 여기에 이름을 늘린다. */
-export type TtsProvider = "openai" | "elevenlabs";
+export type TtsProvider = "openai" | "elevenlabs" | "fish";
 
 export type TtsSettings = {
   enabled: boolean;
   provider: TtsProvider;
-  /** OpenAI는 tts-1 / tts-1-hd, ElevenLabs는 eleven_multilingual_v2 등을 쓴다. */
+  /** OpenAI는 tts-1 / tts-1-hd, ElevenLabs는 eleven_multilingual_v2, Fish Audio는 s2.1-pro·s1 등을 쓴다. */
   model: string;
-  /** OpenAI는 목소리 이름, ElevenLabs는 voice id. */
+  /** OpenAI는 목소리 이름, ElevenLabs는 voice id, Fish Audio는 목소리 모델 id(reference_id). */
   voice: string;
-  /** OpenAI만 지원한다. 0.25~4.0 */
+  /** OpenAI(0.25~4.0)와 Fish Audio(0.5~2.0, 범위 밖은 잘라서 보낸다)가 쓴다. */
   speed: number;
   /** ElevenLabs 안정성. 낮으면 감정 표현이 커지고 높으면 일정해진다. 0~1 */
   stability: number;
@@ -40,6 +41,7 @@ export const openAiVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"
 export const defaultTtsModels: Record<TtsProvider, string> = {
   openai: "tts-1",
   elevenlabs: "eleven_multilingual_v2",
+  fish: "s2.1-pro",
 };
 
 /** durationMs는 mp3 프레임에서 센 재생 길이다. 말풍선 표시 시간을 음성 길이에 맞출 때 쓴다(a4 A4-12). */
@@ -47,7 +49,15 @@ export type TtsResult = { audio: Buffer; latencyMs: number; durationMs: number }
 export type TtsVoiceOption = { id: string; name: string; description?: string };
 
 /** 업체별 API 키. 서버에서만 다루고 브라우저로 내보내지 않는다. */
-export type TtsCredentials = { openAiApiKey: string; elevenLabsApiKey: string };
+/** fishApiKey는 Fish Audio를 쓸 때만 필요하다(.env의 FISH_API_KEY). */
+export type TtsCredentials = { openAiApiKey: string; elevenLabsApiKey: string; fishApiKey?: string };
+
+/** 업체별로 쓰는 키. */
+export function ttsApiKey(credentials: TtsCredentials, provider: TtsProvider): string {
+  if (provider === "elevenlabs") return credentials.elevenLabsApiKey;
+  if (provider === "fish") return credentials.fishApiKey ?? "";
+  return credentials.openAiApiKey;
+}
 
 /**
  * 음성 한 건의 최대 크기. 120자 답은 128kbps mp3로 20초 안팎(약 320KB)이라 5MB는 열 배 넘는 여유다.
@@ -164,19 +174,52 @@ async function synthesizeWithElevenLabs(apiKey: string, settings: TtsSettings, t
   }
 }
 
+/** Fish Audio 목소리 모델 id(fish.audio/m/<id>). 형식이 맞지 않으면(다른 업체 목소리 이름 등) 보내지 않고 Fish 기본 목소리를 쓴다. */
+export const FISH_VOICE_ID = /^[0-9a-f]{32}$/i;
+
+/** Fish Audio 속도 범위. https://docs.fish.audio (prosody.speed) */
+const FISH_SPEED_MIN = 0.5;
+const FISH_SPEED_MAX = 2.0;
+
+async function synthesizeWithFish(apiKey: string, settings: TtsSettings, text: string): Promise<Buffer> {
+  const { signal, done } = abortAfter(settings.timeoutMs);
+  try {
+    const response = await fetch(`${FISH_BASE_URL}/v1/tts`, {
+      method: "POST",
+      // 모델은 본문이 아니라 model 헤더로 고른다.
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, model: settings.model },
+      body: JSON.stringify({
+        text,
+        ...(FISH_VOICE_ID.test(settings.voice) ? { reference_id: settings.voice } : {}),
+        format: "mp3",
+        mp3_bitrate: 128,
+        latency: "normal",
+        prosody: { speed: Math.min(FISH_SPEED_MAX, Math.max(FISH_SPEED_MIN, settings.speed)) },
+      }),
+      signal,
+    });
+    if (!response.ok) throw new Error(`Fish Audio ${response.status}: ${redactSecrets(await response.text(), [apiKey]).slice(0, 200)}`);
+    return await readAudio(response, "Fish Audio");
+  } finally {
+    done();
+  }
+}
+
 /**
  * 답변 음성을 만든다.
  * 업체가 달라도 호출부는 같다. 결과는 항상 mp3다. 빈 본문이나 mp3 프레임이 없는 응답은 실패로 본다(a4 A4-13).
  */
 export async function synthesizeSpeech(credentials: TtsCredentials, settings: TtsSettings, text: string): Promise<TtsResult> {
   const startedAt = Date.now();
-  const apiKey = settings.provider === "elevenlabs" ? credentials.elevenLabsApiKey : credentials.openAiApiKey;
+  const apiKey = ttsApiKey(credentials, settings.provider);
   if (apiKey.trim().length === 0) throw new Error(`${settings.provider} API 키가 없습니다.`);
 
   try {
     const audio = settings.provider === "elevenlabs"
       ? await synthesizeWithElevenLabs(apiKey, settings, text)
-      : await synthesizeWithOpenAi(apiKey, settings, text);
+      : settings.provider === "fish"
+        ? await synthesizeWithFish(apiKey, settings, text)
+        : await synthesizeWithOpenAi(apiKey, settings, text);
     if (audio.length === 0) throw new Error("음성 데이터가 비어 있습니다.");
     const durationMs = mp3DurationMs(audio);
     if (durationMs === null) throw new Error("음성 데이터가 mp3가 아닙니다.");
@@ -195,13 +238,14 @@ export const VOICE_LIST_TIMEOUT_MS = 5000;
 
 /**
  * 고를 수 있는 목소리 목록.
- * OpenAI는 고정 목록이고 ElevenLabs는 계정에 담긴 목소리를 받아 온다.
+ * OpenAI는 고정 목록이고 ElevenLabs·Fish Audio는 계정에 담긴 목소리를 받아 온다.
  */
 export async function listVoices(credentials: TtsCredentials, provider: TtsProvider, timeoutMs = VOICE_LIST_TIMEOUT_MS): Promise<TtsVoiceOption[]> {
   if (provider === "openai") {
     return openAiVoices.map(name => ({ id: name, name }));
   }
 
+  if (provider === "fish") return listFishVoices(ttsApiKey(credentials, provider), timeoutMs);
   if (credentials.elevenLabsApiKey.trim().length === 0) return [];
 
   const { signal, done } = abortAfter(timeoutMs);
@@ -226,6 +270,28 @@ export async function listVoices(credentials: TtsCredentials, provider: TtsProvi
     }));
 }
 
+/**
+ * Fish Audio에서 내가 만든 목소리(self=true) 중 학습이 끝난 것. 공개 목소리는 목록에 없으므로 화면에서 id를 직접 넣는다.
+ */
+async function listFishVoices(apiKey: string, timeoutMs: number): Promise<TtsVoiceOption[]> {
+  if (apiKey.trim().length === 0) return [];
+  const { signal, done } = abortAfter(timeoutMs);
+  let payload: { items?: { _id?: string; title?: string; languages?: string[]; state?: string }[] };
+  try {
+    const response = await fetch(`${FISH_BASE_URL}/model?self=true&page_size=100`, { headers: { Authorization: `Bearer ${apiKey}` }, signal });
+    if (!response.ok) throw new Error(`Fish Audio 목소리 목록 ${response.status}`);
+    payload = await response.json() as typeof payload;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error(`Fish Audio 목소리 목록이 ${timeoutMs}ms 안에 오지 않았습니다.`);
+    throw redactError(error, [apiKey]);
+  } finally {
+    done();
+  }
+  return (payload.items ?? [])
+    .filter((item): item is { _id: string; title: string; languages?: string[]; state?: string } => typeof item._id === "string" && typeof item.title === "string" && (item.state === undefined || item.state === "trained"))
+    .map(item => ({ id: item._id, name: item.title, description: item.languages?.join(", ") || undefined }));
+}
+
 /** 목소리 목록을 다시 쓰는 시간. 관리자 화면이 1.5초마다 GET /api/tts를 불러 ElevenLabs에 시간당 약 2,400회 요청이 갔다(a4 A4-08). */
 export const VOICE_LIST_CACHE_MS = 10 * 60_000;
 /** 실패도 잠시 기억한다. 업체가 멈춘 동안 폴링마다 상한(5초)만큼 기다리지 않게 한다. */
@@ -244,7 +310,7 @@ export function createVoiceListCache(options: { load?: typeof listVoices; now?: 
   return {
     get(credentials: TtsCredentials, provider: TtsProvider): Promise<TtsVoiceOption[]> {
       if (provider === "openai") return load(credentials, provider).catch(() => []);
-      const key = `${provider}\n${credentials.elevenLabsApiKey}`;
+      const key = `${provider}\n${ttsApiKey(credentials, provider)}`;
       if (entry && entry.key === key && now() < entry.expiresAt) return entry.voices;
 
       // 응답이 올 때까지는 만료되지 않은 것으로 둔다. 그동안 들어온 요청도 같은 응답을 기다린다.

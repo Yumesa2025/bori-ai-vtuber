@@ -127,3 +127,71 @@ describe("목소리 목록", () => {
     assert.equal(calls, 2);
   });
 });
+
+describe("Fish Audio", () => {
+  const fishCredentials = { ...credentials, fishApiKey: "fake-fish" };
+  const voiceId = "0123456789abcdef0123456789abcdef";
+  const fishSettings = { ...defaultTtsSettings, provider: "fish" as const, model: "s2.1-pro", voice: voiceId, speed: 3 };
+
+  /** 요청 하나를 받아 두고 mp3를 돌려준다. */
+  function captureFetch(): { url: string; init: RequestInit }[] {
+    const calls: { url: string; init: RequestInit }[] = [];
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(new Uint8Array(mp3Frames(10)), { status: 200 });
+    }) as typeof fetch;
+    return calls;
+  }
+
+  test("v1/tts에 모델 헤더·목소리 id·mp3 형식을 보내고 속도는 0.5~2.0으로 자른다", async () => {
+    const calls = captureFetch();
+    const result = await synthesizeSpeech(fishCredentials, fishSettings, "안녕하세요");
+    assert.ok(result.durationMs > 0);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/v1\/tts$/);
+    const headers = calls[0].init.headers as Record<string, string>;
+    assert.equal(headers.Authorization, "Bearer fake-fish");
+    assert.equal(headers.model, "s2.1-pro");
+    const body = JSON.parse(String(calls[0].init.body));
+    assert.equal(body.text, "안녕하세요");
+    assert.equal(body.reference_id, voiceId);
+    assert.equal(body.format, "mp3");
+    assert.equal(body.prosody.speed, 2);
+  });
+
+  test("목소리가 Fish id 형식이 아니면 reference_id를 보내지 않는다(기본 목소리)", async () => {
+    const calls = captureFetch();
+    await synthesizeSpeech(fishCredentials, { ...fishSettings, voice: "nova" }, "안녕");
+    assert.equal(JSON.parse(String(calls[0].init.body)).reference_id, undefined);
+  });
+
+  test("키가 없으면 부르지 않고 실패한다", async () => {
+    const calls = captureFetch();
+    await assert.rejects(synthesizeSpeech(credentials, fishSettings, "안녕"), /fish API 키가 없습니다/);
+    assert.equal(calls.length, 0);
+  });
+
+  test("업체 오류 본문의 키는 가린다", async () => {
+    globalThis.fetch = (async () => new Response("bad key fake-fish", { status: 401 })) as typeof fetch;
+    await assert.rejects(synthesizeSpeech(fishCredentials, fishSettings, "안녕"), (error: Error) => /Fish Audio 401/.test(error.message) && !error.message.includes("fake-fish"));
+  });
+
+  test("목소리 목록은 내 목소리 중 학습이 끝난 것만 준다", async () => {
+    let requested = "";
+    globalThis.fetch = (async (url: unknown) => {
+      requested = String(url);
+      return Response.json({ total: 2, items: [
+        { _id: voiceId, title: "보리", languages: ["ko"], state: "trained" },
+        { _id: "f".repeat(32), title: "학습 중", state: "training" },
+      ] });
+    }) as typeof fetch;
+    assert.deepEqual(await listVoices(fishCredentials, "fish"), [{ id: voiceId, name: "보리", description: "ko" }]);
+    assert.match(requested, /\/model\?self=true/);
+  });
+
+  test("키가 없으면 목록을 묻지 않는다", async () => {
+    const calls = captureFetch();
+    assert.deepEqual(await listVoices(credentials, "fish"), []);
+    assert.equal(calls.length, 0);
+  });
+});

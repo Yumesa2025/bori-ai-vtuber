@@ -14,6 +14,8 @@ export type { ConversationMode } from "@bori/character";
 export { digestPrivateMemories, isBroadcastMemoryText, limitSummaryTurns, PRIVATE_MEMORY_DIGEST_LIMIT, summarizeBroadcast, summarizeSessionProgress, type BroadcastSummary, type DigestedMemory, type DigestExisting, type SummaryTurn } from "./summarize.js";
 export {
   synthesizeSpeech,
+  FISH_VOICE_ID,
+  ttsApiKey,
   listVoices,
   createVoiceListCache,
   mp3DurationMs,
