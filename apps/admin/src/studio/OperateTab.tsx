@@ -4,7 +4,7 @@ import { isSubmitEnter } from '../keys';
 import { createPoller, SETTINGS_POLL_MS } from '../poll';
 import { readError } from '../form';
 import { getJson, isServerUp, JSON_HEADERS, MUTATION_TIMEOUT_MS, openChzzkLogin, postAction, readJson, request, type ChzzkStatusView, type ObsStatusView } from './api';
-import { connectionBadge, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection, viewerChatBody, type ConnectionState, type ErStatusView, type ShowLog } from './operate';
+import { connectionBadge, cornerTimeText, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection, viewerChatBody, type ConnectionState, type ErStatusView, type ShowLog } from './operate';
 
 /** 운영 탭 폴링 간격. 진행자가 단계·연결을 보고 바로 다음 동작을 정하므로 1초로 받는다. */
 const OPERATE_POLL_MS = 1000;
@@ -81,6 +81,15 @@ export default function OperateTab({ active }: { active: boolean }) {
       setMoving(false);
     }
   }
+  /** 코너 자동 진행 켜기·끄기. */
+  async function setAuto(enabled: boolean) {
+    const response = await request('/api/show/auto', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) }, MUTATION_TIMEOUT_MS);
+    if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 요청을 보내지 못했습니다.'); return; }
+    if (!response.ok) { setNotice(`요청이 거부되었습니다. ${await readError(response, '')}`.trim()); return; }
+    const next = await readJson<ShowState>(response);
+    if (next) setShow(next);
+    setNotice(enabled ? '코너 자동 진행을 켰습니다. 코너 시간이 다 되면 보리가 다음 코너로 넘어갑니다.' : '코너 자동 진행을 껐습니다. 다음 단계는 직접 넘겨 주세요.');
+  }
   const stage = show?.stage ?? 'idle';
   const canNext = serverOnline && show !== null && stage !== 'ending' && !moving;
   const goNext = () => { if (canNext) void moveShow('next', `${nextLabel(stage)}을 눌렀습니다.`); };
@@ -142,7 +151,9 @@ export default function OperateTab({ active }: { active: boolean }) {
         <button className="primary stage-next" onClick={goNext} disabled={!canNext}>{nextLabel(stage)}{stage !== 'ending' && <kbd>Space</kbd>}</button>
         <button onClick={() => void moveShow('prev', '이전 단계로 돌아갔습니다. 보리는 다시 말하지 않습니다.')} disabled={!serverOnline || stage === 'idle' || moving}>이전</button>
         <button onClick={goReset} disabled={!serverOnline || moving}>처음으로</button>
+        <label className="toggle-row"><input type="checkbox" checked={show?.auto?.enabled ?? false} disabled={!serverOnline || !show} onChange={event => void setAuto(event.target.checked)} /><span>코너 자동 진행</span></label>
       </div>
+      {cornerTimeText(show?.auto) && <p className="hint">{cornerTimeText(show?.auto)}</p>}
       {show?.caption && <p className="caption-line">보리: {show.caption}</p>}
       {notice && <div className="notice" role="status">{notice}</div>}
     </section>

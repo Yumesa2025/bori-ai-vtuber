@@ -1,11 +1,13 @@
+import { maskNickname } from "@bori/er";
 import type { DashboardView, ErPlayerReport, ShowStage } from "@bori/shared";
 
 /**
  * 채팅 명령 `!전적 닉네임`. 전적 진단 단계에서 이터널리턴 전적을 찾아 대시보드에 띄우고 보리가 한마디 한다.
+ * - 흐름(2026-10-15 사용자 요청): 채팅 띠에 "!전적 가린닉네임"이 뜨고 → 보리가 "검색해 볼까요?" 하며 조회하고 → 결과 카드와 분석 대사.
  * - 한 번에 하나만 본다. 조회·대사가 끝나기 전에 온 명령은 기다려 달라고 안내만 한다.
  * - 리포트는 대시보드(메모리)에만 둔다. 다음 `!전적`이나 단계 이동 때 대시보드가 바뀌며 버려진다.
  * - 닉네임은 조회에만 쓴다. 화면에는 가린 닉네임만 보이고, 보리 대사 줄에는 닉네임을 넣지 않는다.
- * - 명령 채팅은 큐·화면 채팅 목록에 올리지 않는다(부르는 쪽이 handle의 true를 보고 넘긴다).
+ * - 명령 채팅은 보리 답 큐에 넣지 않는다(부르는 쪽이 handle의 true를 보고 넘긴다). 화면 채팅 띠에는 닉네임을 가린 명령만 올린다.
  */
 
 /** 전적을 받은 뒤 보리에게 주는 지시. */
@@ -18,6 +20,7 @@ const NICKNAME_MAX_LENGTH = 30;
 const NOTICE_COOLDOWN_MS = 15_000;
 
 const LINES = {
+  searching: "오, 전적이 들어왔네요! 한번 검색해 볼까요? 잠깐만요!",
   otherStage: "전적 진단 때 봐 드릴게요!",
   busy: "잠깐만요, 지금 보고 있어요!",
   noNickname: "닉네임도 같이 적어 주세요! 예를 들면 '!전적 닉네임'처럼요.",
@@ -57,6 +60,8 @@ export function createPlayerCommand(deps: {
   setDashboard: (view: DashboardView, epoch: number) => void;
   speak: (directive: string, gameData: readonly string[], isCurrent: () => boolean) => Promise<void>;
   say: (line: string, isCurrent: () => boolean) => Promise<void>;
+  /** 화면 채팅 띠에 한 줄 올린다. 닉네임은 가린 채로 받는다. */
+  showChat: (text: string) => void;
   now?: () => number;
 }) {
   const now = deps.now ?? Date.now;
@@ -84,17 +89,21 @@ export function createPlayerCommand(deps: {
       return;
     }
     player("loading");
+    // 보리가 "검색해 볼까요?" 하는 동안 조회를 같이 돌린다. 결과는 그 말이 끝난 뒤에 보여 준다.
+    const searching = deps.say(LINES.searching, isCurrent).catch(error => console.error("[bori-server] 전적 검색 안내 실패:", error));
     let report: ErPlayerReport | null;
     try {
       report = await deps.lookup(nickname);
     } catch (error) {
       // 오류 메시지에는 닉네임이 없다(@bori/er이 쿼리를 빼고 만든다).
       console.error("[bori-server] 전적 조회 실패:", error instanceof Error ? error.message : String(error));
+      await searching;
       if (!isCurrent()) return;
       player("error");
       await deps.say(LINES.error, isCurrent);
       return;
     }
+    await searching;
     if (!isCurrent()) return;
     if (!report) {
       player("not-found");
@@ -117,6 +126,7 @@ export function createPlayerCommand(deps: {
       if (!parsed) return false;
       if (deps.stage() !== "diagnosis") { notice(LINES.otherStage); return true; }
       const nickname = (parsed[1] ?? "").trim();
+      deps.showChat(nickname.length > 0 ? `!전적 ${maskNickname(nickname)}` : "!전적");
       if (nickname.length === 0 || Array.from(nickname).length > NICKNAME_MAX_LENGTH) { notice(LINES.noNickname); return true; }
       if (running) { notice(LINES.busy); return true; }
 

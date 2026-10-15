@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { showStages, type BroadcastState, type VisibleChat } from "@bori/shared";
-import { connectionBadge, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection, viewerChatBody } from "../src/studio/operate";
+import { connectionBadge, emptyShowLog, erSummary, isNextShortcut, llmConnection, mergeShowLog, nextLabel, obsUrls, stageLabel, ttsConnection, viewerChatBody, cornerTimeText } from "../src/studio/operate";
 
 describe("단계 이름", () => {
   test("단계마다 번호 붙은 이름을 준다", () => {
@@ -154,5 +154,17 @@ describe("시청자 채팅 입력", () => {
   });
   test("내용이 비어 있으면 보내지 않는다", () => {
     assert.equal(viewerChatBody("   ", "시청자1"), null);
+  });
+});
+
+describe("코너 자동 진행 안내", () => {
+  test("꺼져 있거나 시간 제한이 없는 코너는 안내하지 않는다", () => {
+    assert.equal(cornerTimeText(undefined), "");
+    assert.equal(cornerTimeText({ enabled: false, stageSeconds: 90, elapsedSeconds: 10 }), "");
+    assert.equal(cornerTimeText({ enabled: true, stageSeconds: 0, elapsedSeconds: 10 }), "");
+  });
+  test("남은 시간을 m:ss로, 시간이 다 되면 넘어간다고 알린다", () => {
+    assert.equal(cornerTimeText({ enabled: true, stageSeconds: 90, elapsedSeconds: 25 }), "코너 남은 시간 1:05 / 1:30");
+    assert.match(cornerTimeText({ enabled: true, stageSeconds: 60, elapsedSeconds: 61 }), /다음 코너로 넘어갑니다/);
   });
 });

@@ -157,6 +157,9 @@ describe("Fish Audio", () => {
     assert.equal(body.reference_id, voiceId);
     assert.equal(body.format, "mp3");
     assert.equal(body.prosody.speed, 2);
+    // 기본 안정성 0.4 → temperature·top_p 0.6
+    assert.equal(body.temperature, 0.6);
+    assert.equal(body.top_p, 0.6);
   });
 
   test("목소리가 Fish id 형식이 아니면 reference_id를 보내지 않는다(기본 목소리)", async () => {

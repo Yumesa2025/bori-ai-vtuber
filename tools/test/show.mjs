@@ -228,7 +228,8 @@ export async function run({ bori, mock, report, dataDir, prepared }) {
     report.check("전적 카드에는 가린 닉네임이 있다", ready?.report?.maskedNickname === "테스**", ready?.report?.maskedNickname);
     const state = await bori.state();
     const stateText = JSON.stringify(state);
-    report.check("화면 상태 어디에도 원래 닉네임과 명령 채팅이 없다", !stateText.includes(PLAYER_NICKNAME) && !stateText.includes("!전적"));
+    report.check("화면 상태 어디에도 원래 닉네임이 없다", !stateText.includes(PLAYER_NICKNAME));
+    report.check("채팅 띠에는 닉네임을 가린 명령이 뜬다", state.visibleChats.some(chat => chat.content === "!전적 테스**"), JSON.stringify(state.visibleChats.map(chat => chat.content)));
     const analysis = await waitUntil(async () => (await directiveCalls()).find(entry => entry.system.includes("이 전적을 분석하고 조언 한마디")));
     report.check("전적 분석 대사 요청에 전적 줄이 들어가고 닉네임은 없다",
       Boolean(analysis?.user.includes("평균 순위:")) && !analysis.user.includes(PLAYER_NICKNAME) && !analysis.user.includes("테스**") && !analysis.system.includes(PLAYER_NICKNAME));

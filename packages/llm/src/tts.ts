@@ -17,7 +17,7 @@ export type TtsSettings = {
   voice: string;
   /** OpenAI(0.25~4.0)와 Fish Audio(0.5~2.0, 범위 밖은 잘라서 보낸다)가 쓴다. */
   speed: number;
-  /** ElevenLabs 안정성. 낮으면 감정 표현이 커지고 높으면 일정해진다. 0~1 */
+  /** 안정성. 낮으면 감정 표현이 커지고 높으면 일정해진다. 0~1. ElevenLabs는 stability, Fish Audio는 temperature·top_p(1 - 안정성)로 쓴다. */
   stability: number;
   /** ElevenLabs 목소리 유사도. 0~1 */
   similarity: number;
@@ -181,6 +181,11 @@ export const FISH_VOICE_ID = /^[0-9a-f]{32}$/i;
 const FISH_SPEED_MIN = 0.5;
 const FISH_SPEED_MAX = 2.0;
 
+/** 안정성(0~1)을 Fish temperature·top_p로 바꾼다. 안정성이 높을수록 낮아진다. 0.1~0.9 안으로 둔다. */
+export function fishRandomness(stability: number): number {
+  return Math.round(Math.min(0.9, Math.max(0.1, 1 - stability)) * 100) / 100;
+}
+
 async function synthesizeWithFish(apiKey: string, settings: TtsSettings, text: string): Promise<Buffer> {
   const { signal, done } = abortAfter(settings.timeoutMs);
   try {
@@ -195,6 +200,9 @@ async function synthesizeWithFish(apiKey: string, settings: TtsSettings, text: s
         mp3_bitrate: 128,
         latency: "normal",
         prosody: { speed: Math.min(FISH_SPEED_MAX, Math.max(FISH_SPEED_MIN, settings.speed)) },
+        // 무작위성. 샘플 하나로 빠르게 복제한 목소리는 이 값이 높으면 합성마다 음색이 흔들린다(2026-10-15 리허설). Fish 기본값은 0.7이다.
+        temperature: fishRandomness(settings.stability),
+        top_p: fishRandomness(settings.stability),
       }),
       signal,
     });

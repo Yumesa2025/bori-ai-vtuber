@@ -147,3 +147,17 @@ export function viewerChatBody(content: string, nickname: string): { content: st
   const name = nickname.trim();
   return name ? { content: text, nickname: name } : { content: text };
 }
+
+/** 초를 m:ss로. */
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+
+/**
+ * 코너 자동 진행 안내 한 줄. 시간 제한이 없는 코너(대기·엔딩)나 꺼져 있으면 빈 문자열이다.
+ * 시간이 다 되면 보리가 하던 말을 마치고 다음 코너로 넘어간다(서버 show/autopilot.ts).
+ */
+export function cornerTimeText(auto: { enabled: boolean; stageSeconds: number; elapsedSeconds: number } | undefined): string {
+  if (!auto || !auto.enabled || auto.stageSeconds <= 0) return '';
+  const left = auto.stageSeconds - auto.elapsedSeconds;
+  if (left <= 0) return '코너 시간이 끝났습니다. 보리가 하던 말을 마치면 다음 코너로 넘어갑니다.';
+  return `코너 남은 시간 ${clock(left)} / ${clock(auto.stageSeconds)}`;
+}

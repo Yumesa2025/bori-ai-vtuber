@@ -62,7 +62,8 @@ export function startScript(scriptPath, { env = {}, label = "", loadTypeScript =
     child = spawn(process.execPath, args, {
       cwd: projectRoot,
       // 서버는 루트 .env를 읽는다. 검사가 실제 키·연동 설정을 읽지 않도록 기본으로 끄고, 필요한 시나리오만 env로 켠다.
-      env: { ...process.env, BORI_ENV_FILE: "", ...env },
+      // 코너 자동 진행은 끈다. 검사가 단계를 직접 넘기고, 오래 걸리는 검사 중에 코너가 바뀌면 안 된다.
+      env: { ...process.env, BORI_ENV_FILE: "", BORI_SHOW_AUTO_ADVANCE: "0", ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout.on("data", collect);

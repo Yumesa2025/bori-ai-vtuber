@@ -152,6 +152,8 @@ export type BroadcastState = {
   lastTestAction?: TestAction;
   /** 이번 답변의 음성 식별자. `/api/tts/{id}`로 받아 재생한다. 음성이 없으면 비어 있다. */
   currentAudioId?: string;
+  /** 이번 답변을 말하는 시간(ms). 음성이 있으면 음성 길이, 없으면 말풍선 표시 시간이다. 자막을 두 줄씩 넘길 때 쓴다. */
+  currentSpeechMs?: number;
   /** 방송 진행(쇼) 상태. 방송 진행기가 꺼져 있으면 비어 있다. */
   show?: ShowState;
 };
@@ -352,4 +354,6 @@ export type ShowState = {
   connections: ShowConnections;
   /** ER 데이터 갱신 진행률 0~1, 갱신 중이 아니면 null. */
   erRefreshProgress: number | null;
+  /** 코너 자동 진행. 지금 코너에 주어진 시간(초, 제한 없으면 0)과 지난 시간(초). */
+  auto?: { enabled: boolean; stageSeconds: number; elapsedSeconds: number };
 };

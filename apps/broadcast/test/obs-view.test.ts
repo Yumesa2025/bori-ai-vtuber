@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { BroadcastState } from "@bori/shared";
-import { captionText, chatEmptyHint, chatStripLines, formatPercent, formatRank, playerStatusText, visibleTop5 } from "../src/obs/view";
+import { captionPageDurations, captionText, chatEmptyHint, chatStripLines, formatPercent, formatRank, paginateCaption, playerStatusText, visibleTop5 } from "../src/obs/view";
 
 test("픽률은 소수 한 자리 퍼센트", () => assert.equal(formatPercent(0.0812), "8.1%"));
 test("평균 순위", () => assert.equal(formatRank(3.42), "3.4위"));
@@ -44,4 +44,29 @@ test("전적 카드 상태 문구", () => {
   assert.equal(playerStatusText("loading"), "찾아보는 중…");
   assert.equal(playerStatusText("not-found"), "닉네임을 찾지 못했어요");
   assert.equal(playerStatusText("ready"), null);
+});
+
+// 검사에서는 글자 수를 폭으로 쓴다. 한 줄은 10글자다.
+const byLength = (value: string) => Array.from(value).length;
+
+test("두 줄 안에 들어가는 자막은 한 묶음이다", () => {
+  assert.deepEqual(paginateCaption("안녕하세요 보리예요!", byLength, 10), ["안녕하세요 보리예요!"]);
+});
+
+test("두 줄을 넘는 자막은 문장 단위로 묶어 넘긴다", () => {
+  const pages = paginateCaption("오늘은 메타를 봐요. 재키가 일등이에요! 같이 봐 주세요.", byLength, 10);
+  assert.deepEqual(pages, ["오늘은 메타를 봐요.", "재키가 일등이에요! 같이 봐 주세요."]);
+  for (const page of pages) assert.ok(byLength(page) <= 20);
+});
+
+test("한 문장이 두 줄을 넘으면 어절 단위로 나누고 글을 빠뜨리지 않는다", () => {
+  const text = "이번 랭커 데이터에서는 재키가 가장 많이 골라졌고 평균 순위도 좋은 편이라 믿고 고르는 캐릭터 같아요";
+  const pages = paginateCaption(text, byLength, 10);
+  assert.ok(pages.length >= 3);
+  assert.equal(pages.join(" "), text);
+});
+
+test("묶음 시간은 글자 수 비율이고 최소 시간이 있다", () => {
+  assert.deepEqual(captionPageDurations(["가나다라", "마바"], 6000), [4000, 2000]);
+  assert.deepEqual(captionPageDurations(["가나다라마바사아자차", "끝"], 2000, 1200), [1818, 1200]);
 });
