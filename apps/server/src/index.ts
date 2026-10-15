@@ -728,7 +728,7 @@ function scheduleNext() {
       // 답변이 실제로 나갔을 때만 매크로 수명을 줄인다.
       engine.tickMacros(session);
       // 캐릭터 질문 단계에서는 답과 함께 캐릭터 카드를 띄운다.
-      if (game && !result.crisis && show.view().stage === "qna") show.showCharacter(game.view);
+      if (game?.view && !result.crisis && show.view().stage === "qna") show.showCharacter(game.view);
 
       speak(result.response, result.audioId);
     })

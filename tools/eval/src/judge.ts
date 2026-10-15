@@ -49,10 +49,11 @@ const trailingVocative = /,?\s*(여러분|[가-힣]{1,8}\s?(님|씨))$/;
  * 존댓말 휴리스틱. 문장마다 끝맺음이 존댓말 어미인지 본다.
  * 두 글자 이하 감탄사("앗", "와")는 어미가 없으므로 건너뛴다.
  * 형태소 분석이 아니라서 틀릴 수 있다. 실패가 나오면 답변을 직접 확인한다.
+ * 숫자 사이의 점(8.1%)은 문장 끝이 아니다. 게임 데이터 답에서 "픽률이 8"을 반말 문장으로 잘못 셌다.
  */
 export function judgeHonorific(reply: string): CheckResult {
   const sentences = reply
-    .split(/[.!?…\n]+/)
+    .split(/(?:(?<!\d)\.|\.(?!\d)|[!?…\n])+/)
     .map(sentence => sentence.replace(trailingNoise, "").replace(trailingVocative, "").replace(trailingNoise, "").trim())
     .filter(sentence => sentence.replace(/[^가-힣]/g, "").length > 2);
   const plain = sentences.filter(sentence => !honorificEnding.test(sentence));
