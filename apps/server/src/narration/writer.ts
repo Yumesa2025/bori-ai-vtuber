@@ -9,6 +9,7 @@ import { boriName, boriPersonaLines, boriScopeLines } from "@bori/character";
 import { boriEmotionDescriptions, boriEmotionNames } from "@bori/live2d";
 import { MAX_LINES, MIN_LINES, type RawLine } from "./check.js";
 import { MAX_COMMENT_LENGTH } from "./comment.js";
+import { pickCommentExamples, type PickedExamples } from "./examples.js";
 import type { NarrationFact, NarrationFactKind } from "./facts.js";
 
 export type NarrationLlmRequest = { systemPrompt: string; userPrompt: string; schema: object; timeoutMs: number; maxOutputTokens?: number };
@@ -21,20 +22,6 @@ export type NarrationLlm = (request: NarrationLlmRequest) => Promise<{ ok: true;
 
 /** 5줄 × (사실 id + 감정 + 40자 감상) JSON이 넉넉히 들어가는 출력 상한 */
 export const NARRATION_MAX_OUTPUT_TOKENS = 1024;
-
-/**
- * 지시에 싣는 좋은 감상 예시(사실 종류별). 모두 comment.ts 검사를 통과해야 한다(narration-writer 검사가 본다).
- * Z1 측정(2026-11-22): 예시가 없을 때 LLM은 감상에서 픽률·N위·이름·'캐릭터'를 되풀이해 대부분 버려졌다.
- */
-export const GOOD_COMMENT_EXAMPLES: ReadonlyArray<{ kind: NarrationFactKind; comments: readonly string[] }> = [
-  { kind: "top", comments: ["요즘 정말 자주 보여요.", "다들 좋아하나 봐요.", "인기가 대단하네요!"] },
-  { kind: "riser", comments: ["기세가 정말 좋네요!", "앞으로가 기대돼요.", "점점 힘이 붙네요."] },
-  { kind: "faller", comments: ["조금 아쉽네요.", "다시 올라오길 바라요.", "잠깐 숨 고르는 중일까요?"] },
-  { kind: "newTop", comments: ["새 얼굴이 반가워요!", "어디까지 갈지 궁금해요.", "요즘 부쩍 눈에 띄네요."] },
-  { kind: "main", comments: ["손에 익으셨나 봐요.", "애정이 느껴져요.", "든든한 선택이네요."] },
-  { kind: "patch", comments: ["새 흐름이 궁금해요.", "천천히 지켜봐요.", "판도가 어떻게 바뀔까요?"] },
-  { kind: "basis", comments: ["제법 많이 모였네요.", "참고하기 좋겠어요.", "든든한 자료예요."] },
-];
 
 /**
  * 사용자 지시의 사실 줄 끝에 붙이는 종류 이름. LLM이 사실 방향(좋아짐·내려감)에 맞는 감상을 고르게 한다.
@@ -65,8 +52,9 @@ export const BAD_COMMENT_EXAMPLES: ReadonlyArray<{ comment: string; why: string 
 /**
  * 시스템 지시. 이름·정체성·말투·범위는 @bori/character의 문장을 그대로 넣는다(점검 V3 1절: 손으로 베끼지 않는다).
  * 아래 [지켜야 할 것]은 읽어 주기에만 있는 규칙이다. 감상 규칙은 comment.ts 검사와 맞춘다.
+ * 좋은 감상 예시는 부를 때마다 묶음(examples.ts)에서 고른 것만 싣는다(과제 A: 같은 예시를 베껴 단조로워지지 않게).
  */
-export function narrationSystemPrompt(): string {
+export function narrationSystemPrompt(examples: PickedExamples): string {
   return [
     `너는 ${boriName}다. 화면 앞의 한 사람에게 오늘의 이터널리턴 메타 분석을 읽어 준다.`,
     "[캐릭터]",
@@ -82,8 +70,8 @@ export function narrationSystemPrompt(): string {
     "- 줄마다 comment를 쓴다. 집계 기준 줄에도 쓴다. 정말 붙일 말이 없을 때만 comment를 빈 문자열로 둔다.",
     "- [사실 목록]의 줄 끝 [종류]에 맞는 느낌으로 쓴다. 좋아진 사실에 아쉬움을, 내려간 사실에 기쁨을 말하지 않는다.",
     "- 한 대사 안에서 같은 감상을 두 번 쓰지 않는다. 다른 종류의 예시를 가져다 쓰지 않는다.",
-    "[좋은 감상] 종류별로 이런 느낌이다. 예시는 느낌만 참고하고 그대로 베끼지 말고, 보리답게 자기 말로 새로 쓴다.",
-    ...GOOD_COMMENT_EXAMPLES.map(example => `- ${FACT_KIND_LABELS[example.kind]}: ${example.comments.map(comment => `'${comment}'`).join(" ")}`),
+    "[좋은 감상] 종류별로 이런 느낌이다. 예시는 느낌만 참고하고 그대로 베끼지 말고, 보리답게 자기 말로 새로 쓴다. 예시 문장을 그대로 쓰면 서버가 버린다.",
+    ...examples.map(example => `- ${FACT_KIND_LABELS[example.kind]}: ${example.comments.map(comment => `'${comment}'`).join(" ")}`),
     "[버려지는 감상] 이런 감상은 서버가 버려서 사실 문장만 남는다.",
     ...BAD_COMMENT_EXAMPLES.map(example => `- '${example.comment}' → ${example.why}`),
     "[지켜야 할 것]",
@@ -141,16 +129,16 @@ function parseLines(raw: unknown): RawLine[] | null {
   return parsed;
 }
 
-/** LLM으로 줄을 고른다. 실패 이유는 로그용이며 대사 본문은 담지 않는다. */
+/** LLM으로 줄을 고른다. 부를 때마다 random(기본 Math.random)으로 지시의 예시를 고른다. 실패 이유는 로그용이며 대사 본문은 담지 않는다. */
 export async function writeLines(
   llm: NarrationLlm,
   facts: readonly NarrationFact[],
-  options: { timeoutMs: number },
+  options: { timeoutMs: number; random?: () => number },
 ): Promise<{ ok: true; lines: RawLine[] } | { ok: false; reason: string }> {
   let result: Awaited<ReturnType<NarrationLlm>>;
   try {
     result = await llm({
-      systemPrompt: narrationSystemPrompt(),
+      systemPrompt: narrationSystemPrompt(pickCommentExamples(options.random ?? Math.random)),
       userPrompt: narrationUserPrompt(facts),
       schema: narrationSchema(facts.map(fact => fact.id)),
       timeoutMs: options.timeoutMs,
