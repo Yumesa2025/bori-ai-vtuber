@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DashboardState } from "@bori/shared";
-import { api, ApiError, describeError } from "./api";
+import { api, describeError, loadFailureView } from "./api";
 import { pollIntervalMs } from "./dashboard";
 import { useDocumentVisible } from "./visibility";
 
@@ -30,9 +30,10 @@ export function useDashboard() {
       setDisconnected(false);
       setLoadNotice(null);
     } catch (error) {
-      const lost = !(error instanceof ApiError) || error.kind === "disconnected";
-      setDisconnected(lost);
-      setLoadNotice(lost ? null : describeError(error));
+      // 시간 초과(timeout)도 여기로 온다. 안내를 띄우고 finally의 attempt 증가로 다음 폴링이 다시 시도한다(Codex C2 8절).
+      const view = loadFailureView(error);
+      setDisconnected(view.disconnected);
+      setLoadNotice(view.notice);
       if (import.meta.env.DEV) console.warn("[dashboard] 상태를 받지 못했습니다", error);
     } finally {
       setAttempt(value => value + 1);
