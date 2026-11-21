@@ -16,7 +16,8 @@ coverage/
 .env.*
 !.env.example
 
-# 로컬 데이터 (기억 JSON, 암호화된 API 키, 렌더러 로그)
+# 로컬 데이터 (설정·암호화된 API 키, 이터널리턴 집계·갱신 기록, 보리 대사, 사용량, 로그)
+# 예전 버전이 남긴 기억·1:1 대화 파일도 여기에 있다
 data/
 
 # 비공개 자산 — 재배포 금지
@@ -25,7 +26,7 @@ data/
 maolili/
 private-assets/
 
-# OBS 송출 화면 캡처 (구매 모델이 렌더링된 이미지)
+# 예전 OBS 송출 화면 캡처. 구매 모델이 렌더링된 이미지라 도구를 지운 뒤에도 패턴을 남긴다
 obs-shot*.png
 
 # 공개하지 않는 사전 조사 자료 · 개인 메모
@@ -58,8 +59,8 @@ desktop.ini
 .playwright-mcp/
 *.local
 
-# 대화 품질 평가 결과 (실행마다 새로 생긴다)
+# 지운 도구(tools/eval 대화 품질 평가, test:soak 장시간 검사)가 로컬에 남겼을 수 있는 결과.
+# 실수로 올라가지 않게 패턴은 남긴다
 tools/eval/results/
 
-# 장시간 검사 기록 (npm run test:soak -- --out soak.json)
 soak*.json

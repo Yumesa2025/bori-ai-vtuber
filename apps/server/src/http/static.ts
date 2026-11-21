@@ -1,7 +1,7 @@
 /**
- * 빌드한 화면(OBS 페이지·1:1·스튜디오)을 서버가 그대로 내주는 정적 파일 제공.
+ * 빌드한 화면(대시보드·스튜디오)과 Live2D 자산을 서버가 그대로 내주는 정적 파일 제공.
  *
- * OBS 브라우저 소스와 스튜디오가 Vite 없이 서버 주소 하나로 화면을 열 수 있게 한다.
+ * 스튜디오와 브라우저가 Vite 없이 서버 주소 하나로 화면을 열 수 있게 한다.
  * 요청 경로는 접두사 폴더 밖으로 나가지 못하고, 캐시하지 않아 다시 빌드하면 바로 반영된다.
  */
 import { existsSync } from "node:fs";
@@ -11,7 +11,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /**
  * URL 접두사와 빌드 폴더의 대응.
- * 기본은 접두사를 남긴 채 root 아래에서 찾는다(`/obs/a.html` → `root/obs/a.html`).
+ * 기본은 접두사를 남긴 채 root 아래에서 찾는다(`/private-core/a.js` → `root/private-core/a.js`).
  * stripPrefix면 접두사를 떼고 root 바로 아래에서 찾는다(`/companion/a.html` → `root/a.html`).
  */
 export type StaticRoute = { prefix: string; root: string; build: string; stripPrefix?: boolean };
@@ -55,6 +55,18 @@ export function resolveStaticPath(url: string, prefix: string, root: string): st
   return filePath;
 }
 
+/**
+ * 정적 응답에 붙이는 보안 헤더.
+ * 스튜디오(/studio/)는 API 키를 다루므로 다른 웹사이트가 투명 iframe으로 덮어 버튼을 누르게 하지 못하게 한다(클릭재킹).
+ * frame-ancestors는 meta CSP로는 효과가 없어 응답 헤더로 준다. 이 헤더 CSP는 frame-ancestors만 담아 화면의 meta CSP를 넓히지 않는다.
+ * 스튜디오가 /companion/을 iframe으로 띄우는 것은 같은 출처라 'self'로 그대로 된다. X-Frame-Options는 frame-ancestors를 모르는 브라우저용이다.
+ */
+export const staticSecurityHeaders: Readonly<Record<string, string>> = {
+  "Content-Security-Policy": "frame-ancestors 'self'",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-Content-Type-Options": "nosniff",
+};
+
 function sendError(response: ServerResponse, status: number, error: string) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify({ error }));
@@ -79,6 +91,8 @@ export function serveStatic(request: IncomingMessage, response: ServerResponse, 
   const route = routes.find(candidate => url.startsWith(candidate.prefix));
   if (!route) return false;
 
+  // 200·404·503 모두에 붙인다.
+  for (const [name, value] of Object.entries(staticSecurityHeaders)) response.setHeader(name, value);
   if (!existsSync(route.root)) { sendError(response, 503, `화면을 먼저 빌드하세요: ${route.build}`); return true; }
 
   const filePath = route.stripPrefix

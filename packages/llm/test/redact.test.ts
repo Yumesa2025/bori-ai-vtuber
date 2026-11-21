@@ -5,7 +5,6 @@
  */
 import { afterEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { boriEmotionNames } from "@bori/live2d";
 import { createAnthropicAdapter } from "../src/anthropic.js";
 import { createOpenAiAdapter } from "../src/openai.js";
 import { redactSecrets } from "../src/redact.js";
@@ -26,16 +25,9 @@ function failNextFetch(status: number, body: string) {
 }
 
 const request: LlmRequest = {
-  mode: "broadcast",
-  content: "안녕",
-  recentTurns: [],
-  memories: [],
-  sessionSummary: "",
-  macroPrompts: [],
-  broadcastStatus: [],
-  allowedEmotions: boriEmotionNames,
-  allowedMotions: [],
-  maxReplyLength: 120,
+  overrideSystemPrompt: "시스템 지시",
+  overrideUserPrompt: "사용자 내용",
+  overrideSchema: { type: "object", properties: { lines: { type: "array", items: { type: "string" } } }, required: ["lines"], additionalProperties: false },
   timeoutMs: 1000,
 };
 

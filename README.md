@@ -1,277 +1,181 @@
-# 보리 (Bori) — 로컬 실행형 AI 버추얼 스트리머
+# 보리 (Bori) — 이터널리턴 메타 대시보드와 Live2D 진행자
 
-Live2D 캐릭터가 시청자 채팅에 LLM으로 답하고, 음성·표정·모션·시선·립싱크로 반응하며, OBS로 송출되는 방송 시스템이다. 같은 캐릭터와 1:1로 대화하는 Companion 앱도 있으며, 방송과 1:1은 캐릭터 엔진을 공유하되 대화 기록과 개인 기억은 섞이지 않는다.
+이터널리턴 Open API로 상위 랭커 경기를 모아 캐릭터·무기 조합의 메타를 대시보드로 보여 주고, 옆에 있는 Live2D 캐릭터 보리가 그 결과를 수치만 근거로 한 짧은 대사로 목소리를 내어 읽어 주는 로컬 앱이다.
+
+> **방향 전환(2026-11-21).** 이 저장소는 원래 치지직 방송용 AI 버추얼 스트리머와 1:1 대화 앱이었다. 방송 시스템과 1:1 대화(대화 엔진·장기 기억 포함)는 모두 지웠고, 보리는 대화 상대가 아니라 "오늘의 메타 분석"을 알려 주는 진행자가 됐다. 경위와 이유는 [docs/decisions.md](docs/decisions.md)의 ADR-028, 지운 범위는 [docs/progress.md](docs/progress.md)에 있다. 예전 구조는 git 기록과 지난 문서에 남아 있다.
 
 ## 개요
 
-보리는 한 대의 로컬 머신에서 전부 돌아가는 AI 버추얼 스트리머다. 서버, 방송 화면, 관리자 앱이 모두 `127.0.0.1`에서 동작하며 외부 호스팅이나 클라우드 인프라를 쓰지 않는다. 시청자 채팅이 들어오면 위험 주제 차단 → 규칙 응답 → LLM 응답 → 폴백 문장의 3단 파이프라인을 거쳐 답변을 만들고, TTS로 음성을 합성한 뒤 Live2D 모델의 표정·모션·립싱크를 함께 실행한다. 방송 화면은 브라우저 페이지이므로 OBS Browser Source로 그대로 송출된다.
+서버, 대시보드 화면, 스튜디오(Electron) 앱이 모두 `127.0.0.1`에서 동작하며 외부 호스팅을 쓰지 않는다. 흐름은 다음과 같다.
 
-개인 프로젝트다. 기간은 2026.06부터 진행 중이며, npm workspaces 모노레포다. `apps`·`packages`의 TypeScript 소스는 테스트와 개발용 가짜 API를 빼고 약 7,760줄, 테스트를 넣으면 약 12,690줄이다(`git ls-files`로 센 `.ts/.tsx/.cjs`, 2026-10-12 기준).
+1. 이터널리턴 Open API에서 상위 랭커의 최근 랭크 경기를 받아 (캐릭터, 무기) 조합별로 센다. 이번 시즌 랭크 경기만 센다.
+2. 직전 갱신과 비교해 평균 순위·1등 비율·픽률·평균 MMR 증감의 변화량을 낸다. 직전·이번 중 하나라도 표본이 적은 조합은 변화량을 내지 않는다.
+3. 정해진 규칙으로 사실 목록을 만들고, 서버가 사실 문장을 직접 조립한다. LLM은 사실 선택과 짧은 감상만 맡는다. 아래에 허용 범위와 한계를 설명한다.
+4. 대사를 TTS로 합성하고, 대시보드의 보리가 줄마다 표정을 바꾸며 읽는다.
+
+개인 프로젝트다. 기간은 2026.06부터 진행 중이며, npm workspaces 모노레포다. `apps`·`packages`의 TypeScript 소스는 테스트와 개발용 가짜 API를 빼고 약 7,300줄, 테스트를 넣으면 약 13,100줄이다(`git ls-files`로 센 `.ts/.tsx/.cjs`, 2026-11-21 기준).
+
+## 지금 되는 것과 아직 확인하지 않은 것 (2026-11-21)
+
+| 기능 | 상태 |
+|---|---|
+| 이터널리턴 조합 집계(이번 시즌 랭크, 경기 수·참가자 수 분리, 표본 적음 표시, 장비·특성 빈도) | 구현됨(`packages/er`, 단위 검사) |
+| 갱신 기록(최근 10개)과 직전 갱신 비교, 패치 바뀜 표시 | 구현됨(`apps/server/src/er/`, 단위·통합 검사) |
+| 자동 갱신 판정(데이터 없음·24시간 지남·시즌 바뀜, 하루 한 번) | 서버에 연결됨. 대시보드가 `GET /api/dashboard`를 부를 때 판정한다 |
+| 대시보드 화면(메타 TOP 표·오르고 내린 조합·캐릭터 상세·내 전적·보리) | 구현됨. `GET /api/dashboard`를 폴링한다. 화면은 가짜 API로만 확인했다 |
+| 보리가 읽어 주기(사실 목록 → LLM 선택 → 서버 문장 조립 → 정해진 문장 대체 → 음성) | 서버에 연결됨. 갱신이 끝나면 대사를 만들고, 다시 듣기는 `POST /api/narration/replay` |
+| 내 전적(게임 닉네임 저장, MMR·최근 10판·주캐릭터의 메타 위치) | 서버에 연결됨(`GET/PUT /api/dashboard/settings`) |
+| 스튜디오: 대시보드 / 설정 두 탭(LLM·음성·게임 닉네임·이터널리턴 데이터·사용량) | 구현됨 |
+| 수동 갱신 `POST /api/er/refresh`, 갱신 상태·진행률은 `GET /api/dashboard`(스튜디오는 가벼운 `GET /api/dashboard/status`) | 동작함 |
+| LLM·음성(Fish·ElevenLabs·OpenAI) 설정과 키 암호화 저장, API 사용량·추정 비용 | 동작함 |
+
+서버 연결은 가짜 이터널리턴·가짜 OpenAI 서버에 실제 서버를 붙이는 통합 검사(`tools/test/dashboard.mjs`)로 "대시보드 열기 → 자동 갱신 → 조합 → 대사 → 음성 id → 닉네임·전적 → 다시 듣기"까지 확인했다. 실제 키로 끝까지 돌린 확인과, Live2D가 뜬 실제 대시보드 화면 확인은 아직 하지 않았다.
 
 ## 실행 전 반드시 알아둘 것
 
-**이 저장소를 clone해도 그대로 실행되지 않는다.** 방송 화면이 렌더링하는 Live2D 모델은 구매한 상용 모델이고, 렌더링 런타임은 Live2D Cubism SDK for Web이다. 둘 다 재배포가 금지되어 있어 저장소에서 제외했다. 두 자산이 없으면 API 서버와 관리자 앱은 뜨지만 방송 화면의 캐릭터는 표시되지 않는다.
+**이 저장소를 clone해도 그대로 실행되지 않는다.** 대시보드의 보리는 구매한 상용 Live2D 모델이고, 렌더링 런타임은 Live2D Cubism SDK for Web이다. 둘 다 재배포가 금지되어 있어 저장소에서 제외했다. 두 자산이 없으면 API 서버와 스튜디오 설정 화면은 뜨지만 대시보드 화면은 빌드되지 않는다.
 
 동작시키려면 다음 두 가지를 clone한 디렉터리 안에 직접 배치한다.
 
 | 필요한 것 | 배치 위치 | 비고 |
 |---|---|---|
 | Cubism SDK for Web 5-r.5 | `private-assets/cubism-sdk/CubismSdkForWeb-5-r.5/` | Live2D 공식 배포본을 내려받아 압축 해제한다 |
-| 구매한 상용 Live2D 모델 | 저장소 루트의 모델 디렉터리 | `.model3.json`, `.moc3`, 텍스처, `biaoqing/` 표정 파일이 포함된 원본 구조 그대로 둔다 |
+| 구매한 상용 Live2D 모델 | 저장소 루트의 모델 디렉터리 | `.model3.json`, `.moc3`, 텍스처, 표정 파일이 포함된 원본 구조 그대로 둔다 |
 
-모델 디렉터리 이름은 두 곳에서 참조된다. 다른 모델을 쓰거나 디렉터리 이름이 다르면 아래 두 지점을 실제 이름에 맞춘다.
+모델 디렉터리 이름은 `tools/vite/private-assets.ts`의 `assetRoutesFor`와 Cubism SDK 샘플의 `lappdefine.ts`(`ResourcesPath`)에서 참조한다. 다른 모델을 쓰면 두 곳을 실제 이름에 맞춘다. 표정·모션 식별자와 감정 표는 `packages/live2d`에 allowlist로 들어 있다.
 
-- `tools/vite/private-assets.ts` — `assetRoutesFor`의 `maolili` 폴더 경로와 `/private-model/maolili/` 접두사(방송·1:1 화면 공용)
-- `<Cubism SDK 샘플>/src/lappdefine.ts` — `ResourcesPath`와 모델 디렉터리 목록
-
-표정·모션 식별자와 파라미터 번호는 `packages/live2d`에 allowlist로 하드코딩되어 있다. 다른 모델을 붙이려면 이 매핑을 교체해야 한다.
-
-## 주요 기능
-
-- **시청자 채팅에 캐릭터가 직접 답한다.** 채팅이 들어오면 5~10초 사이 랜덤 지연 후 답변하며, 질문 채팅을 우선 고른다. 지연을 기다리는 동안 LLM과 TTS를 미리 돌려 두므로 생성 시간이 지연에 더해지지 않는다. 같은 문장이 반복되면 정해진 시간 안에서 중복으로 걸러진다.
-- **말하면서 표정과 모션이 바뀐다.** LLM이 답변과 함께 감정·모션을 고르고, 화이트리스트를 통과한 것만 화면에서 실행된다.
-- **목소리가 나온다.** 답변 문장을 TTS로 합성해 재생하고, 음성 파형에 맞춰 입이 움직인다.
-- **시선이 살아 있다.** 평소에는 1.1~3.2초마다 주위를 둘러보고, 새 채팅이 들어오면 60% 확률로 그쪽을 쳐다본다.
-- **시청자를 기억하되 서로 섞지 않는다.** 대화에서 취향·경험을 뽑아 장기 기억으로 저장하고, 이후 관련 질문이 오면 그 기억을 참고해 답한다. 기억마다 공개 범위(`character`/`broadcast`/`private`)와 소유자를 두고, 말한 시청자 본인의 기억과 소유자 없는 방송 기억만 문맥에 넣는다. 소유자를 모르는 기억은 저장하지도 꺼내지도 않는다. 보관 기간이 지나면 자동으로 만료된다.
-- **긴 방송에서도 앞 이야기를 놓치지 않는다.** 보리가 그대로 기억하는 것은 최근 채팅 5건뿐이다. 그 앞의 흐름은 일정 턴마다 한 문단으로 접어 문맥에 계속 넣는다. 방송이 길어져도 문맥 길이는 늘지 않는다.
-- **고유명사는 키워드로 바로 붙인다.** 게임 이름이나 캐릭터명처럼 철자가 정해진 대상은 `data/macros.json`에 적어 두면 채팅에 나오는 즉시 설명이 문맥에 들어간다. 임베딩 검색을 거치지 않아 정확하고 빠르다. 예시는 [docs/macros.example.json](docs/macros.example.json)에 있다.
-- **시청자 입장으로 채팅을 넣을 수 있다.** 별도 채팅 화면(`chat.html`)을 다른 브라우저 창에서 열어 닉네임을 정하고 채팅한다. 서버와 화면이 `127.0.0.1`에만 바인딩되어 있어 휴대폰 등 다른 기기에서는 열 수 없다.
-- **캐릭터 설정이 코드와 분리되어 있다.** 페르소나와 대화 모드별 정책 문장은 `packages/character`가 갖고, 프롬프트는 페르소나 → 모드 정책 → 세션 정보 → 기억 → 최근 대화 → 입력 → 출력 규칙의 7계층으로 쌓는다.
-- **같은 보리와 1:1로 대화할 수 있다.** Companion 앱(`apps/companion`)에서 대화를 만들고 이어 가며, 답변의 감정·모션이 같은 Live2D 모델로 실행된다. 대화 목록·삭제, 내 기억 보기·개별 삭제, "1:1 기록 모두 지우기"가 있다. 1:1은 방송 기억을 쓰지 않고, 1:1에서 생긴 개인 기억(`private`)은 방송 문맥에 절대 들어가지 않는다.
-- **관계를 점수 대신 기록으로 이어 간다.** 처음 대화인지, 몇 번째 대화인지, 마지막 대화가 며칠 전인지를 저장된 1:1 기록에서 계산해 문장으로 문맥에 넣고, 지난 대화 요약을 다음 대화로 넘긴다. 1:1 대화가 쌓이면 LLM이 사용자가 직접 말한 사실·취향만 개인 기억으로 정리한다.
-- **관리자 앱에서 방송을 통제한다.** 세션 시작·종료, LLM/TTS/기억 설정, 표정·모션 즉시 테스트, LLM 호출 통계와 실패 내역, API 사용량(기능·모드별 호출 수·토큰·추정 비용)과 1:1 통계(숫자만)를 한 화면에서 다룬다.
-- **OBS 설정이 자동화되어 있다.** 스크립트 한 번으로 씬·브라우저 소스 생성, 캔버스 1920x1080 설정, 트랜스폼 초기화까지 끝난다.
+이터널리턴 데이터를 받으려면 이터널리턴 Open API 키가 필요하다(`.env`의 `ER_API_KEY`). 대사 생성(LLM)과 음성(TTS) 키는 없어도 되며, 없으면 대사는 정해진 문장으로, 음성 없이 자막만 나온다.
 
 ## 기술적 특징
 
-상세한 설계 근거와 코드 위치는 [docs/architecture.md](docs/architecture.md)에 있다.
+**사실 문장은 서버가 만든다.** 수치·캐릭터·무기 이름이 들어간 문장은 서버가 사실 목록에서 직접 만든다. LLM은 어떤 사실을 말할지와 수치·이름 없는 짧은 감상 한마디만 고른다. 감상에는 숫자·한글 수·이름·영문·효과/빌드/패치류 낱말을 금지하지만, 감상 내용의 정확성은 보장하지 않는다. LLM을 못 쓰거나 유효한 선택이 없으면 정해진 문장을 읽는다.
 
-**세션 세대 기반 비동기 경합 제어**
-LLM(8초)과 TTS(15초)는 비동기라 응답이 도착하기 전에 방송이 종료되거나 재시작될 수 있다. `status` 값만으로는 "종료 후 재시작"을 구분할 수 없으므로, 호출 시점의 `sessionGeneration` 정수를 캡처해 두고 콜백에서 세대가 다르면 결과를 폐기한다. 발화권 뮤텍스와 조합해 답변과 혼잣말이 겹치지 않도록 보장한다.
+**API 호출을 늘리지 않고 더 센다.** 원래 받던 경기 상세(1판 24행)에서 조합별 참가자·순위·1등·MMR 증감·킬·딜량·코어 특성·부위별 장비를 함께 센다. 개인 키는 초당 1회라 갱신 한 번(랭커 100명 × 3판)이 몇 분 걸리므로, 호출 수는 그대로 두고 한 번 받은 응답에서 최대한 꺼낸다.
 
-**사람처럼 보이려는 대기와 실제 생성을 겹친다**
-답변 전 5~10초 랜덤 지연은 연출이지 계산 시간이 아니다. 예전에는 이 타이머가 끝난 뒤에야 LLM과 TTS를 불러 둘이 그대로 더해졌고, 체감 지연이 10초를 넘겼다. 지금은 채팅을 미리 고르고 대기와 생성을 나란히 돌린 뒤 `Promise.all`로 합류한다. 걸리는 시간은 둘 중 늦은 쪽뿐이다. 가짜 API를 붙여 잰 값으로 9.8초가 6.0초가 됐고, 생성이 대기보다 빠른 한 지연은 0이 된다. 대신 대기 중에 들어온 채팅이 이번 차례의 후보에서 빠지는 것이 이 구조의 비용이다.
+**프로바이더 무관 구조화 출력과 회로 차단기.** 같은 JSON Schema 하나를 OpenAI는 `response_format.json_schema(strict)`로, Anthropic은 강제 도구 호출로 감싼다. `createLlmClient().complete<T>(settings, apiKey, request, parse)`가 꺼짐·키·회로를 먼저 보고, 업체 호출 실패나 `parse` 거부가 연속으로 쌓이면 잠시 부르지 않는다(429는 세지 않는다).
 
-**한 엔진, 두 모드, 섞이지 않는 기억**
-방송과 1:1은 `apps/server/src/conversation/`의 공통 대화 엔진을 쓴다. 세션은 모드마다 따로 만들고, LLM 회로 차단기도 모드별로 분리해 한쪽이 실패해도 다른 쪽은 계속 동작한다. 기억 검색은 엔진의 한 지점에서만 일어나며, `packages/memory`의 `canAccessMemory`가 공개 범위·소유자·모드로 판정해 접근할 수 없는 기억은 순위를 매기기 전에 걸러진다. 판정할 수 없으면 막는다(fail-closed). 방송 채팅 50건과 1:1 메시지 50건을 동시에 보내도 서로의 문맥·요약·기억이 LLM 요청에 섞이지 않는 것을 통합 검사로 확인한다.
+**오디오 파형 실시간 립싱크와 SDK 내부 파이프라인 개입.** `AnalyserNode`로 RMS를 계산해 입 벌림에 매핑하고 지수 평활로 떨림을 없앤다. 파라미터를 그냥 넣으면 SDK의 UpdateScheduler가 덮어쓰므로 `onLateUpdate` 직후, `_model.update()` 직전에 주입한다.
 
-**3단 폴백 응답 파이프라인 + 회로 차단기**
-규칙 → LLM → 폴백의 3단 구조에서 "질문은 LLM이 더 잘하므로 규칙이 양보", "위험 주제는 LLM 호출 전에 차단", "기억 질문은 규칙을 건너뛰고 LLM으로"를 각각 다른 분기로 처리한다. LLM이 연속 실패하면 회로를 열어 호출을 끊고, 방송은 폴백 문장으로 끊김 없이 이어진다. 실패는 관리자 화면에만 노출된다.
+**Vite 플러그인으로 라이선스 문제를 빌드에서 해결.** 구매 모델과 Cubism SDK를 저장소 밖에 두고, dev에서는 미들웨어로 서빙하며(상위 경로 탈출 차단), 빌드 때는 같은 URL 구조로 `dist`에 복사한다. Cubism Core는 `live2dcubismcore.js`와 `LICENSE.md`만 내보낸다. 자산이 없으면 번들을 만들기 전에 없는 폴더를 알려 주고 멈춘다.
 
-**오디오 파형 실시간 립싱크와 SDK 내부 파이프라인 개입**
-`AnalyserNode`로 RMS를 계산해 입 벌림에 매핑하고 지수 평활로 떨림을 제거한다. 파라미터를 그냥 설정하면 SDK의 UpdateScheduler가 덮어쓰므로, `onLateUpdate` 직후이자 `_model.update()` 직전이라는 정확한 지점에 주입 코드를 삽입했다. SDK 실행 순서를 파악해야 가능한 수정이다.
-
-**LLM 출력 화이트리스트 검증과 프로바이더 무관 구조화 출력**
-동일한 JSON Schema 하나를 OpenAI는 `response_format.json_schema(strict)`로, Anthropic은 `tool_choice` 강제 도구 호출로 감싼다. 어댑터가 달라도 검증 코드는 하나다. 모델이 무엇을 반환하든 감정·모션 이름은 `packages/live2d`가 소유한 allowlist를 통과해야만 실행되고, 실패하면 규칙 문장이 나간다. 서버는 같은 allowlist를 API 경계에서도 강제한다.
-
-**Vite 커스텀 플러그인으로 라이선스 문제를 빌드 파이프라인에서 해결**
-구매 모델과 Cubism SDK를 저장소 밖에 두고, dev에서는 미들웨어로 URL 서빙하며(상위 경로 탈출 요청 차단 포함), 빌드 시에는 `closeBundle`에서 동일한 URL 구조로 복사한다. Cubism Core는 런타임에 쓰는 `live2dcubismcore.js`와 `LICENSE.md`만 화이트리스트로 내보낸다. 자산이 없으면 번들을 만들기 전에 없는 폴더를 알려 주고 멈춘다.
+**로컬 API 보안 경계와 데이터 파일 안전 저장.** 모든 요청이 라우트에 닿기 전에 Host(루프백만, 421)·Origin(허용 목록만, 403)·Content-Type(JSON만, 415)·본문 크기(64KB, 413)를 검사한다. 서버가 내주는 화면은 다른 출처가 iframe으로 띄우지 못하게 한다(`frame-ancestors 'self'`, 클릭재킹 방지). 설정·사용량·집계 파일은 임시 파일에 쓰고 디스크에 내린 뒤 rename으로 바꾸며, 깨진 파일은 원본을 남기고 기본값으로 시작한다. 화면에서 넣은 API 키는 AES-256-GCM으로 암호화해 저장한다.
 
 ## 기술 스택
 
 | 영역 | 사용 기술 |
 |---|---|
 | 서버 | TypeScript, Node 내장 `node:http`, `tsx` |
-| 방송 화면 | React 19, Vite 6, WebGL(Cubism SDK), WebAudio |
-| 1:1 대화 앱 | React 19, Vite 6 (방송 화면의 Live2D 코드·비공개 자산 플러그인 재사용) |
-| 관리자 앱 | Electron 44 + React 19 |
+| 대시보드 화면 | React 19, Vite 6, WebGL(Cubism SDK), WebAudio |
+| 스튜디오 | Electron 44 + React 19 |
+| 게임 데이터 | 이터널리턴 Open API(`fetch` 직접 호출, 초당 1회 제한 준수) |
 | LLM | OpenAI Chat Completions(Structured Outputs), Anthropic Messages API — 모두 `fetch` 직접 호출 |
-| TTS | OpenAI `/audio/speech`, ElevenLabs `/text-to-speech` — mp3로 통일 |
-| 장기 기억 | JSON 파일 저장 + 코사인 유사도 직접 구현, OpenAI 임베딩 1536차원 |
-| 송출 연동 | OBS WebSocket v5 클라이언트 직접 구현 (`.mjs`, 의존성 0) |
+| TTS | Fish Audio, ElevenLabs, OpenAI `/audio/speech` 중 선택 — mp3로 통일. 설계상 기본 목소리는 Fish Audio "보리 목소리"이나 코드 기본값은 아직 OpenAI(꺼짐)다 |
 | 패키지 관리 | npm workspaces 모노레포 |
 | 검사 | `node:test` + `tsx`, 가짜 OpenAI 서버 통합 검사, GitHub Actions CI |
 
-**외부 런타임 의존성이 사실상 없다.** Express도 `ws`도 Prisma도 벡터DB도 LLM SDK도 쓰지 않는다. 서버는 `node:http`의 `createServer` 하나에 if 체인 수동 라우팅이고, 모든 외부 API 호출은 Node 내장 `fetch`와 `AbortController`다. OBS WebSocket v5의 salt/challenge SHA256 인증 핸드셰이크도 직접 구현했다. 워크스페이스 `dependencies`에 든 서드파티 패키지는 React와 Electron뿐이다. Vite·`@vitejs/plugin-react`·TypeScript·`tsx`는 개발 도구(`devDependencies`)다.
+워크스페이스 `dependencies`에 든 서드파티 패키지는 React와 Electron뿐이다. 서버는 `node:http`의 `createServer` 하나에 수동 라우팅이고, 외부 API 호출은 모두 Node 내장 `fetch`와 `AbortController`다.
 
 ## 저장소 구조
 
 ```
 .
 ├── apps/
-│   ├── server/          상태머신 + REST API (node:http 직접 사용)
-│   │                    conversation/ 공통 대화 엔진, companion/ 1:1 대화 API,
-│   │                    http/ 요청 경계(가드·설정 검증), usage/ 사용량 기록
-│   ├── broadcast/       방송 송출 화면 + 시청자 채팅 화면 (React 19, Vite 6)
-│   ├── companion/       1:1 대화 화면 (React 19, Vite 6)
-│   └── admin/           Electron 관리자 앱
+│   ├── server/          REST API (node:http 직접 사용)
+│   │                    er/ 이터널리턴 집계 저장·비교·자동 갱신 판정, narration/ 보리 읽어 주기,
+│   │                    http/ 요청 경계(가드·설정 검증·정적 화면), usage/ 사용량 기록
+│   ├── companion/       이터널리턴 메타 대시보드 화면 + 보리 Live2D (React 19, Vite 6, 서버 경로 /companion/)
+│   └── admin/           보리 스튜디오 Electron 앱 (대시보드 / 설정)
 ├── packages/
 │   ├── shared/          공용 타입 전용 (런타임 코드 없음)
-│   ├── llm/             LLM 어댑터·출력 검증·프롬프트 계층·방송 요약·TTS
-│   ├── memory/          장기 기억 저장·검색·공개 범위와 소유자 접근 규칙
-│   ├── character/       페르소나·대화 모드별 정책 (데이터 중심)
-│   └── live2d/          모델 카탈로그·감정 매핑 (순수 데이터)
+│   ├── er/              이터널리턴 Open API 클라이언트·사전·조합 집계·전적
+│   ├── llm/             LLM 어댑터(구조화 출력)·회로 차단기·TTS
+│   ├── character/       보리 이름·자기 설정·말투 (데이터)
+│   └── live2d/          모델 카탈로그·감정 매핑 (데이터)
 │                        각 패키지의 test/ 에 단위 검사 (node:test)
 ├── tools/
-│   ├── obs/             OBS WebSocket v5 자동 설정 스크립트
-│   ├── test/            통합 검사·장시간 검사 (가짜 API에 실제 서버를 붙여 실행)
-│   ├── eval/            대화 품질 평가 (정적 평가·실모델 평가·전후 비교)
-│   └── vite/            비공개 Live2D 자산 서빙·복사 플러그인 (방송·1:1 화면 공용)
+│   ├── test/            통합 검사 (가짜 API에 실제 서버를 붙여 실행)
+│   └── vite/            비공개 Live2D 자산 서빙·복사 플러그인
 ├── .github/workflows/   CI
 ├── docs/                설계·운영·진행 문서
 └── .env.example
 ```
 
-`packages/*`는 빌드 산출물 없이 `main: "./src/index.ts"`로 TypeScript 원본을 직접 참조하고, 서버도 `tsx`로 소스를 바로 실행한다. 그래서 서버와 패키지에는 빌드 단계가 없고 검사는 `npm run typecheck`가 맡는다. 빌드하는 것은 화면 셋(관리자·방송·1:1)뿐이다.
+`packages/*`는 빌드 산출물 없이 `main: "./src/index.ts"`로 TypeScript 원본을 직접 참조하고, 서버도 `tsx`로 소스를 바로 실행한다. 빌드하는 것은 화면 둘(스튜디오·대시보드)뿐이다.
 
 다음 디렉터리는 저장소에 포함되지 않는다.
 
 | 디렉터리 | 제외 이유 |
 |---|---|
 | 구매 모델 디렉터리 | 구매한 상용 Live2D 모델. 재배포 금지 |
-| `private-assets/cubism-sdk/` | Live2D Proprietary Software License. 재배포가 허용된 파일은 `live2dcubismcore.{d.ts,js,min.js}` 3개뿐이다. 빌드는 이 중 `live2dcubismcore.js`와 `LICENSE.md`만 `dist`에 복사한다 |
-| `data/` | 기억 JSON, 암호화된 API 키를 포함한 LLM/TTS 설정, 렌더러 로그 |
+| `private-assets/cubism-sdk/` | Live2D Proprietary Software License. 재배포가 허용된 파일은 `live2dcubismcore.{d.ts,js,min.js}` 3개뿐이다 |
+| `data/` | 암호화된 API 키를 포함한 설정, 이터널리턴 집계, 사용량, 로그 |
 | `_local/` | 공개하지 않는 사전 조사 자료 |
+
+예전 버전이 만든 `data/` 파일(장기 기억 `memories.json`, 1:1 대화 기록 등)은 지금 코드가 읽지 않지만 지우지도 않는다. 사용량 기록의 예전 방송·1:1 줄은 스튜디오 사용량 표에 "이전 방송"·"이전 1:1"로 보인다.
 
 ## 설치와 실행
 
-Node 22 이상과 npm이 필요하다(`package.json`의 `engines`). 개발과 CI는 Node 24를 쓴다. 단위 검사 명령의 `--test` 글롭은 Node 21부터, 서버의 `.env` 읽기(`process.loadEnvFile`)는 Node 20.12·21.7부터 된다.
+Node 22 이상과 npm이 필요하다(`package.json`의 `engines`). 개발과 CI는 Node 24를 쓴다.
 
 ```bash
 npm install
-npm run dev
+npm run studio    # 대시보드·스튜디오를 빌드하고(비공개 자산 필요) 스튜디오를 띄운다
 ```
 
-`npm run dev`는 API 서버, 방송 화면 dev 서버, 관리자 Electron 앱, 1:1 대화 화면 dev 서버를 동시에 띄운다. 개별 실행은 다음과 같다.
+스튜디오는 `http://127.0.0.1:4310/api/health`에 서버가 없으면 서버를 자식 프로세스로 띄우고, 서버가 내주는 `http://127.0.0.1:4310/studio/`를 연다. 첫 탭은 대시보드(`/companion/`), 둘째 탭은 설정이다. 창을 닫으면 스튜디오가 띄운 서버도 끈다. 서버 출력은 데이터 폴더(`BORI_DATA_DIR`, 기본 `data/`)의 `studio-server.log`에 쓴다.
+
+개발할 때는 다음을 쓴다.
 
 ```bash
-npm run dev:server      # API 서버 (127.0.0.1:4310)
-npm run dev:broadcast   # 방송 화면 (127.0.0.1:4173)
-npm run dev:admin       # 보리 스튜디오 Electron 앱 개발 실행 (렌더러 127.0.0.1:5174/studio/, 서버는 띄우지 않는다)
-npm run dev:companion   # 1:1 대화 화면 (127.0.0.1:4175/companion/, 1:1 대화 API가 필요하다)
+npm run dev               # 서버 + 스튜디오(개발) + 대시보드 dev 서버
+npm run dev:server        # API 서버 (127.0.0.1:4310)
+npm run dev:companion     # 대시보드 화면 (127.0.0.1:4175/companion/)
+npm --workspace apps/companion run dev:mock   # 서버 없이 가짜 API로 대시보드만 보기
 ```
 
-타입 검사, 단위 검사, 통합 검사, 빌드는 다음과 같다.
+검사와 빌드는 다음과 같다.
 
-```bash
-npm run typecheck
-npm run test:unit
-npm run test
-npm run build
-```
-
-`npm run build`는 관리자 → 방송 → 1:1 화면 순서로 빌드한다. 방송·1:1 화면은 Cubism SDK 소스를 번들에 넣고 구매 모델을 복사하므로 비공개 자산이 있어야 한다. 없으면 없는 폴더와 놓을 위치를 알려 주고 멈춘다. 자산 없이 되는 빌드는 `npm run build:admin`뿐이다.
-
-루트 `typecheck`는 9개 워크스페이스(`shared`, `server`, `broadcast`, `admin`, `live2d`, `llm`, `memory`, `character`, `companion`)를 차례로 검사한다. 하나만 검사하려면 `npm run typecheck:<이름>`을 쓴다.
-
-`npm run test:unit`은 `packages/*/test/*.test.ts`와 `apps/*/test/*.test.ts`를 `node:test` + `tsx`로 돌린다. 2026-10-12 기준 333건이며, 기억 접근 규칙표 전 칸·검색 필터·마이그레이션·의미 중복 병합, 프롬프트 계층 구성, 캐릭터 정책 데이터, 공통 대화 엔진(세션 간 상태 분리, 모드별 기억 접근), 1:1 관계 문장 계산, 요청 가드·설정 검증, 사용량 기록, 비밀값 저장, 방송 경합 처리를 확인한다.
-
-`npm run test`는 실제 서버를 가짜 OpenAI API에 붙여 띄우고 2026-10-12 기준 205건을 확인한다. 답변 지연과 동작, 시청자 간 기억 격리, 요청 경계(Origin·Host·Content-Type·본문 크기), 1:1 API, 사용량 기록, 방송 시작·종료 경합과 LLM·TTS 오류 복구, 방송과 1:1 동시 사용, 비밀값 저장, 1:1 기록 삭제처럼 서버를 통째로 띄워야 보이는 동작이 대상이다. API 키도 요금도 필요 없고, `data/`도 건드리지 않는다. 포트는 `MOCK_PORT`·`BORI_TEST_PORT`로 바꿀 수 있다. `npm run test:soak -- --minutes 30`은 같은 구성으로 방송 채팅과 1:1 메시지를 오래 보내며 메모리·지연·오류 추세를 기록한다. 자세한 내용은 [tools/test/README.md](tools/test/README.md)에 있다.
-
-`npm run eval:static`은 대화 시나리오 38건(방송 18, 1:1 20)으로 모드별 프롬프트 구성과 기억 격리를 키 없이 평가한다. 실제 모델 답변을 평가하는 `npm run eval:model`은 `OPENAI_API_KEY`가 있을 때만 돌고, `--repeat N`으로 같은 시나리오를 여러 번 돌려 통과율을 본다. `npm run eval:compare`는 두 결과를 시나리오별로 비교한다. 기준과 결과(gpt-4o-mini 실행 결과 포함)는 [docs/content/evaluation.md](docs/content/evaluation.md)에 있다.
-
-단위·통합 검사는 실제 LLM·TTS 응답과 화면을 다루지 않는다. 이 부분은 [docs/verification-log.md](docs/verification-log.md)의 수동 검증 기록과 실모델 평가가 뒷받침한다.
-
-GitHub Actions CI(`.github/workflows/ci.yml`)가 PR마다, 그리고 main에 들어간 커밋마다 돈다. Ubuntu에서 타입 검사, 단위 검사, 평가기 검사·정적 평가, 통합 검사, 관리자 화면 빌드를 돌고, Windows에서 단위·통합 검사를 한 번 더 돈다. 비밀값과 실모델 평가, 장시간 검사는 넣지 않는다. 방송·1:1 화면 빌드는 비공개 Live2D 자산이 있어야 해서 로컬에서만 확인한다. 보안 점검 결과는 [docs/security-review.md](docs/security-review.md)에 있다.
-
-빌드 산출물로 방송 화면을 확인하려면 다음과 같이 실행한다.
-
-```bash
-npm run build:broadcast
-npm --workspace apps/broadcast run preview   # 127.0.0.1:4174
-```
-
-`dist/`에는 구매 모델과 SDK가 복사되므로 외부에 배포하지 않는다. `.gitignore`에 등록되어 있다.
-
-1:1 대화 화면은 `npm run build:companion` 후 `npm --workspace apps/companion run preview`(127.0.0.1:4176)로 같은 방식으로 확인한다. 서버 없이 화면만 보려면 `npm --workspace apps/companion run dev:mock`으로 계약대로 답하는 가짜 API를 붙여 띄운다(`apps/companion/dev/`, 빌드에 포함되지 않음).
-
-1:1 대화 화면의 "내 기억"에서 기억만 지우면 대화 기록은 남는다. "1:1 기록 모두 지우기"(`DELETE /api/me/data`)는 1:1 대화·메시지·대화 요약·개인 기억을 한 번에 지우고 방송 기억은 남긴다. `data/`의 30일 지난 백업(`*.v1-backup-*`, `*.unreadable-*`)과 이전 관리자 로그는 서버를 시작할 때 지운다.
-
-API 키는 관리자 앱 화면에서 입력하는 것을 권장한다. 화면으로 입력한 키는 AES-256-GCM으로 암호화되어 `data/` 아래에 저장된다. 환경변수로 넣으려면 셸에서 `OPENAI_API_KEY` 등을 설정하거나, `.env.example`을 저장소 루트의 `.env`로 복사해 채운다. 서버는 시작할 때 루트 `.env`를 읽되 이미 설정된 환경변수를 덮지 않고, 빈 값은 설정하지 않은 것으로 본다. `.env`를 읽는 것은 서버뿐이다(OBS 도구와 관리자 창은 셸 환경변수만 본다). 환경변수(`.env` 포함) 키는 저장된 키가 없을 때만 사용되고, 화면에서 설정만 바꿔도 파일에 저장되지 않는다. 화면에서 저장한 키를 빈 값으로 지우면 환경변수 키로 돌아간다.
-
-OBS에서 게임 화면 위에 보리만 얹으려면 방송 화면 URL에 `?transparent=1`을 붙여 배경을 비운다(입력창 숨김과 함께: `http://127.0.0.1:4173/?input=0&transparent=1`).
-
-### OBS 페이지 (치지직 방송)
-
-치지직 방송은 화면을 레이어로 나눈 OBS 페이지 6종을 브라우저 소스(1920×1080)로 겹친다. 메인 장면은 보리가 왼쪽 1/3, 오른쪽에 대시보드 패널, 그 아래 채팅 띠, 맨 아래 가운데 자막이다. `npm run build:broadcast` 후에는 API 서버가 그대로 내주므로 Vite 없이 서버 주소로 연다. 개발 중에는 `npm run dev:broadcast`의 주소(`http://127.0.0.1:4173/obs/<이름>.html`)를 쓴다.
-
-| 페이지 | 주소(서버) | 배경 | 소리 |
-|---|---|---|---|
-| 보리 Live2D(왼쪽 1/3) | `http://127.0.0.1:4310/obs/character.html` | 투명 | 있음(TTS). OBS에서 "Control audio via OBS"를 켠다 |
-| 대시보드(오른쪽 패널) | `http://127.0.0.1:4310/obs/dashboard.html` | 투명 | 없음 |
-| 자막(아래 가운데) | `http://127.0.0.1:4310/obs/caption.html` | 투명 | 없음 |
-| 채팅 띠(대시보드 아래) | `http://127.0.0.1:4310/obs/chat.html` | 투명 | 없음 |
-| 대기 화면 | `http://127.0.0.1:4310/obs/waiting.html` | 불투명 | 없음 |
-| 엔딩 화면 | `http://127.0.0.1:4310/obs/ending.html` | 불투명 | 없음 |
-
-모든 페이지는 `?demo=1`을 붙이면 서버 없이 고정 예시 상태로 그린다. 대시보드는 `?demo=1&view=season|top5|character|missing|player|waiting|summary`로 카드를 고른다. 대기 화면의 방송 제목은 `?title=`로 바꾼다. 대시보드·대기·엔딩의 내용은 방송 진행기(`BroadcastState.show`)가 채운다. 진행기는 아직 구현 전(구현 계획 W4)이라 지금은 데모 상태에서만 대시보드가 보이고, 캐릭터·자막·채팅 띠는 기존 방송 상태로 동작한다. 빌드하지 않았으면 서버는 503으로 빌드 명령을 알린다. OBS에서의 투명 합성과 자동 재생은 아직 실제 OBS로 확인하지 않았다.
-
-### 보리 스튜디오로 실행
-
-방송 운영·1:1 대화·설정을 한 창에서 하는 Electron 앱이다. 브라우저를 따로 열 필요가 없다(치지직 로그인 한 번 제외).
-
-```bash
-npm run studio
-```
-
-방송·1:1·스튜디오 화면을 빌드한 뒤(비공개 Live2D 자산 필요) 스튜디오를 띄운다. 스튜디오는 `http://127.0.0.1:4310/api/health`에 보리 서버가 없으면 서버를 자식 프로세스로 띄우고(최대 20초 기다림), 서버가 내주는 `http://127.0.0.1:4310/studio/`를 연다. 창을 닫으면 스튜디오가 띄운 서버도 끈다. 이미 떠 있던 서버(터미널에서 띄운 `npm run dev:server` 등)는 그대로 쓰고 끄지 않는다.
-
-- **포트:** 셸의 `BORI_SERVER_PORT`(기본 4310)를 따른다. 스튜디오가 서버를 띄울 때 이 값을 그대로 넘기므로 `.env`의 `BORI_SERVER_PORT`보다 셸 값이 이긴다. 치지직 Redirect URL이 `http://localhost:4310/api/chzzk/callback`으로 등록돼 있어 치지직 로그인은 4310에서만 끝난다.
-- **키:** 루트 `.env`는 서버가 스스로 읽는다. 스튜디오는 `.env`를 읽지 않는다.
-- **로그:** 서버 출력은 데이터 폴더(`BORI_DATA_DIR`, 기본 `data/`)의 `studio-server.log`, 창 로그는 `admin-renderer.log`에 쓴다. 실행할 때마다 지난 실행 것은 `*.previous.log`로 넘긴다. 서버가 뜨지 않으면 로그 경로를 담은 오류 창을 띄우고 끝난다.
-
-| 탭 | 내용 |
+| 검사 | 범위 |
 |---|---|
-| 방송 운영 | 현재 단계(큰 글씨), "다음 단계"(Space)·"이전"·"처음으로"(확인창). 연결 상태 5개(치지직·OBS·LLM·이터널리턴·TTS)와 "치지직 연결"(기본 브라우저로 로그인). 이터널리턴 데이터 기준(시즌·판 수·마지막 갱신 시각)과 "데이터 갱신"(진행률). 테스트 채팅, 최근 채팅·보리 답 10줄, OBS 브라우저 소스 주소 7개(배경 포함) 복사. 1초마다 새로 받는다 |
-| 1:1 대화 | 서버가 내주는 1:1 대화 화면(`/companion/`)을 그대로 띄운다. 처음 열 때 만들고 탭을 오가도 대화가 유지된다 |
-| 설정 | 예전 관리자 화면(방송 세션, 채팅 큐, LLM·TTS·기억, 사용량, 표정·모션 테스트)과 치지직 연결·연결 해제, OBS 연결 상태 |
+| `npm run test:harness` | 점유 포트·instance 불일치·헤더/본문 시간 제한 |
+| `npm run test:dashboard-smoke` | Chromium dev:mock 표·상세 선택·다시 듣기·키 없음 (비공개 SDK/모델 불필요) |
 
-개발할 때는 `npm run dev`(또는 `npm run dev:admin`)가 스튜디오를 `--dev`로 띄운다. 이때는 서버를 띄우지 않고 Vite 개발 서버(`127.0.0.1:5174/studio/`)를 열며, 1:1 탭과 `/api`는 Vite가 서버로 넘긴다.
+smoke 최초 실행 전 `npx playwright install chromium`으로 Chromium을 설치한다.
 
-실제 운영 절차 — 포트, LLM·TTS·기억 설정, OBS 송출, 튜닝 파라미터 — 는 [docs/operations.md](docs/operations.md)에 정리되어 있다.
+```bash
+npm run typecheck   # 8개 워크스페이스
+npm run test:unit   # packages/*/test, apps/*/test
+npm run test        # 실제 서버를 가짜 OpenAI에 붙여 띄우는 통합 검사
+npm run build       # 스튜디오 → 대시보드. 대시보드는 비공개 자산이 있어야 한다
+```
+
+자산 없이 되는 빌드는 `npm run build:admin`뿐이다. CI는 Ubuntu에서 타입 검사·단위 검사·통합 검사·스튜디오 빌드를, Windows에서 단위·통합 검사를 돈다. 자세한 검사 구성은 [tools/test/README.md](tools/test/README.md)에 있다.
+
+API 키는 스튜디오 설정 탭에서 넣는 것을 권장한다. 화면으로 넣은 키는 암호화되어 `data/` 아래에 저장된다. 사용자 이름·컴퓨터 이름을 알면 다른 환경에서도 복호화할 수 있으므로 암호화된 설정 파일도 공유하면 안 된다. 환경변수로 넣으려면 `.env.example`을 루트의 `.env`로 복사해 채운다. 서버는 시작할 때 `.env`를 읽되 이미 설정된 환경변수를 덮지 않는다. 이터널리턴 키(`ER_API_KEY`)와 Fish Audio 키(`FISH_API_KEY`)는 `.env`로만 받는다.
 
 ## 문서
 
 | 문서 | 내용 |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | 시스템 구조, 데이터 흐름, 설계 근거 |
-| [docs/architecture-v2.md](docs/architecture-v2.md) | 1:1 모드 설계 전(기준 커밋 `c8b2aa2`) 구조 분석과 목표 구조·Phase 계획. 현재 상태는 progress.md |
-| [docs/operations.md](docs/operations.md) | 실행·설정·송출·튜닝 파라미터 레퍼런스 |
-| [docs/requirements.md](docs/requirements.md) | 기능 요구사항 |
-| [docs/implementation-plan.md](docs/implementation-plan.md) | 구현 계획 |
-| [docs/decisions.md](docs/decisions.md) | 설계 결정 기록 |
-| [docs/progress.md](docs/progress.md) | 진행 상황, 완료 범위, 남은 작업 |
+| [docs/superpowers/specs/2026-11-21-er-meta-dashboard-design.md](docs/superpowers/specs/2026-11-21-er-meta-dashboard-design.md) | 이터널리턴 메타 대시보드 설계 |
+| [docs/superpowers/plans/2026-11-21-er-meta-dashboard.md](docs/superpowers/plans/2026-11-21-er-meta-dashboard.md) | 구현 계획(작업 나눔·병합 순서) |
+| [docs/architecture.md](docs/architecture.md) | 시스템 구조와 데이터 흐름 |
+| [docs/operations.md](docs/operations.md) | 실행·설정·튜닝 파라미터 |
+| [docs/decisions.md](docs/decisions.md) | 설계 결정 기록(방향 전환은 ADR-028) |
+| [docs/progress.md](docs/progress.md) | 진행 상황 |
 | [docs/verification-log.md](docs/verification-log.md) | 자동 검사 현황과 수동 검증 기록 |
-| [docs/content/character-bible.md](docs/content/character-bible.md) | 캐릭터 정체성·성격·말투 설정과 출처 |
-| [docs/content/persona-guidelines.md](docs/content/persona-guidelines.md) | 대화 금지·제한, 방송·1:1 대화 정책, 프롬프트 계층 |
-| [docs/content/dialogue-scenarios.md](docs/content/dialogue-scenarios.md) | 답변 평가용 대화 시나리오 |
-| [docs/content/evaluation.md](docs/content/evaluation.md) | 대화 품질 평가 기준(자동·수동)과 결과 |
-| [docs/security-review.md](docs/security-review.md) | 보안·개인정보 점검 결과와 조치 |
-| [docs/chzzk-integration-review.md](docs/chzzk-integration-review.md) | 치지직 채팅 연동 검토 (참고용, 구현하지 않음) |
-| [tools/test/README.md](tools/test/README.md) | 통합 검사·장시간 검사 구조와 실행 방법 |
+| [docs/security-review.md](docs/security-review.md) | 보안·개인정보 점검 결과(방송·1:1 시절 기준) |
+| [docs/content/character-bible.md](docs/content/character-bible.md) | 캐릭터 설정(메타 분석 진행자. 방송·1:1 시절 설정은 부록에 기록) |
+| [tools/test/README.md](tools/test/README.md) | 통합 검사 구조와 실행 방법 |
 
-## 현재 상태와 한계
+`docs/architecture-v2.md`, `docs/requirements.md`, `docs/implementation-plan.md`, `docs/content/persona-guidelines.md`, `docs/content/evaluation.md`는 방송·1:1 대화 시절의 문서라 기록으로만 남겨 두었다.
 
-방송 모드와 1:1 대화 모드가 모두 동작하는 상태이며 다음 한계가 있다.
+## 현재 한계
 
-- **실제 방송 플랫폼과 연동하지 않는다.** 치지직 등 플랫폼 연동 코드는 없고, 로컬 입력(관리자 앱, 방송 화면 입력창, 별도 채팅 화면)으로 실험한다. 치지직 연동 방식은 검토 문서로만 남겼다.
-- **사용자 인증이 없다.** 1:1은 로컬 단일 사용자(`companion:local`)를 가정하고, 관리 API에도 로그인이 없다. 대신 서버는 `127.0.0.1`에만 바인딩되고, 모든 API 요청은 Host가 루프백이 아니면 421, 허용 목록 밖 Origin이면 403(OBS로 송출되는 방송 화면 Origin도 1:1 대화·기억 API에는 403), 본문이 JSON이 아니면 415, 본문이 64KB를 넘으면 413으로 막는다. 설정 변경(큐·기억·TTS·LLM)은 모든 값을 검증한 뒤에만 반영한다. 외부에 공개하는 서버로는 쓸 수 없다.
-- **시청자 식별은 인증이 아니다.** 방송 기억 소유자는 닉네임에서 만든 `local:<닉네임>`이라 같은 닉네임을 쓰면 같은 시청자로 본다. 방송 상태(`/api/state`)에는 닉네임과 이 ID를 싣지 않는다.
-- **최근 기능은 서버를 실 API에 붙여 확인하지 않았다.** 방송 중 누적 요약, 키워드 매크로, 대기·생성 병렬화, 프롬프트 7계층, 1:1 API·앱, 관계 문장, 사용량 기록은 가짜 API 통합 검사와 단위 검사로 확인했다. 실제 모델의 답변 품질은 실모델 평가(gpt-4o-mini, 시나리오별 3회 반복)로만 확인했고, 기억에 없는 일을 기억한다고 답하는 경우가 일부 남아 있다.
-- **장시간 운영은 가짜 API 기준으로만 확인했다.** 30분 장시간 검사에서 방송 답변 227건·1:1 메시지 87건 동안 오류 0건, 메모리 증가 추세 없음을 확인했다. 실제 LLM·TTS·Live2D 화면을 붙인 장시간 송출은 검증하지 않았다.
-- **같은 뜻의 기억을 합치는 기준값(임베딩 유사도 0.92)은 실제 임베딩으로 재지 않았다.** 부정 표현·숫자가 다른 문장은 합치지 않도록 막아 두었다.
-- **1:1 대화의 일부 캐릭터 지침은 초안이다.** 관계 맥락 사용, 지어내기 방지 문구, 일부 감정 기대값은 `검토 필요`로 표시되어 있다.
-- **Electron 방송 창을 지원하지 않는다.** 방송 화면은 브라우저 전용이며 OBS Browser Source로 송출한다.
-- **Anthropic 어댑터는 미검증이다.** OpenAI는 실 API 환경에서 검증했다.
-
-전체 한계 목록과 남은 작업 우선순위는 [docs/progress.md](docs/progress.md)에 있다.
-
-## Bori 2.0 — 방송과 1:1 대화의 통합
-
-방송과 같은 캐릭터 엔진을 쓰는 1:1 AI 캐릭터 대화(companion) 모드를 추가했다. 두 개의 챗봇을 따로 만들지 않고, 하나의 캐릭터가 두 환경에서 같은 성격으로 말하되 대화 기록과 개인 기억은 엄격히 분리한다.
-
-| 단계 | 내용 | 상태 |
-|---|---|---|
-| Phase 1 | 기억 공개 범위·소유자 격리 | 완료 |
-| Phase 2 | 캐릭터 페르소나 패키지, 프롬프트 7계층 | 완료 |
-| Phase 3 | 공통 대화 엔진, 모드별 회로 차단기 | 완료 |
-| Phase 4 | 1:1 대화 API, API 요청 경계(Origin·Host·Content-Type·본문 크기) | 완료 |
-| Phase 5 | Companion 앱 (Live2D 재사용, 기억 관리) | 완료 |
-| Phase 6 | 관계 문장·대화 요약 이어가기·LLM 개인 기억 정리 | 완료 (일부 지침은 `검토 필요` 초안) |
-| Phase 7 | 대화 품질 평가 (시나리오 38건, 정적·실모델 평가, 전후 비교) | 완료 (실모델 평가 남은 문제는 [evaluation.md](docs/content/evaluation.md)) |
-| Phase 8 | 사용량·비용 추적, 방송 경합·오류 복구, 장시간 검사, 보안 점검, CI | 완료 (실 API 장시간은 미검증, 플랫폼 연동은 하지 않음) |
-
-단계별 결과와 검증 수치는 [docs/progress.md](docs/progress.md), 설계 결정은 [docs/decisions.md](docs/decisions.md)(ADR-013~020), 구조는 [docs/architecture-v2.md](docs/architecture-v2.md)에 있다.
+- **실제 키와 실제 화면으로 끝까지 확인하지 않았다.** 집계·비교·대사 검사와 서버 연결은 고정 자료와 가짜 API(통합 검사)로 확인했다. Live2D가 뜬 대시보드는 아직 실제로 띄워 보지 않았다.
+- **표본은 상위 랭커 경기다.** 기본 랭커 100명 × 최근 3판이라 전체 이용자 메타와 다를 수 있고, 참가자 30명 미만 조합은 흐리게 보이며 대사에는 넣지 않는다.
+- **사용자 인증이 없다.** 로컬 단일 사용자를 가정한다. 서버는 `127.0.0.1`에만 열리고 위 보안 경계로 막지만, 외부에 공개하는 서버로는 쓸 수 없다.
+- **Anthropic 어댑터는 실제 키로 확인하지 않았다.**
 
 ## 라이선스
 

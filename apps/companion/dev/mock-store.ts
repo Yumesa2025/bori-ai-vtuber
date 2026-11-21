@@ -1,189 +1,309 @@
 /**
- * 개발·검증용 가짜 1:1 대화 API의 상태와 규칙.
- * 실제 서버(`apps/server`)가 아직 없을 때 화면을 계약대로 확인하려고 둔다. 빌드 산출물에는 들어가지 않는다.
- * 답변은 고정 문장이고 LLM을 부르지 않는다.
+ * 개발·검증용 가짜 대시보드 API의 상태와 규칙. 빌드 산출물에는 들어가지 않는다.
+ * 서버 없이 `npm --workspace apps/companion run dev:mock`으로 화면을 상태별로 확인하려고 둔다.
  *
- * 메시지 내용에 아래 표시를 넣으면 해당 상황을 흉내 낸다.
- * - `#slow`  답변을 4초 늦춘다. 그 사이 같은 대화에 또 보내면 409가 난다
- * - `#409`   바로 409를 돌려준다
- * - `#500`   500을 돌려준다
- * - `#fail`  LLM 실패를 흉내 내 폴백 답변과 failure를 돌려준다
- * - `#bad`   allowlist 밖 감정·모션 이름을 섞어 보낸다(화면이 실행하지 않아야 한다)
+ * 캐릭터·무기 이름은 게임의 공개 이름이고 수치는 지어낸 값이다. 특성·장비 이름은 "예시"로 표시한 가짜 이름이다.
+ * 플레이어 닉네임도 가짜다.
+ *
+ * 상태(시나리오)는 `POST /__mock/scenario { "name": "refreshing" }`으로 바꾼다. 목록은 mockScenarios.
  */
+import type { DashboardPlayerStatus, DashboardState, ErComboStat, ErMetaBasisV2, ErPlayerSummary, Narration } from "@bori/shared";
 
-export type MockConversation = { id: string; title: string; createdAt: string; updatedAt: string; messageCount: number };
-export type MockMessage = {
-  id: string;
-  role: "user" | "bori";
-  content: string;
-  createdAt: string;
-  emotion?: { primary: string; intensity: number; durationSeconds: number };
-  actions?: { name: string; layer: string; priority: number }[];
-  source?: "llm" | "rule" | "fallback" | "blocked";
-};
-export type MockMemory = { id: string; text: string; createdAt: string; expiresAt: string | null };
+export type MockResult = { status: number; body: unknown };
 
-export type MockResult = { status: number; body: unknown; delayMs?: number };
+export const mockScenarios = [
+  "ready",
+  "stale",
+  "missing",
+  "no-key",
+  "refreshing",
+  "error",
+  "patch-changed",
+  "first-collect",
+  "player-unset",
+  "player-loading",
+  "player-not-found",
+  "player-error",
+  "no-key-with-data",
+  "template-narration",
+  "tts-failed",
+  "no-narration",
+] as const;
+export type MockScenario = (typeof mockScenarios)[number];
 
-const MAX_LENGTH = 500;
-const now = () => new Date().toISOString();
+export const MOCK_NICKNAME = "테스트유저";
+/** 서버 dashboard-settings.ts와 같은 상한 */
+const MAX_NICKNAME_LENGTH = 32;
+/** 버튼으로 시작한 가짜 갱신이 끝나는 데 걸리는 시간 */
+export const MOCK_REFRESH_MS = 10_000;
+/** "refreshing" 시나리오에서 멈춰 보이는 진행률. 캡처가 늘 같은 화면이 되게 한다. */
+const FROZEN_PROGRESS = 0.42;
 
-type Script = Pick<MockMessage, "content" | "emotion" | "actions" | "source">;
+type Seed = [characterCode: number, characterName: string, weaponCode: number, weaponName: string, participants: number, avgRank: number, top1Rate: number, mmr: number | null, change: [rank: number, top1: number, pick: number, mmr: number | null] | null];
 
-/** 키워드별 고정 답변. 표정·모션 실행을 확인하려고 감정과 actions를 다르게 둔다. */
-function scriptFor(content: string): Script {
-  if (content.includes("#fail")) {
-    return { content: "앗, 잠깐 생각이 엉켰어요. 한 번만 다시 말해 줄래요?", emotion: { primary: "awkward", intensity: 0.4, durationSeconds: 3 }, actions: [], source: "fallback" };
-  }
-  if (content.includes("#bad")) {
-    return { content: "음… 이건 어떤 표정을 지어야 할지 모르겠어요.", emotion: { primary: "ecstatic", intensity: 2, durationSeconds: 999 }, actions: [{ name: "backflip", layer: "body", priority: 99 }, { name: "../../etc", layer: "body", priority: 3 }], source: "llm" };
-  }
-  if (/게임|이터널/.test(content)) {
-    return { content: "게임 이야기라면 언제든 좋아요! 요즘은 뭐 하고 있어요?", emotion: { primary: "gaming", intensity: 0.7, durationSeconds: 4 }, actions: [{ name: "shoushi", layer: "body", priority: 2 }], source: "llm" };
-  }
-  if (/슬퍼|힘들|우울/.test(content)) {
-    return { content: "많이 힘들었겠어요. 천천히 이야기해 줘도 괜찮아요. 제가 들을게요.", emotion: { primary: "sad", intensity: 0.6, durationSeconds: 5 }, actions: [], source: "llm" };
-  }
-  if (/화나|짜증/.test(content)) {
-    return { content: "흥, 그건 저도 좀 발끈하게 되네요!", emotion: { primary: "angry", intensity: 0.5, durationSeconds: 3 }, actions: [{ name: "shengqi", layer: "body", priority: 2 }], source: "llm" };
-  }
-  return { content: "반가워요! 오늘 하루는 어땠어요? 무슨 이야기든 들려줘요.", emotion: { primary: "happy", intensity: 0.6, durationSeconds: 4 }, actions: [{ name: "xingxingyan", layer: "body", priority: 2 }], source: "llm" };
+/** 픽률은 참가자 수로 계산한다. 유키 쌍검·쇼우 단검은 표본이 적다(30명 미만). */
+const SEEDS: Seed[] = [
+  [1, "재키", 13, "쌍검", 412, 3.42, 0.14, 12.3, [-0.5, 0.021, 0.01, 3.1]],
+  [2, "아야", 7, "권총", 380, 4.1, 0.1, 4.2, [0.6, -0.012, -0.004, -2.4]],
+  [3, "현우", 9, "글러브", 350, 3.8, 0.12, 8.8, [-0.2, 0.008, 0.002, 1.2]],
+  [4, "피오라", 15, "레이피어", 331, 3.95, 0.118, 7.5, [0.1, 0.003, 0.001, 0.4]],
+  [5, "매그너스", 17, "망치", 318, 4.36, 0.092, 2.1, [0.35, -0.02, -0.003, -4]],
+  [6, "나딘", 11, "활", 300, 4.5, 0.08, -1.2, null],
+  [7, "하트", 20, "기타", 284, 4.4, 0.09, 3.3, [0.02, 0, 0, 0]],
+  [8, "이솔", 6, "돌격 소총", 262, 3.66, 0.13, 10.4, [-0.42, 0.03, 0.006, 5.5]],
+  [9, "리 다이린", 9, "글러브", 240, 4.21, 0.1, 1.9, [-0.12, 0.004, 0.001, 0.8]],
+  [10, "혜진", 16, "암기", 222, 4.62, 0.075, -3.4, [0.48, -0.025, -0.005, -6.2]],
+  [1, "재키", 2, "도끼", 205, 4.05, 0.11, 5.1, [-0.08, 0.002, 0, 0.2]],
+  [11, "키아라", 15, "레이피어", 190, 3.99, 0.12, 6.6, [-0.3, 0.01, 0.004, 2.2]],
+  [12, "시셀라", 18, "투척", 176, 4.77, 0.07, -5.1, [0.25, -0.01, -0.002, -1.1]],
+  [13, "레녹스", 19, "채찍", 150, 4.31, 0.093, null, [0.05, 0, 0, null]],
+  [14, "유키", 13, "쌍검", 21, 2.9, 0.24, 18.2, [-1.4, 0.1, 0.001, 9]],
+  [15, "쇼우", 3, "단검", 9, 5.6, 0, -9, null],
+];
+
+const TOTAL_PARTICIPANTS = 7_200;
+
+function seedCombo([characterCode, characterName, weaponCode, weaponName, participants, avgRank, top1Rate, mmr, change]: Seed): ErComboStat {
+  return {
+    characterCode,
+    characterName,
+    weaponCode,
+    weaponName,
+    participants,
+    pickRate: participants / TOTAL_PARTICIPANTS,
+    avgRank,
+    top1Rate,
+    avgMmrGain: mmr,
+    avgKills: 2 + (characterCode % 4) * 0.7,
+    avgAssists: 3 + (weaponCode % 3) * 0.9,
+    avgDeaths: 2.4 + (characterCode % 3) * 0.3,
+    avgDamage: 9_000 + characterCode * 830 + weaponCode * 110,
+    topTraits: [
+      { code: 7_000_000 + characterCode * 10, name: `예시 특성 ${characterCode}-1`, rate: 0.58 },
+      { code: 7_000_001 + characterCode * 10, name: `예시 특성 ${characterCode}-2`, rate: 0.27 },
+    ],
+    topEquipment: ["무기", "옷", "머리", "팔", "다리"].map((part, slot) => ({
+      slot,
+      items: [
+        { code: 100_000 + characterCode * 100 + slot * 2, name: `예시 ${part} ${characterCode}A`, rate: 0.46 },
+        { code: 100_001 + characterCode * 100 + slot * 2, name: `예시 ${part} ${characterCode}B`, rate: 0.21 },
+      ],
+    })),
+    lowSample: participants < 30,
+    change: change && { avgRank: change[0], top1Rate: change[1], pickRate: change[2], avgMmrGain: change[3] },
+  };
 }
 
-export function createMockStore() {
-  let seq = 0;
-  const nextId = (prefix: string) => `${prefix}-${(seq += 1).toString(36)}`;
-  const conversations = new Map<string, MockConversation>();
-  const messages = new Map<string, MockMessage[]>();
-  const busy = new Set<string>();
-  const audio = new Set<string>();
-  const memories: MockMemory[] = [
-    { id: "mem-seed-1", text: "민트초코를 좋아한다고 했다.", createdAt: "2026-10-01T09:00:00.000Z", expiresAt: null },
-    { id: "mem-seed-2", text: "주말마다 산책을 한다고 했다.", createdAt: "2026-10-05T12:30:00.000Z", expiresAt: "2027-04-05T12:30:00.000Z" },
-  ];
+const baseCombos = () => SEEDS.map(seedCombo).sort((a, b) => b.pickRate - a.pickRate);
 
-  const notFound = (): MockResult => ({ status: 404, body: { error: "대화를 찾을 수 없습니다." } });
+const HOUR = 3_600_000;
+
+function basisAt(collectedAt: number, overrides: Partial<ErMetaBasisV2> = {}): ErMetaBasisV2 {
+  return {
+    seasonId: 31,
+    seasonName: "시즌 13",
+    patch: "1.47",
+    games: 300,
+    participants: TOTAL_PARTICIPANTS,
+    rankers: 100,
+    gamesPerRanker: 3,
+    collectedAt: new Date(collectedAt).toISOString(),
+    previousCollectedAt: new Date(collectedAt - 24 * HOUR).toISOString(),
+    patchChanged: false,
+    ...overrides,
+  };
+}
+
+const PLAYER: ErPlayerSummary = {
+  nickname: MOCK_NICKNAME,
+  seasonName: "시즌 13",
+  mmr: 4_321,
+  rankPercent: 0.052,
+  games: 64,
+  avgRank: 4.18,
+  top1Rate: 0.109,
+  avgKills: 3.4,
+  avgAssists: 2.8,
+  recent: [
+    { characterName: "재키", weaponName: "쌍검", rank: 1, kills: 7, mmrGain: 58 },
+    { characterName: "재키", weaponName: "쌍검", rank: 4, kills: 3, mmrGain: 6 },
+    { characterName: "아야", weaponName: "권총", rank: 7, kills: 1, mmrGain: -31 },
+    { characterName: "재키", weaponName: "도끼", rank: 2, kills: 5, mmrGain: 34 },
+    { characterName: "현우", weaponName: "글러브", rank: 3, kills: 4, mmrGain: 18 },
+    { characterName: "재키", weaponName: "쌍검", rank: 5, kills: 2, mmrGain: -4 },
+    { characterName: "아야", weaponName: "권총", rank: 2, kills: 6, mmrGain: 30 },
+    { characterName: "재키", weaponName: "쌍검", rank: 6, kills: 2, mmrGain: -18 },
+    { characterName: "현우", weaponName: "글러브", rank: 1, kills: 8, mmrGain: 61 },
+    { characterName: "재키", weaponName: "쌍검", rank: 8, kills: 0, mmrGain: -40 },
+  ],
+  mainCharacters: [
+    { name: "재키", games: 31, avgRank: 3.9, metaRank: 1 },
+    { name: "아야", games: 14, avgRank: 4.6, metaRank: 2 },
+    { name: "현우", games: 9, avgRank: 3.7, metaRank: 3 },
+  ],
+};
+
+type NarrationKind = "llm" | "template" | "tts-failed";
+
+/**
+ * 보리 대사 예시. 실제 서버는 사실 목록에서 만든다. 줄 문장은 서버 template.ts의 정해진 문장이고,
+ * LLM 대사는 그 뒤에 수치·이름 없는 짧은 감상을 붙인 꼴이다(narration/check.ts).
+ */
+function narrationFor(id: string, createdAt: number, kind: NarrationKind = "llm"): Narration {
+  const llmLines = [
+    { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요. 요즘 정말 자주 보여요.", emotion: "gaming" },
+    { text: "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요. 흐름이 좋아 보여요.", emotion: "happy" },
+    { text: "아야 권총은 평균 순위가 3.5위에서 4.1위로 내려갔어요.", emotion: "sad" },
+    { text: "자주 하시는 재키는 지금 메타 조합 순위 1위예요. 앞으로가 기대돼요!", emotion: "excited" },
+  ];
+  const templateLines = [
+    { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요.", emotion: "gaming" },
+    { text: "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요.", emotion: "happy" },
+    { text: "자주 하시는 재키는 지금 메타 조합 순위 1위예요.", emotion: "gaming" },
+  ];
+  const lines = (kind === "template" ? templateLines : llmLines).map((line, index) => (
+    // 음성 실패: 서버 TTS가 둘째·넷째 줄을 만들지 못해 id가 없는 경우
+    kind === "tts-failed" && index % 2 === 1 ? line : { ...line, audioId: `mock-audio-${id}-${index}` }
+  ));
+  return { id, createdAt: new Date(createdAt).toISOString(), source: kind === "template" ? "template" : "llm", lines };
+}
+
+const PLAYER_STATUS: Partial<Record<MockScenario, DashboardPlayerStatus>> = {
+  "player-unset": "unset",
+  "player-loading": "loading",
+  "player-not-found": "not-found",
+  "player-error": "error",
+  missing: "unset",
+  // 실제 서버(dashboard-state.ts)는 키가 없으면 닉네임이 있어도 조회하지 못해 error로 둔다.
+  "no-key": "error",
+  "no-key-with-data": "error",
+};
+
+export function createMockStore(initial: MockScenario = "ready", options: { now?: () => number } = {}) {
+  const now = options.now ?? Date.now;
+  let scenario: MockScenario = initial;
+  let state: DashboardState;
+  let refreshStartedAt: number | null = null;
+  let narrationSeq = 0;
+  let nickname: string | null = MOCK_NICKNAME;
+
+  const nextNarration = (at: number, kind?: NarrationKind) => narrationFor(`mock-${(narrationSeq += 1)}`, at, kind);
+
+  function build(name: MockScenario): DashboardState {
+    const at = now();
+    const playerStatus = PLAYER_STATUS[name] ?? "ready";
+    const player = { status: playerStatus, summary: playerStatus === "ready" ? PLAYER : null };
+    const refresh = { available: true, running: false, progress: null, lastError: null, autoStarted: false };
+    const ready: DashboardState = { connection: "ready", refresh, basis: basisAt(at - 2 * HOUR), combos: baseCombos(), player, narration: nextNarration(at - 2 * HOUR) };
+
+    switch (name) {
+      case "stale":
+        return { ...ready, connection: "stale", basis: basisAt(at - 50 * HOUR) };
+      case "missing":
+        return { ...ready, connection: "missing", basis: null, combos: [], narration: null };
+      case "no-key":
+        return { ...ready, connection: "missing", refresh: { ...refresh, available: false }, basis: null, combos: [], narration: null };
+      case "no-key-with-data":
+        // 실제 서버는 키가 없어도 저장된 집계를 그대로 준다. 상태만 missing이다.
+        return { ...ready, connection: "missing", refresh: { ...refresh, available: false }, basis: basisAt(at - 50 * HOUR) };
+      case "template-narration":
+        return { ...ready, narration: nextNarration(at - 2 * HOUR, "template") };
+      case "tts-failed":
+        return { ...ready, narration: nextNarration(at - 2 * HOUR, "tts-failed") };
+      case "no-narration":
+        return { ...ready, narration: null };
+      case "refreshing":
+        return { ...ready, connection: "refreshing", refresh: { ...refresh, running: true, progress: FROZEN_PROGRESS, autoStarted: true }, basis: basisAt(at - 30 * HOUR) };
+      case "error":
+        return { ...ready, connection: "stale", refresh: { ...refresh, lastError: "이터널리턴 API가 응답하지 않았습니다. (가짜 오류)" }, basis: basisAt(at - 30 * HOUR) };
+      case "patch-changed":
+        return { ...ready, basis: basisAt(at - 2 * HOUR, { patch: "1.48", patchChanged: true }) };
+      case "first-collect":
+        return { ...ready, basis: basisAt(at - 2 * HOUR, { previousCollectedAt: null }), combos: baseCombos().map(entry => ({ ...entry, change: null })) };
+      default:
+        return ready;
+    }
+  }
+
+  state = build(scenario);
+
+  /** 버튼으로 시작한 갱신을 시각에 맞춰 진행시키고, 끝나면 새 데이터와 새 대사를 붙인다. */
+  function advance() {
+    if (refreshStartedAt === null) return;
+    const progress = Math.min(1, (now() - refreshStartedAt) / MOCK_REFRESH_MS);
+    if (progress < 1) {
+      state = { ...state, connection: "refreshing", refresh: { ...state.refresh, running: true, progress, autoStarted: false } };
+      return;
+    }
+    const at = now();
+    const previous = state.basis?.collectedAt ?? null;
+    refreshStartedAt = null;
+    state = {
+      ...state,
+      connection: "ready",
+      refresh: { ...state.refresh, running: false, progress: null, lastError: null },
+      basis: { ...basisAt(at), previousCollectedAt: previous },
+      // 직전 갱신이 없으면 실제 서버처럼 변화량이 모두 null이다.
+      combos: previous === null ? baseCombos().map(entry => ({ ...entry, change: null })) : baseCombos(),
+      narration: nextNarration(at),
+    };
+  }
 
   return {
-    hasAudio: (id: string) => audio.has(id),
+    scenario: () => scenario,
 
-    listConversations(): MockResult {
-      const list = [...conversations.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      return { status: 200, body: { conversations: list } };
+    setScenario(body: unknown): MockResult {
+      const name = (body as { name?: unknown } | null)?.name;
+      if (!mockScenarios.includes(name as MockScenario)) return { status: 400, body: { error: "없는 시나리오입니다.", scenarios: mockScenarios } };
+      scenario = name as MockScenario;
+      refreshStartedAt = null;
+      state = build(scenario);
+      return { status: 200, body: { scenario } };
     },
 
-    createConversation(body: unknown): MockResult {
-      const title = typeof (body as { title?: unknown } | null)?.title === "string" ? (body as { title: string }).title.trim().slice(0, 60) : "";
-      const time = now();
-      const conversation: MockConversation = { id: nextId("conv"), title: title || "새 대화", createdAt: time, updatedAt: time, messageCount: 0 };
-      conversations.set(conversation.id, conversation);
-      messages.set(conversation.id, []);
-      return { status: 201, body: { conversation } };
+    dashboard(): MockResult {
+      advance();
+      return { status: 200, body: state };
     },
 
-    getMessages(id: string): MockResult {
-      const conversation = conversations.get(id);
-      if (!conversation) return notFound();
-      return { status: 200, body: { conversation, messages: messages.get(id) ?? [] } };
+    refresh(): MockResult {
+      advance();
+      if (!state.refresh.available) return { status: 200, body: { started: false } };
+      if (state.refresh.running) return { status: 200, body: { started: false } };
+      refreshStartedAt = now();
+      advance();
+      return { status: 200, body: { started: true } };
     },
 
-    deleteConversation(id: string): MockResult {
-      if (!conversations.delete(id)) return notFound();
-      messages.delete(id);
-      return { status: 200, body: { deleted: true } };
+    /** 다시 듣기: 최신 대사를 그대로, 음성 id는 새로 만들어 돌려준다(서버가 사라진 음성을 다시 만드는 흉내). */
+    replay(): MockResult {
+      const narration = state.narration;
+      if (!narration) return { status: 404, body: { error: "아직 읽을 대사가 없습니다." } };
+      const replayed: Narration = { ...narration, lines: narration.lines.map((line, index) => ({ ...line, audioId: `mock-audio-${narration.id}-r${index}` })) };
+      state = { ...state, narration: replayed };
+      return { status: 200, body: { narration: replayed } };
     },
 
-    /**
-     * 메시지를 받아 답변을 만든다. 실제 서버처럼 같은 대화의 답변 생성이 겹치면 409를 준다.
-     * 답변을 기다리는 시간은 delayMs로 돌려주고, finish를 부를 때 기록한다.
-     */
-    sendMessage(id: string, body: unknown): MockResult & { finish?: () => MockResult } {
-      const conversation = conversations.get(id);
-      if (!conversation) return notFound();
-      const raw = (body as { content?: unknown } | null)?.content;
-      if (typeof raw !== "string" || raw.trim().length === 0 || raw.trim().length > MAX_LENGTH) {
-        return { status: 400, body: { error: "메시지는 1자 이상 500자 이하여야 합니다." } };
-      }
-      const content = raw.trim();
-      if (busy.has(id) || content.includes("#409")) return { status: 409, body: { error: "이 대화는 답변을 만드는 중입니다." } };
-      if (content.includes("#500")) return { status: 500, body: { error: "내부 오류" } };
-
-      busy.add(id);
-      const wantsTts = (body as { tts?: unknown } | null)?.tts === true;
-      return {
-        status: 200,
-        body: null,
-        delayMs: content.includes("#slow") ? 4000 : 1200,
-        finish: () => {
-          busy.delete(id);
-          // 그 사이 대화가 지워졌으면 실제 서버처럼 404로 끝낸다.
-          if (!conversations.has(id)) return notFound();
-          const script = scriptFor(content);
-          const userMessage: MockMessage = { id: nextId("msg"), role: "user", content, createdAt: now() };
-          const reply: MockMessage = { id: nextId("msg"), role: "bori", createdAt: now(), ...script };
-          messages.get(id)!.push(userMessage, reply);
-          conversation.messageCount += 2;
-          conversation.updatedAt = reply.createdAt;
-          if (content.includes("기억해")) memories.unshift({ id: nextId("mem"), text: content.replace(/기억해(줘|요)?/g, "").trim() || content, createdAt: now(), expiresAt: null });
-
-          const result: Record<string, unknown> = { userMessage, reply };
-          if (wantsTts) { const audioId = nextId("tts"); audio.add(audioId); result.audioId = audioId; }
-          if (script.source === "fallback") result.failure = { kind: "llm_error" };
-          return { status: 200, body: result };
-        },
-      };
+    settings(): MockResult {
+      return { status: 200, body: { nickname } };
     },
 
-    listMemories(): MockResult {
-      return { status: 200, body: { memories: [...memories] } };
+    saveSettings(body: unknown): MockResult {
+      const value = (body as { nickname?: unknown } | null)?.nickname;
+      // 실제 서버(dashboard-settings.ts)와 같이 앞뒤 공백을 떼고 코드포인트 32자까지
+      if (value !== null && (typeof value !== "string" || value.trim().length === 0 || Array.from(value.trim()).length > MAX_NICKNAME_LENGTH)) return { status: 400, body: { error: `닉네임은 ${MAX_NICKNAME_LENGTH}자까지입니다.` } };
+      nickname = value === null ? null : value.trim();
+      state = { ...state, player: nickname ? { status: "ready", summary: { ...PLAYER, nickname } } : { status: "unset", summary: null } };
+      return { status: 200, body: { nickname } };
     },
 
-    deleteMemory(id: string): MockResult {
-      const index = memories.findIndex(memory => memory.id === id);
-      if (index < 0) return { status: 404, body: { error: "기억을 찾을 수 없습니다." } };
-      memories.splice(index, 1);
-      return { status: 200, body: { deleted: true } };
-    },
-
-    deleteAllMemories(): MockResult {
-      const count = memories.length;
-      memories.length = 0;
-      return { status: 200, body: { deleted: count } };
-    },
-
-    /** 1:1 기록 모두 지우기. 대화·메시지·기억을 한 번에 지우고 개수를 돌려준다. */
-    deleteAllData(): MockResult {
-      const deleted = {
-        conversations: conversations.size,
-        messages: [...messages.values()].reduce((sum, list) => sum + list.length, 0),
-        memories: memories.length,
-      };
-      conversations.clear();
-      messages.clear();
-      memories.length = 0;
-      return { status: 200, body: { deleted } };
-    },
-
-    profile(): MockResult {
-      return { status: 200, body: { name: "보리", personaLines: ["가짜 API가 돌려주는 예시 문장입니다."], companionPolicyTitle: "1:1 대화" } };
-    },
-
-    catalog(): MockResult {
-      return {
-        status: 200,
-        body: {
-          emotions: ["happy", "excited", "greeting", "gaming", "crying", "angry", "sad", "embarrassed", "awkward", "calm", "curious"],
-          expressions: ["xingxingyan", "kuqi", "shangxin", "shengqi", "shoushi", "wuyu", "chidai", "changfa"],
-          motions: [{ name: "xingxingyan", description: "반짝이는 눈" }, { name: "kuqi", description: "울음" }, { name: "shengqi", description: "화남" }, { name: "shoushi", description: "게임패드" }],
-        },
-      };
-    },
+    hasAudio: (id: string) => id.startsWith("mock-audio-"),
   };
 }
 
 export type MockStore = ReturnType<typeof createMockStore>;
 
-/** 립싱크 확인용 음성. 1.6초 동안 크기가 오르내리는 사인파 WAV를 만든다. */
+/** 소리 확인용 짧은 톤. 사람 목소리 대신 음절처럼 오르내리는 220Hz 사인파다. */
 export function createToneWav(seconds = 1.6, sampleRate = 16000): Uint8Array {
   const samples = Math.floor(seconds * sampleRate);
   const buffer = new ArrayBuffer(44 + samples * 2);

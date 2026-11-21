@@ -4,7 +4,7 @@ import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * 구매 모델과 Cubism SDK를 저장소 밖 비공개 폴더에서 서빙하는 Vite 설정 조각.
- * 방송 화면과 1:1 대화 화면이 같은 URL 구조로 Live2D를 띄우므로 한 곳에서 정의한다.
+ * 대시보드 화면이 Live2D를 띄우는 URL 구조를 한 곳에서 정의한다.
  * 두 폴더 모두 재배포 금지라 저장소에는 넣지 않는다(.gitignore).
  */
 const sdkDir = "private-assets/cubism-sdk/CubismSdkForWeb-5-r.5";

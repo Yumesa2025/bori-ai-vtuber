@@ -3,7 +3,7 @@ import { DEFAULT_PRICES_AS_OF, type PriceTable } from "./prices.js";
 import { localDateKey, localDateKeyDaysBefore, type UsageCounter, type UsageDays } from "./store.js";
 
 const FEATURES: readonly UsageFeature[] = ["reply", "summary", "digest", "embedding", "tts"];
-const MODES: readonly UsageMode[] = ["broadcast", "companion", "none"];
+const MODES: readonly UsageMode[] = ["narration", "broadcast", "companion", "none"];
 
 const emptyTotals = (): UsageTotals => ({
   calls: 0,

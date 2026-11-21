@@ -1,41 +1,15 @@
 /**
- * 1:1 대화 API 클라이언트.
- * 타입은 세 워커가 함께 정한 API 계약을 그대로 옮긴 것이다. 서버 타입이 공용 패키지로 나오면 그쪽으로 바꾼다.
- * 소유자는 서버가 정하므로 클라이언트는 사용자 ID를 보내지 않는다.
+ * 대시보드 API 클라이언트. 형식은 packages/shared의 DashboardState(설계 4절)다.
+ * 서버 경로: GET /api/dashboard, POST /api/er/refresh, POST /api/narration/replay, GET /api/tts/:id
  */
-
-export type Conversation = { id: string; title: string; createdAt: string; updatedAt: string; messageCount: number };
-
-/** 1:1 기록 모두 지우기(DELETE /api/me/data)로 지운 개수. */
-export type ClearedData = { conversations: number; messages: number; memories: number };
-
-export type MessageEmotion = { primary: string; intensity: number; durationSeconds: number };
-export type MessageAction = { name: string; layer: string; priority: number };
-export type MessageSource = "llm" | "rule" | "fallback" | "blocked";
-
-export type Message = {
-  id: string;
-  role: "user" | "bori";
-  content: string;
-  createdAt: string;
-  // 아래 세 값은 role이 bori일 때만 온다.
-  emotion?: MessageEmotion;
-  actions?: MessageAction[];
-  source?: MessageSource;
-};
-
-export type SendResult = { userMessage: Message; reply: Message; audioId?: string; failure?: { kind: string } };
-export type Memory = { id: string; text: string; createdAt: string; expiresAt: string | null };
-export type CharacterProfile = { name: string; personaLines: string[]; companionPolicyTitle: string };
-
-/** 서버가 받는 메시지 최대 길이. 넘기면 400이므로 입력창에서 먼저 막는다. */
-export const MAX_MESSAGE_LENGTH = 500;
+import type { DashboardState, Narration } from "@bori/shared";
 
 /**
  * 화면에 보여 줄 오류 종류.
  * disconnected는 서버에 닿지 못한 경우다. 개발 서버 프록시가 서버를 못 찾으면 JSON이 아닌 5xx를 돌려주므로 이것도 포함한다.
+ * timeout은 연결은 됐지만 응답(머리 또는 본문)이 시간 상한 안에 끝나지 않은 경우다(Codex C2 8절).
  */
-export type ApiErrorKind = "disconnected" | "badRequest" | "notFound" | "conflict" | "server";
+export type ApiErrorKind = "disconnected" | "timeout" | "badRequest" | "notFound" | "conflict" | "server";
 
 export class ApiError extends Error {
   constructor(readonly kind: ApiErrorKind, readonly status: number | null, readonly serverMessage: string | null) {
@@ -52,15 +26,25 @@ export function errorKindForStatus(status: number): ApiErrorKind {
 
 /** 오류 종류별 안내 문구. 서버 원문은 개발자용이라 그대로 보여 주지 않는다. */
 export const errorMessages: Record<ApiErrorKind, string> = {
-  disconnected: "서버에 연결할 수 없어요. 서버가 켜져 있는지 확인한 뒤 다시 시도해 주세요.",
-  badRequest: "보낼 수 없는 내용이에요. 비어 있거나 500자를 넘지 않았는지 확인해 주세요.",
-  notFound: "대화를 찾을 수 없어요. 이미 지워졌을 수 있어요.",
-  conflict: "보리가 아직 앞 메시지에 답하는 중이에요. 답변이 끝난 뒤 다시 보내 주세요.",
+  disconnected: "서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.",
+  timeout: "서버 응답이 늦어요. 잠시 뒤 다시 시도할게요.",
+  badRequest: "요청을 처리할 수 없어요.",
+  notFound: "아직 읽을 대사가 없어요.",
+  conflict: "이미 처리 중이에요. 잠시 뒤 다시 눌러 주세요.",
   server: "서버에서 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
 };
 
 export function describeError(error: unknown): string {
   return error instanceof ApiError ? errorMessages[error.kind] : errorMessages.disconnected;
+}
+
+/**
+ * 상태 받기가 실패했을 때 화면에 보일 것. 서버에 닿지 못했으면 연결 배너, 그 밖(시간 초과 포함)은 안내 문구다.
+ * 어느 쪽이든 다음 폴링이 다시 시도한다.
+ */
+export function loadFailureView(error: unknown): { disconnected: boolean; notice: string | null } {
+  const lost = !(error instanceof ApiError) || error.kind === "disconnected";
+  return { disconnected: lost, notice: lost ? null : describeError(error) };
 }
 
 /** 응답을 계약 형태로 풀거나 ApiError로 바꾼다. fetch를 바꿔 끼워 검사할 수 있게 응답만 받는다. */
@@ -80,34 +64,54 @@ export async function readResponse<T>(response: Response): Promise<T> {
   throw new ApiError(errorKindForStatus(response.status), response.status, serverMessage);
 }
 
-async function request<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method: init?.method ?? "GET",
-      headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+/** 요청 하나의 기본 시간 상한. 응답 머리뿐 아니라 본문을 다 읽을 때까지다. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+/** 다시 듣기 시간 상한. 사라진 음성을 서버가 줄마다 다시 만들 수 있어 길게 둔다. */
+export const REPLAY_TIMEOUT_MS = 60_000;
+
+export type RequestOptions = { method?: string; timeoutMs?: number };
+type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * fetch를 바꿔 끼울 수 있는 요청 함수를 만든다.
+ * 시간 상한은 AbortController로 요청을 끊고, 바꿔 끼운 fetch·본문이 끊김을 무시해도 Promise.race로 반드시 끝낸다.
+ */
+export function createRequest(fetchFn: FetchFn) {
+  return async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new ApiError("timeout", null, null));
+      }, timeoutMs);
     });
-  } catch {
-    throw new ApiError("disconnected", null, null);
-  }
-  return readResponse<T>(response);
+    const attempt = (async () => {
+      let response: Response;
+      try {
+        response = await fetchFn(path, { method: options.method ?? "GET", cache: "no-store", signal: controller.signal });
+      } catch {
+        throw new ApiError(controller.signal.aborted ? "timeout" : "disconnected", null, null);
+      }
+      return readResponse<T>(response);
+    })();
+    try {
+      return await Promise.race([attempt, timedOut]);
+    } finally {
+      clearTimeout(timer);
+      // 시간 상한에 진 쪽의 거절이 처리되지 않은 오류로 남지 않게 한다.
+      attempt.catch(() => undefined);
+    }
+  };
 }
 
-const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`;
+const request = createRequest((input, init) => fetch(input, init));
 
 export const api = {
-  listConversations: () => request<{ conversations: Conversation[] }>("/api/conversations").then(body => body.conversations),
-  createConversation: (title?: string) =>
-    request<{ conversation: Conversation }>("/api/conversations", { method: "POST", body: title ? { title } : {} }).then(body => body.conversation),
-  getMessages: (id: string) => request<{ conversation: Conversation; messages: Message[] }>(`${conversationPath(id)}/messages`),
-  sendMessage: (id: string, content: string, tts: boolean) =>
-    request<SendResult>(`${conversationPath(id)}/messages`, { method: "POST", body: { content, tts } }),
-  deleteConversation: (id: string) => request<{ deleted: true }>(conversationPath(id), { method: "DELETE" }),
-  listMemories: () => request<{ memories: Memory[] }>("/api/me/memories").then(body => body.memories),
-  deleteMemory: (id: string) => request<{ deleted: true }>(`/api/me/memories/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  deleteAllMemories: () => request<{ deleted: number }>("/api/me/memories", { method: "DELETE" }).then(body => body.deleted),
-  /** 1:1 대화·메시지·대화 요약·기억을 모두 지운다. 방송 기록은 남는다. */
-  deleteAllData: () => request<{ deleted: ClearedData }>("/api/me/data", { method: "DELETE" }).then(body => body.deleted),
-  getProfile: () => request<CharacterProfile>("/api/character/profile"),
+  /** 대시보드 상태. 서버가 데이터가 오래됐다고 보면 이 요청에서 자동 갱신을 시작한다. */
+  getDashboard: () => request<DashboardState>("/api/dashboard"),
+  refresh: () => request<{ started: boolean }>("/api/er/refresh", { method: "POST" }),
+  /** 최신 대사를 다시 받는다. 사라진 음성은 서버가 다시 만든다. */
+  replayNarration: () => request<{ narration: Narration }>("/api/narration/replay", { method: "POST", timeoutMs: REPLAY_TIMEOUT_MS }).then(body => body.narration),
 };

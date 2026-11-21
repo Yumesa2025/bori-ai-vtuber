@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MessageAction, MessageEmotion } from "../api";
+import { resumeAudio } from "./audio-unlock";
 import { playbackFailure, waitForModelReady } from "./model-status";
-import { planReaction } from "./reaction";
+import { planReaction, type ReactionAction, type ReactionEmotion } from "./reaction";
 
 /**
- * 1:1 대화 화면의 Live2D 제어.
- * 초기화·표정·모션·시선·립싱크는 방송 화면(`apps/broadcast/src/main.tsx`)과 같은 SDK 진입점과 같은 규칙을 쓴다.
- * 방송 화면은 상태 폴링에 묶여 있어 그대로 가져올 수 없으므로, 답변 하나를 받아 실행하는 형태로 옮겼다.
+ * 대시보드 화면의 Live2D 제어.
+ * 초기화·표정·모션·시선·립싱크는 예전 방송 화면과 같은 SDK 진입점과 같은 규칙을 쓴다.
+ * 대사 한 줄을 받아 표정을 바꾸고, 끝까지 말한 뒤 돌아오는 speakLine으로 줄을 차례로 읽는다.
+ * 비공개 자산(모델·SDK)이 없으면 상태가 failed가 되고, 자막·음성은 그대로 동작한다.
  */
 
 /** SDK 샘플 LAppModel 중 대화 화면이 쓰는 부분만 추린 타입. */
@@ -35,23 +36,20 @@ const GAZE = {
   idleYMax: 0.2,
   idleIntervalMinMs: 1100,
   idleIntervalMaxMs: 3200,
-  /** 답할 때는 사용자 쪽을 보되 완전히 고정하지는 않는다. */
+  /** 말할 때는 화면 앞쪽을 보되 완전히 고정하지는 않는다. */
   speakXMin: -0.12,
   speakXMax: 0.12,
   speakYMin: -0.05,
   speakYMax: 0.12,
-  /** 사용자가 메시지를 보내면 채팅 쪽(넓은 화면에서 오른쪽)을 잠깐 본다. */
-  readXMin: 0.35,
-  readXMax: 0.7,
-  readYMin: -0.3,
-  readYMax: -0.05,
-  readHoldMs: 1800,
 };
 
 /** 시선이 목표를 따라가는 속도(1/초). 방송 화면과 같다. */
 const GAZE_SPEED = 2.5;
 
 /** 립싱크 설정. 방송 화면과 같은 값이다. */
+/** 음성이 끝났다는 신호(ended)가 오지 않을 때 다음 줄로 넘어가는 상한 */
+const AUDIO_LINE_MAX_MS = 30_000;
+
 const LIP_SYNC = {
   msPerChar: 78,
   minMs: 900,
@@ -89,6 +87,8 @@ export function useBoriLive2D() {
   const stopSpeechRef = useRef<(() => void) | null>(null);
   const gazeTargetRef = useRef({ x: 0, y: 0 });
   const gazeCurrentRef = useRef({ x: 0, y: 0 });
+  /** 립싱크용 오디오 컨텍스트. 줄마다 만들지 않고 하나를 다시 쓴다(브라우저마다 개수 상한이 있다). */
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const model = () => delegateRef.current?.getLoadedModel() ?? null;
 
@@ -97,7 +97,7 @@ export function useBoriLive2D() {
   useEffect(() => {
     const signal = { cancelled: false };
     let release: (() => void) | undefined;
-    const failedStatus: Live2DStatus = { state: "failed", message: "캐릭터를 불러오지 못했어요. 대화는 그대로 할 수 있어요." };
+    const failedStatus: Live2DStatus = { state: "failed", message: "캐릭터 모델이 없어요. 자막과 음성은 그대로 나와요." };
 
     loadCore()
       .then(() => import("@sdk-sample/lappdelegate"))
@@ -159,17 +159,13 @@ export function useBoriLive2D() {
       window.clearTimeout(gazeTimerRef.current);
       window.clearTimeout(expressionTimerRef.current);
       stopSpeechRef.current?.();
+      void audioContextRef.current?.close();
+      audioContextRef.current = null;
     };
   }, [scheduleIdleGaze]);
 
-  /** 사용자가 메시지를 보냈을 때 채팅 쪽을 잠깐 본다. */
-  const lookAtChat = useCallback(() => {
-    gazeTargetRef.current = { x: randomBetween(GAZE.readXMin, GAZE.readXMax), y: randomBetween(GAZE.readYMin, GAZE.readYMax) };
-    scheduleIdleGaze(GAZE.readHoldMs);
-  }, [scheduleIdleGaze]);
-
-  /** 답변의 감정·actions를 표정·모션으로 실행하고 사용자 쪽을 본다. */
-  const react = useCallback((emotion: MessageEmotion | undefined, actions: readonly MessageAction[] | undefined) => {
+  /** 대사의 감정(·actions)을 표정·모션으로 실행하고 화면 앞쪽을 본다. */
+  const react = useCallback((emotion: ReactionEmotion | undefined, actions?: readonly ReactionAction[]) => {
     const reaction = planReaction(emotion, actions);
     const current = model();
 
@@ -199,14 +195,20 @@ export function useBoriLive2D() {
     }
   }, [scheduleIdleGaze]);
 
-  /** 답변 길이에 맞춰 말하는 시늉을 한다. 음성이 없을 때 쓴다. */
-  const speakText = useCallback((text: string) => {
+  /**
+   * 글자 길이에 맞춰 말하는 시늉을 하고, 그 시간이 지나면(또는 멈추면) 끝난다. 음성이 없을 때 쓴다.
+   * 모델이 없어도 같은 시간을 기다려 자막이 줄마다 넘어가게 한다.
+   */
+  const speakText = useCallback((text: string): Promise<void> => {
     stopSpeechRef.current?.();
     const durationMs = Math.min(LIP_SYNC.maxMs, Math.max(LIP_SYNC.minMs, text.length * LIP_SYNC.msPerChar));
     const startedAt = performance.now();
     let frame = 0;
+    let finish: () => void = () => undefined;
+    const finished = new Promise<void>(resolvePromise => { finish = resolvePromise; });
+    const timer = window.setTimeout(() => stop(), durationMs);
 
-    const stop = () => { cancelAnimationFrame(frame); model()?.setManualLipSync(null); };
+    const stop = () => { window.clearTimeout(timer); cancelAnimationFrame(frame); model()?.setManualLipSync(null); finish(); };
     const step = () => {
       const current = model();
       const elapsed = performance.now() - startedAt;
@@ -220,33 +222,43 @@ export function useBoriLive2D() {
 
     frame = requestAnimationFrame(step);
     stopSpeechRef.current = stop;
+    return finished;
   }, []);
 
   /**
-   * 음성을 재생하고 파형으로 입을 움직인다.
+   * 음성을 재생하고 파형으로 입을 움직인다. 재생을 시작하면 결과와 끝나는 약속(finished)을 돌려준다.
    * 재생하지 못하면 텍스트 립싱크로 대신하고 실패 원인(audioBlocked·audioFailed)을 돌려준다.
    */
-  const speakAudio = useCallback(async (audioId: string, text: string): Promise<SpeechResult> => {
+  const startAudio = useCallback(async (audioId: string, text: string): Promise<{ outcome: SpeechResult; finished: Promise<void> }> => {
     stopSpeechRef.current?.();
     const audio = new Audio(`/api/tts/${encodeURIComponent(audioId)}`);
-    const context = new AudioContext();
+    audioContextRef.current ??= new AudioContext();
+    const context = audioContextRef.current;
     const analyser = context.createAnalyser();
     analyser.fftSize = 256;
-    context.createMediaElementSource(audio).connect(analyser);
+    const source = context.createMediaElementSource(audio);
+    source.connect(analyser);
     analyser.connect(context.destination);
 
     const samples = new Uint8Array(analyser.frequencyBinCount);
     let frame = 0;
     let stopped = false;
     let opening = 0;
+    let finish: () => void = () => undefined;
+    const finished = new Promise<void>(resolvePromise => { finish = resolvePromise; });
+    const limit = window.setTimeout(() => stop(), AUDIO_LINE_MAX_MS);
 
     const stop = () => {
       if (stopped) return;
       stopped = true;
+      window.clearTimeout(limit);
+      finish();
       cancelAnimationFrame(frame);
       audio.pause();
       model()?.setManualLipSync(null);
-      void context.close();
+      // 컨텍스트는 다음 줄에 다시 쓰므로 닫지 않고 이 줄의 연결만 끊는다.
+      source.disconnect();
+      analyser.disconnect();
     };
 
     const step = () => {
@@ -269,23 +281,41 @@ export function useBoriLive2D() {
     };
 
     audio.addEventListener("ended", stop);
+    // 재생 도중 파일이 끊기면 ended가 오지 않는다. 다음 줄로 넘어가게 멈춘다.
+    audio.addEventListener("error", stop);
     stopSpeechRef.current = stop;
     try {
-      await context.resume();
+      // 사용자 조작 전에는 resume()이 끝나지 않을 수 있다. 기다리다 멈추지 않게 짧게 판정하고, 막혔으면 자막으로 넘어간다(점검 V2 5번).
+      if (await resumeAudio(context) === "blocked") {
+        if (stopped) return { outcome: "text", finished };
+        stop();
+        if (import.meta.env.DEV) console.warn(`[bori] audio=${audioId} 자동 재생이 막혔습니다(오디오 컨텍스트 대기)`);
+        return { outcome: "audioBlocked", finished: speakText(text) };
+      }
       await audio.play();
-      if (stopped) return "audio";
+      if (stopped) return { outcome: "audio", finished };
       frame = requestAnimationFrame(step);
       if (import.meta.env.DEV) console.info(`[bori] audio=${audioId} lipsync=waveform`);
-      return "audio";
+      return { outcome: "audio", finished };
     } catch (error) {
-      // 다음 답이 재생을 끊은 경우(pause로 play가 중단됨)는 실패가 아니다. 다음 답의 립싱크를 덮지 않는다.
-      if (stopped) return "text";
+      // 다음 줄이나 멈춤이 재생을 끊은 경우(pause로 play가 중단됨)는 실패가 아니다.
+      if (stopped) return { outcome: "text", finished };
       stop();
-      speakText(text);
       if (import.meta.env.DEV) console.warn(`[bori] audio=${audioId} 재생 실패`, error);
-      return playbackFailure(error) === "blocked" ? "audioBlocked" : "audioFailed";
+      return { outcome: playbackFailure(error) === "blocked" ? "audioBlocked" : "audioFailed", finished: speakText(text) };
     }
   }, [speakText]);
 
-  return { layerRef, status, react, lookAtChat, speakText, speakAudio };
+  /** 한 줄을 끝까지 말한다. 음성 id가 있으면 음성으로, 없으면 글자 길이만큼 입만 움직인다. */
+  const speakLine = useCallback(async (text: string, audioId?: string): Promise<SpeechResult> => {
+    if (!audioId) { await speakText(text); return "text"; }
+    const { outcome, finished } = await startAudio(audioId, text);
+    await finished;
+    return outcome;
+  }, [speakText, startAudio]);
+
+  /** 읽던 줄을 멈춘다. 기다리던 speakLine은 바로 끝난다. */
+  const stopSpeech = useCallback(() => { stopSpeechRef.current?.(); }, []);
+
+  return { layerRef, status, react, speakLine, stopSpeech };
 }

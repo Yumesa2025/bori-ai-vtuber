@@ -2,9 +2,9 @@
   "code": 200,
   "message": "Success",
   "userGames": [
-    { "gameId": 1001, "matchingMode": 3, "characterNum": 1, "gameRank": 1, "bestWeapon": 15 },
-    { "gameId": 1001, "matchingMode": 3, "characterNum": 2, "gameRank": 2, "bestWeapon": 9 },
-    { "gameId": 1001, "matchingMode": 3, "characterNum": 3, "gameRank": 3, "bestWeapon": 21 },
-    { "gameId": 1001, "matchingMode": 3, "characterNum": 1, "gameRank": 4, "bestWeapon": 16 }
+    {"gameId": 1001, "nickname": "가짜참가자1", "seasonId": 41, "matchingMode": 3, "matchingTeamMode": 3, "versionSeason": 12, "versionMajor": 7, "versionMinor": 0, "teamNumber": 1, "characterNum": 1, "bestWeapon": 15, "gameRank": 1, "mmrGain": 40, "playerKill": 5, "playerAssistant": 3, "playerDeaths": 1, "damageToPlayer": 20000, "traitFirstCore": 7000201, "equipment": {"0": 117406, "1": 202529, "2": 201404, "3": 205408, "4": 204416}},
+    {"gameId": 1001, "nickname": "가짜참가자2", "seasonId": 41, "matchingMode": 3, "matchingTeamMode": 3, "versionSeason": 12, "versionMajor": 7, "versionMinor": 0, "teamNumber": 2, "characterNum": 2, "bestWeapon": 9, "gameRank": 2, "mmrGain": 30, "playerKill": 3, "playerAssistant": 4, "playerDeaths": 1, "damageToPlayer": 15000, "traitFirstCore": 7000601, "equipment": {"0": 118403, "1": 202529, "2": 201502, "3": 205408, "4": 204416}},
+    {"gameId": 1001, "nickname": "가짜참가자3", "seasonId": 41, "matchingMode": 3, "matchingTeamMode": 3, "versionSeason": 12, "versionMajor": 7, "versionMinor": 0, "teamNumber": 3, "characterNum": 3, "bestWeapon": 21, "gameRank": 3, "mmrGain": 10, "playerKill": 2, "playerAssistant": 2, "playerDeaths": 2, "damageToPlayer": 12000, "traitFirstCore": 7100401, "equipment": {"0": 117406, "1": 201502, "2": 201404, "3": 205408, "4": 204416}},
+    {"gameId": 1001, "nickname": "가짜참가자4", "seasonId": 41, "matchingMode": 3, "matchingTeamMode": 3, "versionSeason": 12, "versionMajor": 7, "versionMinor": 0, "teamNumber": 4, "characterNum": 1, "bestWeapon": 16, "gameRank": 4, "playerKill": 1, "playerAssistant": 1, "playerDeaths": 2, "damageToPlayer": 8000, "traitFirstCore": 7000201, "equipment": {"0": 117406, "1": 202529, "2": 201404, "3": 205408, "4": 204416}}
   ]
 }

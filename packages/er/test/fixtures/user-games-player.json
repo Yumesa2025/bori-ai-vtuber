@@ -2,117 +2,19 @@
   "code": 200,
   "message": "Success",
   "userGames": [
-    {
-      "gameId": 5000,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 3
-    },
-    {
-      "gameId": 4999,
-      "matchingMode": 2,
-      "matchingTeamMode": 3,
-      "seasonId": 0,
-      "characterNum": 1,
-      "gameRank": 10
-    },
-    {
-      "gameId": 4998,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 1
-    },
-    {
-      "gameId": 4997,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 5
-    },
-    {
-      "gameId": 4996,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 2
-    },
-    {
-      "gameId": 4995,
-      "matchingMode": 2,
-      "matchingTeamMode": 3,
-      "seasonId": 0,
-      "characterNum": 1,
-      "gameRank": 11
-    },
-    {
-      "gameId": 4994,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 8
-    },
-    {
-      "gameId": 4993,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 4
-    },
-    {
-      "gameId": 4992,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 1
-    },
-    {
-      "gameId": 4991,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 6
-    },
-    {
-      "gameId": 4990,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 2
-    },
-    {
-      "gameId": 4989,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 7
-    },
-    {
-      "gameId": 4988,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 3
-    },
-    {
-      "gameId": 4987,
-      "matchingMode": 3,
-      "matchingTeamMode": 3,
-      "seasonId": 41,
-      "characterNum": 2,
-      "gameRank": 9
-    }
+    {"gameId": 5000, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 3, "bestWeapon": 9, "playerKill": 4, "mmrGain": 12},
+    {"gameId": 4999, "matchingMode": 2, "matchingTeamMode": 3, "seasonId": 0, "characterNum": 1, "gameRank": 10, "bestWeapon": 15, "playerKill": 2},
+    {"gameId": 4998, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 1, "bestWeapon": 9, "playerKill": 6, "mmrGain": 48},
+    {"gameId": 4997, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 5, "bestWeapon": 9, "playerKill": 1, "mmrGain": -20},
+    {"gameId": 4996, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 2, "bestWeapon": 9, "playerKill": 3, "mmrGain": 30},
+    {"gameId": 4995, "matchingMode": 2, "matchingTeamMode": 3, "seasonId": 0, "characterNum": 1, "gameRank": 11, "bestWeapon": 15, "playerKill": 3},
+    {"gameId": 4994, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 8, "bestWeapon": 9, "playerKill": 0, "mmrGain": -45},
+    {"gameId": 4993, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 4, "bestWeapon": 9, "playerKill": 2, "mmrGain": 5},
+    {"gameId": 4992, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 1, "bestWeapon": 9, "playerKill": 7, "mmrGain": 60},
+    {"gameId": 4991, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 6, "bestWeapon": 9, "playerKill": 1, "mmrGain": -10},
+    {"gameId": 4990, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 2, "bestWeapon": 9, "playerKill": 3, "mmrGain": 35},
+    {"gameId": 4989, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 7, "bestWeapon": 9, "playerKill": 2, "mmrGain": -30},
+    {"gameId": 4988, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 3, "bestWeapon": 9, "playerKill": 5, "mmrGain": 20},
+    {"gameId": 4987, "matchingMode": 3, "matchingTeamMode": 3, "seasonId": 41, "characterNum": 2, "gameRank": 9, "bestWeapon": 9, "playerKill": 1, "mmrGain": -50}
   ]
 }

@@ -761,7 +761,7 @@ Phase 8-B에서 방송 시작·종료와 늦게 도착하는 LLM·TTS·임베딩
 
 ## ADR-020. 치지직 실제 채팅 연동 방식 (제안)
 
-상태: **제안** · 검토 문서: [chzzk-integration-review.md](./chzzk-integration-review.md) · 구현하지 않았다
+상태: **제안** · 검토 문서: chzzk-integration-review.md(삭제된 문서 `./chzzk-integration-review.md`, git 기록에 있음) · 구현하지 않았다
 
 ### 맥락
 
@@ -1004,7 +1004,7 @@ ADR-011에서 치지직 연동을 MVP 범위 밖으로 두고 `ChatSource`에 `"
 
 ### 맥락
 
-치지직 방송 시스템([설계](./broadcast/design-spec.md), [구현 계획](./broadcast/implementation-plan.md) W4)은 3~5분 참여형 방송을 대기 → 오프닝 → TOP 5 브리핑 → 캐릭터 질문 → 전적 진단 → 엔딩 순서로 진행한다. 단계마다 OBS 장면·대시보드·보리 대사가 바뀌고, 치지직 채팅·이터널리턴(ER) 데이터·OBS가 모두 바깥 서비스다. 기존 서버에는 채팅 큐·발화권·세션 세대로 돌아가는 방송 루프(ADR-024)가 있고, 진행기는 이 루프와 같은 말풍선·음성을 써야 한다.
+치지직 방송 시스템(설계(삭제된 문서 `./broadcast/design-spec.md`, git 기록에 있음), 구현 계획(삭제된 문서 `./broadcast/implementation-plan.md`, git 기록에 있음) W4)은 3~5분 참여형 방송을 대기 → 오프닝 → TOP 5 브리핑 → 캐릭터 질문 → 전적 진단 → 엔딩 순서로 진행한다. 단계마다 OBS 장면·대시보드·보리 대사가 바뀌고, 치지직 채팅·이터널리턴(ER) 데이터·OBS가 모두 바깥 서비스다. 기존 서버에는 채팅 큐·발화권·세션 세대로 돌아가는 방송 루프(ADR-024)가 있고, 진행기는 이 루프와 같은 말풍선·음성을 써야 한다.
 
 ### 결정
 
@@ -1037,7 +1037,7 @@ ADR-011에서 치지직 연동을 MVP 범위 밖으로 두고 `ChatSource`에 `"
 
 ### 맥락
 
-치지직 방송 시스템([설계](./broadcast/design-spec.md) 9절, [구현 계획](./broadcast/implementation-plan.md) W5)은 방송 운영·1:1 대화·설정을 Electron 앱 "보리 스튜디오" 하나로 묶고, 앱을 켜면 서버가 뜨고 끄면 서버가 꺼지기를 요구한다. 기존 관리자 앱(`apps/admin`)은 서버를 띄우지 않고 Vite 개발 서버(5174)를 열었으며, 개발 때는 `npm run dev`가 서버(`tsx watch`)와 관리자 앱을 따로 띄운다. 서버는 루트 `.env`를 스스로 읽고(F7, `load-env.ts`) 셸 환경 변수가 이긴다. 치지직 Redirect URL은 `http://localhost:4310/api/chzzk/callback`으로 고정 등록돼 있다.
+치지직 방송 시스템(설계(삭제된 문서 `./broadcast/design-spec.md`, git 기록에 있음) 9절, 구현 계획(삭제된 문서 `./broadcast/implementation-plan.md`, git 기록에 있음) W5)은 방송 운영·1:1 대화·설정을 Electron 앱 "보리 스튜디오" 하나로 묶고, 앱을 켜면 서버가 뜨고 끄면 서버가 꺼지기를 요구한다. 기존 관리자 앱(`apps/admin`)은 서버를 띄우지 않고 Vite 개발 서버(5174)를 열었으며, 개발 때는 `npm run dev`가 서버(`tsx watch`)와 관리자 앱을 따로 띄운다. 서버는 루트 `.env`를 스스로 읽고(F7, `load-env.ts`) 셸 환경 변수가 이긴다. 치지직 Redirect URL은 `http://localhost:4310/api/chzzk/callback`으로 고정 등록돼 있다.
 
 ### 결정
 
@@ -1062,3 +1062,45 @@ ADR-011에서 치지직 연동을 MVP 범위 밖으로 두고 `ChatSource`에 `"
 - **서버를 강제 종료하므로 서버의 정리 코드는 돌지 않는다.** 데이터 파일은 임시 파일 + rename으로 쓰므로(ADR-021) 깨지지 않지만, 방송 중에 앱을 끄면 방송 종료 요약·기억 저장은 일어나지 않는다. 방송은 "처음으로"나 설정 탭의 "방송 종료"로 끝낸 뒤 앱을 끈다.
 - **치지직 로그인은 4310으로 띄운 스튜디오에서만 끝난다.** 다른 포트에서도 버튼은 동작하지만 치지직이 등록된 4310 주소로 돌려보낸다.
 - **스튜디오 창의 GPU 가속은 꺼져 있다(기존 설정).** 1:1 탭의 Live2D는 소프트웨어 렌더링으로 그린다.
+
+## ADR-028. 치지직 방송과 1:1 대화를 지우고, 보리는 이터널리턴 메타 분석을 읽어 주는 진행자가 된다
+
+2026-11-21. 설계: [이터널리턴 메타 대시보드 설계](./superpowers/specs/2026-11-21-er-meta-dashboard-design.md), 계획: [구현 계획](./superpowers/plans/2026-11-21-er-meta-dashboard.md).
+
+### 맥락
+
+보리는 치지직 방송용 AI 버추얼 스트리머(W1~W6, ADR-026·027)와 같은 캐릭터의 1:1 대화(ADR-013~025)를 함께 갖고 있었고, 방송 리허설 3차까지 진행했다. 2026-11-21 브레인스토밍에서 사용자가 방향을 바꿨다. 방송 시스템은 전부 지우고, 1:1 대화도 없애며, 보리는 "오늘의 메타 분석"을 알려 주는 진행자로 둔다(설계 0절). 방송의 "메타 브리핑" 코너, 곧 이터널리턴 API로 모은 메타를 보리가 읽어 주는 부분이 새 앱의 중심이 된다. 지울 대상인 대화 엔진·장기 기억·방송 큐는 서버 `index.ts`(1,640줄)와 통합 검사 대부분을 차지하고 있었다.
+
+### 결정
+
+- **방송 시스템을 전부 지운다.** `apps/broadcast`, 서버 `obs/`·`chzzk/`·`show/`, `tools/obs`, 방송 문서(`docs/broadcast/`, 치지직 연동 검토), 방송 라우트(`/api/state`·`/api/chat`·`/api/session/*`·`/api/settings`·`/api/show*`·`/api/chzzk/*`·`/api/obs/status`·`/api/diagnostics`·`/api/live2d/test`), 큐 설정 검증, 의존성 `obs-websocket-js`·`socket.io-client`·`socket.io`.
+- **1:1 대화와 대화 엔진·기억도 지운다.** 서버 `companion/`·`conversation/`, `packages/memory`, 1:1 라우트(`/api/conversations*`·`/api/me/*`·`/api/memory*`·`/api/companion/stats`·`/api/character/catalog`·`/api/macros/reload`), 대화 평가 도구(`tools/eval`)와 시나리오 문서.
+- **`packages/llm`은 구조화 출력 호출만 남긴다.** 대화 프롬프트 조립(`prompt.ts`)·요약(`summarize.ts`)·대화 답 검증(`validateLlmOutput`)을 지우고, `LlmRequest`를 `overrideSystemPrompt`·`overrideUserPrompt`·`overrideSchema`·`timeoutMs`·`maxOutputTokens?` 다섯 칸으로 줄인다. `createLlmClient`는 회로 차단·상태·호출 기록을 그대로 두고 `complete<T>(settings, apiKey, request, parse)`로 바꾼다. `parse`가 `{ ok: false }`를 돌려주거나 던지면 검증 실패로 센다.
+- **`packages/character`는 이름·자기 설정·말투·범위 문장만, `packages/live2d`는 전부 남긴다.** 보리 읽어 주기가 말투와 감정 이름을 쓴다.
+- **보리는 대화 상대가 아니라 진행자다.** 대시보드를 갱신하면 정해진 규칙으로 만든 사실 목록만 근거로 LLM이 3~5줄을 쓰고, 숫자 검사를 통과한 줄만 음성으로 읽는다. 대화·기억은 없다.
+- **스튜디오는 "대시보드 / 설정" 두 탭이다.** 대시보드 탭은 `/companion/`(대시보드 앱으로 바뀐 1:1 앱)을 iframe으로 띄운다. 설정 탭에는 LLM·음성·게임 닉네임·이터널리턴 데이터·사용량만 둔다.
+- **Live2D 비공개 자산 경로(`/private-*`)는 대시보드 빌드(`apps/companion/dist`)에서 내준다.** 예전에는 방송 화면 빌드에서 내줬다(위험 R1).
+- **원자적 파일 쓰기 도우미는 `packages/memory/src/file.ts`에서 `apps/server/src/atomic-file.ts`로 옮긴다.** 이름·시그니처는 그대로다. 새 데이터 파일은 `config-file.ts`의 `createConfigFile`로 쓴다.
+- **예전 데이터 파일은 지우지 않는다.** `data/memories.json`, 1:1 대화 기록 등은 읽지 않게 될 뿐 남는다. 사용량 기록의 `broadcast`·`companion` 줄은 계속 읽어 "이전 방송"·"이전 1:1"로 보여 주고, 새 기록은 `narration`(과 모를 때 `none`)으로만 쓴다(위험 R5). 예전 `llm-config.json`의 누적 요약·매크로 칸은 경고·백업 없이 무시한다.
+
+### 근거
+
+- **쓰지 않을 기능을 남기면 비용만 든다.** 방송·1:1 코드는 서버 본체와 검사의 대부분이라, 남겨 두면 대시보드를 붙일 때마다 경합 처리·기억 격리 같은 무관한 불변식을 같이 지켜야 한다. git 기록에 그대로 남으므로 되살릴 수 있다.
+- **"메타 브리핑"이 실제로 쓸 부분이었다.** 이터널리턴 집계(`packages/er`)와 Live2D 진행 연출은 방송 없이도 의미가 있다.
+- **대화를 없애면 LLM이 할 일이 좁아지고 검사할 수 있게 된다.** 자유 대화의 답은 품질을 자동으로 판정하기 어려웠지만(실모델 평가에서도 지어내기가 남았다), 사실 목록에서 나온 대사는 숫자·이름을 기계적으로 맞춰 볼 수 있다.
+- **어댑터 요청을 다섯 칸으로 줄이면 대화 전용 칸 없이 부를 수 있다.** 칸 이름은 예전 "다른 작업" 경로(`override*`)를 그대로 써서, 병렬로 개발한 읽어 주기 모듈과 맞추기 쉽게 했다.
+
+### 결과
+
+- **서버 `index.ts`가 1,640줄에서 약 430줄이 됐다.** 남은 라우트는 `/api/health`, `/api/er/refresh`·`/api/er/status`, `GET/PATCH /api/llm`, `/api/usage`, `GET/PATCH /api/tts`, `GET /api/tts/:id`, `GET /api/live2d/catalog`와 정적 화면이다.
+- **대시보드 상태(`/api/dashboard`)·자동 갱신·읽어 주기·닉네임 저장 라우트는 아직 연결 전이다.** 모듈(`er/dashboard-state.ts`, `narration/`)은 있고, 마무리 단계에서 `index.ts`에 잇는다. 그 전에는 서버로 띄운 대시보드가 데이터를 받지 못하고, 스튜디오의 닉네임 저장은 404 안내가 보인다.
+- **통합 검사는 보안·키·내구성·사용량 4개 시나리오만 남았다.** 대시보드 흐름 검사는 연결 단계에서 새로 쓴다. 방송 경합·기억 격리·1:1 계약·장시간 검사는 대상이 없어 지웠다.
+- **ADR-013~027의 방송·1:1 관련 결정은 기록으로만 남는다.** 그 안의 링크 중 지운 문서를 가리키는 것은 "삭제된 문서"로 바꿨다.
+- **보리 캐릭터 설정 문장에는 "AI 버추얼 스트리머", "방송 화면 속" 같은 방송 세계관이 남아 있다.** 캐릭터 설정을 바꿀지는 따로 정한다(이번 결정 범위 밖).
+
+
+### 구현 완료 후 갱신 (2026-11-21)
+
+위 결과는 삭제 작업 직후의 중간 기록이며 역사성을 위해 남긴다. PR [#50](https://github.com/Yumesa2025/bori-ai-vtuber/pull/50)~[#56](https://github.com/Yumesa2025/bori-ai-vtuber/pull/56)을 거쳐 대시보드·자동 갱신·읽어 주기·닉네임 저장 라우트가 연결되었고, 통합 검사는 대시보드 흐름을 포함한 5개 시나리오가 되었다. 캐릭터 설정도 메타 분석 진행자 방향으로 갱신했다.
+
+이번 Codex 점검 반영 라운드는 ER 데이터 복구·시간 제한, 서버 사실 문장 조립과 감상 제한, 하네스 소유권·HTTP 시간 제한, 공개 자산 Chromium smoke 및 문서 한계 정정을 다룬다. 각 변경의 병합 상태와 실행 결과는 해당 PR을 기준으로 확인한다. 현재 구조는 [architecture.md](architecture.md), 검사 명령과 실행 제약은 [README](../README.md)를 따른다. 실제 Live2D 표시는 비공개 자산을 가진 원래 체크아웃에서 별도 확인한다.

@@ -1,8 +1,7 @@
 import { readFileSync, renameSync } from "node:fs";
 import { basename } from "node:path";
-import type { ConversationMode } from "@bori/character";
 import type { LlmTokenUsage } from "@bori/llm";
-import { backupFile, isMissingFileError, writeFileAtomically } from "@bori/memory";
+import { backupFile, isMissingFileError, writeFileAtomically } from "../atomic-file.js";
 import type { UsageFeature, UsageMode } from "@bori/shared";
 
 /** 파일 형식 버전. 형식을 바꾸면 올리고 읽을 때 옮기는 경로를 만든다. */
@@ -11,7 +10,8 @@ export const USAGE_FILE_VERSION = 1;
 export const USAGE_RETENTION_DAYS = 31;
 
 const FEATURES: readonly UsageFeature[] = ["reply", "summary", "digest", "embedding", "tts"];
-const MODES: readonly UsageMode[] = ["broadcast", "companion", "none"];
+/** 읽는 모드. broadcast·companion은 방송·1:1 대화를 쓰던 때의 기록이라 읽기만 하고 새로 쓰지 않는다(위험 R5). */
+const MODES: readonly UsageMode[] = ["narration", "broadcast", "companion", "none"];
 
 /** 하루 동안 기능·모드·모델 한 조합의 누계. 숫자와 모델 이름만 담는다. */
 export type UsageCounter = {
@@ -32,12 +32,12 @@ export type UsageDays = Record<string, UsageCounter[]>;
 type UsageFile = { version: number; days: UsageDays };
 
 /**
- * 업체를 한 번 부른 결과. 대화 내용·닉네임·소유자 ID를 넣을 자리가 없게 숫자와 이름만 받는다.
- * mode가 null이면 어느 모드의 호출인지 모르는 것이다(임베딩).
+ * 업체를 한 번 부른 결과. 대사 내용·닉네임을 넣을 자리가 없게 숫자와 이름만 받는다.
+ * mode가 null이면 어느 모드의 호출인지 모르는 것이다(none으로 센다).
  */
 export type UsageEvent = {
   feature: UsageFeature;
-  mode: ConversationMode | null;
+  mode: UsageMode | null;
   model: string;
   ok: boolean;
   /** 업체 응답에 토큰 수가 있을 때만. */

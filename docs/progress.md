@@ -1,26 +1,31 @@
 # 진행 현황
 
-최종 갱신: 2026-10-12 · 프로젝트 기간: 2026.06 ~ 진행 중
+최종 갱신: 2026-11-21 · 프로젝트 기간: 2026.06 ~ 진행 중
 
-로컬 실행형 AI 버추얼 스트리머 "보리"의 구현 현황이다. 규칙 응답, Live2D 표정·모션, 시선, 립싱크, 외부 LLM, 장기 기억, TTS, OBS 송출까지 하나의 파이프라인으로 연결되어 동작한다. 치지직 실제 채팅 연동은 MVP 범위 밖이며, 방송 화면과 별도 채팅 화면의 수동 입력이 그 역할을 대신한다.
+> **2026-11-21 방향 전환.** 치지직 방송 시스템과 1:1 대화(대화 엔진·장기 기억 포함)를 지우고, 이터널리턴 메타 대시보드와 그것을 읽어 주는 Live2D 진행자로 바꿨다(ADR-028). 지금 상태는 맨 아래 [11절](#11-이터널리턴-메타-대시보드로-전환-2026-11-21)에 있다. 1~10절은 방송·1:1 시절의 기록으로 그대로 둔다. 그 안에서 말하는 방송·1:1 기능과 파일은 대부분 지금 저장소에 없다.
 
 이 문서가 진행 상황의 **단일 기준**이다. 완료 여부, 검증 여부, 남은 작업에 대해 다른 문서와 서술이 충돌하면 이 문서를 따른다.
 
 ## 문서 지도
 
-| 문서 | 다루는 내용 |
-|---|---|
-| [README](../README.md) | 프로젝트 소개, 설치·실행 |
-| [아키텍처](./architecture.md) | 워크스페이스 구성, 데이터 흐름, 모듈 경계 |
-| [아키텍처 v2](./architecture-v2.md) | 기준 커밋(`c8b2aa2`) 당시 구조 분석, 문서·코드 차이 표(8절), 1:1 모드 목표 구조와 Phase 계획 |
-| [설계 결정 기록](./decisions.md) | 저장소·검색 방식 등 설계 판단의 배경 |
-| [요구사항](./requirements.md) | 기획 요구사항 |
-| [구현 계획](./implementation-plan.md) | 단계별 구현 계획 |
-| [운영 가이드](./operations.md) | OBS·TTS·LLM 설정, 파라미터 튜닝, 문제 해결 |
-| [검증 기록](./verification-log.md) | 자동 검사 현황과 수동 검증 상세 항목 전체 |
-| [캐릭터 바이블](./content/character-bible.md) | 보리의 정체성·성격·말투·감정 표현 설정과 출처 |
-| [페르소나 가이드라인](./content/persona-guidelines.md) | 대화 금지·제한, 방송·1:1 대화 정책, 프롬프트 계층 |
-| [대화 시나리오](./content/dialogue-scenarios.md) | 답변 평가용 시나리오 (방송·1:1) |
+2026-11-21 기준이다. "지금"은 지금 저장소를 설명하는 문서, "기록"은 방송·1:1 시절 그대로 둔 문서다.
+
+| 문서 | 다루는 내용 | 구분 |
+|---|---|---|
+| [README](../README.md) | 프로젝트 소개, 지금 되는 것과 아직 확인하지 않은 것, 설치·실행 | 지금 |
+| [메타 대시보드 설계](./superpowers/specs/2026-11-21-er-meta-dashboard-design.md) | 이터널리턴 메타 대시보드 설계 | 지금 |
+| [구현 계획](./superpowers/plans/2026-11-21-er-meta-dashboard.md) | 작업 나눔·병합 순서. 작업별 세부 계획은 같은 폴더 | 지금 |
+| [아키텍처](./architecture.md) | 워크스페이스 구성과 의존, 데이터 흐름, 보안 경계 | 지금 |
+| [운영 가이드](./operations.md) | 포트, LLM·음성 설정, 이터널리턴 데이터 갱신과 대시보드 라우트, 튜닝 파라미터 | 지금 |
+| [설계 결정 기록](./decisions.md) | 설계 판단의 배경(방향 전환은 ADR-028) | 지금(앞 ADR은 기록) |
+| [검증 기록](./verification-log.md) | 자동 검사 현황(0절)과 수동 검증 기록 | 0절 지금, 0-기록·1~12절 기록 |
+| [캐릭터 바이블](./content/character-bible.md) | 보리의 정체성·말투·자기 설정·감정 표현(메타 분석 진행자) | 1~6절 지금, 부록 기록 |
+| [통합 검사](../tools/test/README.md) | 통합 검사 구조와 실행 방법 | 지금 |
+| [보안 점검](./security-review.md) | 보안·개인정보 점검 결과 | 기록(방송·1:1 시절 기준) |
+| [페르소나 가이드라인](./content/persona-guidelines.md) | 방송·1:1 대화 정책, 프롬프트 계층 | 기록 |
+| [대화 품질 평가](./content/evaluation.md) | 대화 답변 평가 체계 | 기록 |
+| [아키텍처 v2](./architecture-v2.md) | 기준 커밋(`c8b2aa2`) 당시 구조 분석, 1:1 모드 목표 구조 | 기록 |
+| [요구사항](./requirements.md) · [구현 계획(초기)](./implementation-plan.md) | 방송 시절 기획 요구사항과 단계별 계획 | 기록 |
 
 ---
 
@@ -183,7 +188,7 @@
 2026-09-01에 들어간 기능이다. **가짜 OpenAI API에 실제 서버를 붙인 통합 검사로만 확인했고 실 API로는 확인하지 않았다**(2절).
 
 - **방송 중 누적 요약.** 최근 대화 창(발언 10개, 채팅 5건 분량) 밖으로 밀려난 흐름을 `rollingSummaryTurns`(기본 10, 하한 4)마다 이전 요약과 합쳐 한 문단으로 접고 `[지금까지의 방송]`으로 넣는다. 요약이 늦게 도착해도 세션이 바뀌었으면 버린다
-- **키워드 매크로.** `data/macros.json`의 키워드가 채팅에 나오면 설명을 `durationTurns` 동안 `[참고 정보]`에 넣는다. 동시 5개까지. 관리자 API로 다시 읽을 수 있다. 예시는 [macros.example.json](./macros.example.json)
+- **키워드 매크로.** `data/macros.json`의 키워드가 채팅에 나오면 설명을 `durationTurns` 동안 `[참고 정보]`에 넣는다. 동시 5개까지. 관리자 API로 다시 읽을 수 있다. 예시 파일 `docs/macros.example.json`은 2026-11-21에 지웠다(git 기록에 있음)
 - **방송 상황 문장.** 경과 분과 답변 수를 서버가 계산해 `[방송 상황]`으로 넣는다
 - **대기·생성 병렬화.** 5~10초 연출 대기와 LLM·TTS 생성을 `Promise.all`로 겹친다. 통합 검사에서 직렬이면 약 9.8초였을 경우가 약 6.0초로 끝난다. 대기 중 들어온 채팅은 이번 차례의 후보에서 빠진다
 - **기억 없음 명시.** 꺼낸 기억이 없으면 `[기억]` 계층에 지어내지 말라는 문장을 넣는다
@@ -385,7 +390,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
 
 ### Phase 7 — 대화 품질 평가
 
-평가 체계 구축과 첫 실모델 평가, 지어내기 방지 지침 초안까지 했다. 평가용 시나리오는 [대화 시나리오](./content/dialogue-scenarios.md)에 있고, 기준과 결과는 [대화 품질 평가](./content/evaluation.md)에 있다.
+평가 체계 구축과 첫 실모델 평가, 지어내기 방지 지침 초안까지 했다. 평가용 시나리오는 대화 시나리오(삭제된 문서 `./content/dialogue-scenarios.md`, git 기록에 있음)에 있고, 기준과 결과는 [대화 품질 평가](./content/evaluation.md)에 있다.
 
 - 시나리오 38건(방송 18, 1:1 20)을 `tools/eval/scenarios.json`으로 옮겨 문서와 id를 대조한다
 - 정적 평가(키 불필요): 통과 35, 실패 0, 범위 밖 3(서버 차단 대상 2, 혼잣말 1). `npm run eval:static`
@@ -461,7 +466,7 @@ Bori 2.0(방송 모드 + 1:1 companion 모드)의 단계 번호는 사용자 지
   - 범위 밖 제안: 환경변수 API 키가 설정 저장 때 `data/`에 쓰이는 문제, `/api/me/memories` 전체 삭제가 대화·요약·진행 중인 기억 정리를 남기는 점, 지울 경로가 없는 백업·로그 파일, Vite dev 비공개 자산 경로 검사, 업체 오류 본문 노출, `npm audit` 11건(서버 런타임 해당 없음). 초기 커밋의 개인 이메일은 사용자 결정 대기다.
   - 후속 수정(`feature/security-hardening`, 병합 전, 점검 문서 8절): 위 제안 6건을 재현 검사로 확인한 뒤 고쳤다. 화면에서 넣은 API 키만 암호화해 저장하고 환경변수 키는 파일에 쓰지 않는다(LLM·ElevenLabs). `DELETE /api/me/data`와 Companion "1:1 기록 모두 지우기"로 1:1 대화·메시지·요약·세션·개인 기억을 한 번에 지우고, 기억 삭제 뒤에 끝난 기억 저장·LLM 정리 결과는 소유자별 세대 번호로 버린다(방송 기억은 남는다). 서버 시작 시 30일 지난 백업과 이전 관리자 로그를 지우고, 관리자 로그는 실행마다 바로 전 것만 남긴다. Vite dev 자산 경로를 `relative`로 검사하고 dev에서도 Core `include`를 적용한다. 업체 오류 본문의 키 모양 문자열을 가린다. `npm audit fix`와 Electron 44 업그레이드로 `npm audit` 11건 → 0건이고, Electron 44 관리자 창을 실제로 띄워 화면 로드를 확인했다. 방송 안정화 작업이 넘긴 임베딩 요청 상한(10초)도 더했다. 단위 검사 333건(#16까지 합친 `integration/wave5` 기준 286 + 47), 통합 검사 205건(같은 기준 189 + 16). 실제 업체 오류 본문 형식은 미검증이다.
 - **CI**: `.github/workflows/ci.yml`. push·PR에서 Node 24로 `npm ci` → typecheck → test:unit → eval:test → eval:typecheck → eval:static → `npm run test`(mock 통합) → `build:shared`·`build:server`·`build:admin`. 비밀값과 실모델 평가는 쓰지 않는다. 방송·1:1 화면 빌드는 비공개 Live2D 자산을 `dist/`로 복사하는 단계에서 실패하므로(자산 없는 worktree에서 확인) 제외했다. 9.7에서 바뀌었다: 산출물이 없던 `build:shared`·`build:server`를 빼고, PR과 main push에만 돌고, Windows 러너를 더했다.
-- **치지직 실제 채팅 연동 검토**: [치지직 연동 검토](./chzzk-integration-review.md), ADR-020(제안). 공식 문서 기준으로 세션·Socket.IO 수신, OAuth 토큰 수명과 갱신, Scope·심사, 기존 `/api/chat` 파이프라인에 붙이는 설계, 개인정보, 장애 동작, 남은 결정 11건을 정리했다. 구현은 하지 않았고, 호출 제한 수치 등 문서에 없는 것은 확인 필요로 남겼다.
+- **치지직 실제 채팅 연동 검토**: 치지직 연동 검토(삭제된 문서 `./chzzk-integration-review.md`, git 기록에 있음), ADR-020(제안). 공식 문서 기준으로 세션·Socket.IO 수신, OAuth 토큰 수명과 갱신, Scope·심사, 기존 `/api/chat` 파이프라인에 붙이는 설계, 개인정보, 장애 동작, 남은 결정 11건을 정리했다. 구현은 하지 않았고, 호출 제한 수치 등 문서에 없는 것은 확인 필요로 남겼다.
 - **의미가 같은 기억 병합**: `packages/memory/src/similar.ts`. ADR-017 결과에 남아 있던 후속 과제다. 같은 scope·소유자·종류 안에서만, 문자열 규칙(정규화 후 같음, 또는 길이 비율 0.8 이상의 포함 관계)과 임베딩 코사인 유사도 0.92 이상(임베딩이 있을 때)으로 같은 뜻을 판정하고, 새로 저장하지 않고 기존 기록의 반복 횟수·중요도·수명과 `lastSeenAt`만 올린다. 부정 표현·숫자·영문 낱말(고유명사)이 다르면 어떤 규칙으로도 합치지 않는다. 0.92는 실제 임베딩 모델과 기억 데이터로 재서 정한 값이 아니다(미검증). 저장소 API와 서버 호출 방식은 그대로다. 통합 검사의 가짜 임베딩이 모든 문장에 같은 벡터를 주어 서로 다른 기억이 모두 합쳐졌으므로, 문장 해시로 만든 결정적 33차원 벡터(다른 문장끼리 유사도 대략 0.6)로 바꾸고 고정 자료 `memories.json`의 벡터 4건을 같은 차원으로 맞췄다(코디네이터 승인). 단위 검사 31건, 통합 보안 검사 1건을 더했다.
 
 ### Phase 밖 — 기존 과제
@@ -752,7 +757,7 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 
 ## 10. 치지직 방송 시스템
 
-보리를 OBS 브라우저 소스로 치지직에 송출하고 이터널리턴(ER) 데이터로 3~5분 참여형 방송을 진행한다. [설계](./broadcast/design-spec.md)와 [구현 계획](./broadcast/implementation-plan.md)(작업 묶음 W1~W6)을 따른다.
+보리를 OBS 브라우저 소스로 치지직에 송출하고 이터널리턴(ER) 데이터로 3~5분 참여형 방송을 진행한다. 설계(삭제된 문서 `./broadcast/design-spec.md`, git 기록에 있음)와 구현 계획(삭제된 문서 `./broadcast/implementation-plan.md`, git 기록에 있음)(작업 묶음 W1~W6)을 따른다.
 
 ### 10.1 방송 진행기와 외부 연동(W4)
 
@@ -943,3 +948,67 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 
 검사: `test:unit` 841/841, 시나리오 show·behavior·operations 94/94. 실모델에서 말투가 실제로 덜 반복되는지는 리허설에서 본다.
 - 같은 날: "기분이 좋아졌어요"에 당황한 얼굴이 나왔다. 감정 이름만 주어 칭찬 답에 embarrassed(멍한 얼굴)를 고른 것으로 추정(로그가 없어 확인 못 함). `boriEmotionDescriptions`를 프롬프트에 넣고(얼굴 모양·쓰지 않는 상황), 기쁜 말 + 당황·슬픔·화남 감정이면 서버가 happy로 바꾸고 kuqi·shengqi 모션을 뺀다(`withMatchingEmotion`). 답마다 감정·모션 이름을 서버 로그에 남긴다(대사는 남기지 않음). 검사: `test:unit` 843/843, show·behavior 64/64, eval:static 53/0/4.
+
+---
+
+## 11. 이터널리턴 메타 대시보드로 전환 (2026-11-21)
+
+설계: [메타 대시보드 설계](./superpowers/specs/2026-11-21-er-meta-dashboard-design.md) · 계획: [구현 계획](./superpowers/plans/2026-11-21-er-meta-dashboard.md) · 결정: ADR-028
+
+### 11.1 작업 나눔
+
+0단계(코디네이터)에서 ER 코드를 `apps/server/src/er/`로 옮기고 대시보드 타입을 `packages/shared`에 정한 뒤, 세 작업을 Orca 워커가 각자 브랜치에서 나눠 했다.
+
+| 작업 | 내용 | 상태 |
+|---|---|---|
+| T1 ER 집계 확장 | 조합 집계, 이번 시즌 랭크만, 경기 수·참가자 수, 장비·특성, history 10개·비교, 자동 갱신 판정, 닉네임 설정 파일, 대시보드 상태 | 통합 브랜치에 병합 |
+| T3 대시보드·읽어 주기 | `apps/companion`을 대시보드로, `apps/server/src/narration/`(사실 목록·대사·검사·정해진 문장·저장) | 통합 브랜치에 병합 |
+| T2 삭제 | 방송·1:1·대화 엔진·기억·평가 도구 삭제, 스튜디오 정리, 통합 검사 재작성, 의존성·lock, `/private-*` 경로, 문서 | 이 기록 |
+| 마무리 | `index.ts`에 `/api/dashboard`·`/api/dashboard/settings`·`/api/narration/replay`·자동 갱신·읽어 주기 연결, 대시보드 흐름 통합 검사, 실제 화면 확인 | 연결·통합 검사는 통합 브랜치에 병합(#53). 실제 키·실제 화면 확인은 **남음** |
+
+### 11.2 T2에서 지운 것
+
+- 화면·도구: `apps/broadcast`(OBS 페이지·채팅 화면), `tools/obs`, `tools/eval`
+- 서버: `obs/`, `chzzk/`, `show/`, `companion/`, `conversation/`, 방송·1:1 라우트, 큐·기억 설정 검증, 방송 화면 Origin(4173·4174)과 그 화면만 막던 1:1 경로 제한, 요약·기억 정리·임베딩 사용량 감싸개. `index.ts` 1,640줄 → 431줄
+- 패키지: `packages/memory` 전부, `packages/llm`의 대화 프롬프트·요약·대화 답 검증, `packages/character`의 대화 모드 정책·위기 대응 문장, `packages/shared`의 방송·대화·기억·매크로 타입과 LLM 설정의 누적 요약·매크로 칸
+- 의존성: `obs-websocket-js`, `socket.io-client`, `socket.io`. `npm install`로 `package-lock.json`을 맞추고, npm이 남긴 지운 워크스페이스 항목을 빼 `npm ci` 통과를 확인했다
+- 검사: 서버 단위 검사 20개 파일, 통합 시나리오 12개(지연·동작·기억 격리·안정화·1:1·동시성·개인정보·안전·OBS 페이지·운영·진행기·장시간), 가짜 치지직·OBS
+- 문서: `docs/broadcast/`, `docs/chzzk-integration-review.md`, `docs/content/dialogue-scenarios.md`
+- 규모: 통합 브랜치 대비 삭제 파일 약 150개(삭제 파일만 약 23,500줄). 정확한 수는 T2 PR 본문에 적는다
+
+### 11.3 T2에서 남기거나 새로 둔 것
+
+- 스튜디오는 "대시보드 / 설정" 두 탭. 설정 탭: 이터널리턴 데이터(상태·갱신·진행률·마지막 오류), 게임 닉네임(`PUT /api/dashboard/settings` — 서버 라우트는 마무리 단계), 외부 LLM, 음성, API 사용량
+- `/private-*` Live2D 경로를 `apps/companion/dist`에서 내준다(`http/static-routes.ts`, 위험 R1)
+- 원자적 파일 쓰기를 `apps/server/src/atomic-file.ts`로 옮겼다(이름·시그니처 그대로)
+- `createLlmClient().complete<T>(settings, apiKey, request, parse)`와 다섯 칸 `LlmRequest`
+- 사용량 모드 `narration`. 예전 `broadcast`·`companion` 줄은 읽어서 "이전 방송"·"이전 1:1"로 보여 준다(위험 R5)
+- 예전 `data/` 파일(`memories.json`, 1:1 대화 기록)은 지우지 않는다. 읽지 않을 뿐이다
+- 통합 검사: 보안 경계, API 키 저장, 데이터 파일 손상·쓰기 실패, API 사용량(예전 줄 읽기 포함) 4개 시나리오
+
+### 11.4 검사 (T2 브랜치, T1·T3 병합 후)
+
+| 명령 | 결과 |
+|---|---|
+| `npm run typecheck` | 통과(8개 워크스페이스) |
+| `npm run test:unit` | 423건 통과, 실패 0 |
+| `npm test` | 44건 통과, 실패 0 |
+| `npm run build:admin` | 통과 |
+| `npm run build` | 이 워크트리에는 비공개 Live2D 자산이 없어 대시보드 빌드가 기존 동작대로 멈춘다. 원래 체크아웃에서 확인할 일로 남긴다 |
+
+### 11.5 남은 것
+
+- `npm run studio`로 대시보드 탭에서 `/private-core/live2dcubismcore.js`가 200으로 오는지, Live2D·표·대사 재생을 실제 화면으로 확인
+- 설계상 기본 목소리(Fish Audio "보리 목소리")를 코드 기본값에 반영할지 결정. 지금 기본값은 OpenAI(꺼짐)다
+- `docs/architecture-v2.md`, `requirements.md`, `implementation-plan.md`, `security-review.md`, `content/persona-guidelines.md`, `content/evaluation.md`는 방송·1:1 시절 문서로 남아 있다. 새 방향 기준으로 다시 쓸지 정한다
+
+### 11.6 점검 V3 정리 (2026-11-21)
+
+마무리 연결 뒤 점검(V3)에서 나온 항목 가운데 캐릭터 설정·보안·찌꺼기·문서를 정리했다.
+
+- 캐릭터 설정: 사용자 결정으로 보리를 "이터널리턴 메타 분석을 읽어 주는 AI 캐릭터"로 바꿨다. 새 사실을 지어내지 않고 방송·채팅·1:1 대화에 매인 문장을 뗐다(`packages/character`, [캐릭터 바이블](./content/character-bible.md) 1~6절. 예전 설정은 바이블 부록에 기록).
+- 보안: 서버가 내주는 화면(`/studio/` 등)에 `frame-ancestors 'self'`·`X-Frame-Options: SAMEORIGIN`·`nosniff`를 붙여 클릭재킹을 막았다.
+- 쓰지 않는 코드: `packages/live2d`의 표시 이름·모션 설명, 가짜 OpenAI의 요약·기억 정리·임베딩 경로, `docs/macros.example.json`.
+- 의존 선언: admin → live2d를 빼고 companion → shared를 더했다.
+- 문서: README·소개 페이지·운영·아키텍처의 "구현 중" 표시와 지운 `/api/er/status`를 실제 상태로, [검증 기록](./verification-log.md) 0절을 지금 기준으로(`typecheck` 8개 워크스페이스, 단위 456건, 통합 66건 모두 통과. 데이터·서버 보완 #54 병합 뒤).
+- 남은 것: 11.5절과 같다. 로컬에만 있는 예전 폴더(`apps/broadcast/` 등)는 사용자 확인 뒤 정리한다.

@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { allowedOriginsFrom, BODY_LIMIT_BYTES, guardRequest, hostnameOf, isPrivatePathForBroadcast, readBody } from "../src/http/guard.js";
+import { allowedOriginsFrom, BODY_LIMIT_BYTES, guardRequest, hostnameOf, readBody } from "../src/http/guard.js";
 
 type Reply = { status: number; headers: Record<string, string | string[] | undefined>; body: string };
 
@@ -53,18 +53,18 @@ const json = { "Content-Type": "application/json" };
 describe("허용 Origin 목록", () => {
   test("기본값은 클라이언트 포트의 127.0.0.1과 localhost다", () => {
     const origins = allowedOriginsFrom(undefined);
-    for (const port of [4173, 4174, 4175, 4176, 5174]) {
+    for (const port of [4175, 4176, 5174]) {
       assert.ok(origins.has(`http://127.0.0.1:${port}`));
       assert.ok(origins.has(`http://localhost:${port}`));
     }
-    assert.equal(origins.size, 10);
+    assert.equal(origins.size, 6);
     assert.ok(!origins.has("http://127.0.0.1:4310"));
   });
 
   test("환경변수 항목을 Origin 형식으로 맞춰 덧붙이고 잘못된 항목은 버린다", () => {
     const origins = allowedOriginsFrom(" http://192.168.0.10:4173/ ,ftp://x.example, , nonsense");
     assert.ok(origins.has("http://192.168.0.10:4173"));
-    assert.equal(origins.size, 11);
+    assert.equal(origins.size, 7);
   });
 
   test("Host에서 포트를 뺀 호스트명만 본다", () => {
@@ -109,50 +109,20 @@ describe("Origin 검사", () => {
   });
 
   test("허용된 Origin의 사전 요청은 204와 허용 메서드를 돌려준다", async () => {
-    const reply = await send("OPTIONS", { Origin: "http://127.0.0.1:4173", "Access-Control-Request-Method": "PATCH" });
+    const reply = await send("OPTIONS", { Origin: "http://127.0.0.1:4175", "Access-Control-Request-Method": "PATCH" });
     assert.equal(reply.status, 204);
-    assert.equal(reply.headers["access-control-allow-origin"], "http://127.0.0.1:4173");
+    assert.equal(reply.headers["access-control-allow-origin"], "http://127.0.0.1:4175");
     assert.match(String(reply.headers["access-control-allow-methods"]), /PATCH/);
   });
 });
 
-describe("방송 화면 Origin의 경로 제한 (점검 X-1)", () => {
-  const privatePaths = ["/api/conversations", "/api/conversations/abc", "/api/me/memories", "/api/me/data", "/api/memory", "/api/memory/m1", "/api/conversations?x=1"];
-
-  test("방송 화면 Origin은 1:1 대화·기억 경로에서 403이고 CORS 헤더가 없다", async () => {
+describe("방송 화면 Origin (2026-11-21 방송 삭제)", () => {
+  test("방송 화면 dev·preview 포트(4173·4174)는 더 이상 허용하지 않는다", async () => {
     for (const origin of ["http://127.0.0.1:4173", "http://localhost:4174"]) {
-      for (const path of privatePaths) {
-        const reply = await send("GET", { Origin: origin }, undefined, { path });
-        assert.equal(reply.status, 403, `${origin} ${path}`);
-        assert.equal(reply.headers["access-control-allow-origin"], undefined, `${origin} ${path}`);
-      }
+      const reply = await send("GET", { Origin: origin });
+      assert.equal(reply.status, 403, origin);
+      assert.equal(reply.headers["access-control-allow-origin"], undefined, origin);
     }
-  });
-
-  test("방송 화면 Origin의 사전 요청도 막는다", async () => {
-    const reply = await send("OPTIONS", { Origin: "http://127.0.0.1:4173", "Access-Control-Request-Method": "DELETE" }, undefined, { path: "/api/me/data" });
-    assert.equal(reply.status, 403);
-  });
-
-  test("방송 화면 Origin도 방송 경로는 그대로 쓴다", async () => {
-    for (const path of ["/api/state", "/api/chat", "/api/tts/abc"]) {
-      const reply = await send("GET", { Origin: "http://127.0.0.1:4173" }, undefined, { path });
-      assert.equal(reply.status, 200, path);
-    }
-  });
-
-  test("1:1 화면과 관리자 Origin, Origin 없는 요청은 1:1 경로를 쓸 수 있다", async () => {
-    const cases: Record<string, string>[] = [{ Origin: "http://127.0.0.1:4175" }, { Origin: "http://localhost:4176" }, { Origin: "http://127.0.0.1:5174" }, {}];
-    for (const headers of cases) {
-      const reply = await send("GET", headers, undefined, { path: "/api/me/memories" });
-      assert.equal(reply.status, 200, JSON.stringify(headers));
-    }
-  });
-
-  test("접두사만 같은 다른 경로는 막지 않는다", () => {
-    assert.equal(isPrivatePathForBroadcast("/api/memorybox"), false);
-    assert.equal(isPrivatePathForBroadcast("/api/meta"), false);
-    assert.equal(isPrivatePathForBroadcast("/api/me"), true);
   });
 });
 

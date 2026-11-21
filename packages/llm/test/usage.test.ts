@@ -5,9 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import type { LlmSettings } from "@bori/shared";
 import { createAnthropicAdapter } from "../src/anthropic.js";
-import { createLlmClient, type LlmCallReport } from "../src/index.js";
 import { createOpenAiAdapter } from "../src/openai.js";
 import type { LlmRequest } from "../src/types.js";
 import { tokenUsageFrom } from "../src/usage.js";
@@ -21,20 +19,13 @@ function respondWith(status: number, body: unknown) {
 }
 
 const request: LlmRequest = {
-  mode: "companion",
-  content: "안녕",
-  recentTurns: [],
-  memories: [],
-  sessionSummary: "",
-  macroPrompts: [],
-  broadcastStatus: [],
-  allowedEmotions: ["calm"],
-  allowedMotions: [],
-  maxReplyLength: 120,
+  overrideSystemPrompt: "시스템 지시",
+  overrideUserPrompt: "사용자 내용",
+  overrideSchema: { type: "object", properties: { lines: { type: "array", items: { type: "string" } } }, required: ["lines"], additionalProperties: false },
   timeoutMs: 1000,
 };
 
-const reply = JSON.stringify({ reply: "안녕하세요", emotion: { primary: "calm", intensity: 0.4, durationSeconds: 5 }, actions: [] });
+const reply = JSON.stringify({ lines: ["안녕하세요"] });
 
 describe("tokenUsageFrom", () => {
   test("0 이상의 정수 두 개만 받는다", () => {
@@ -74,63 +65,5 @@ describe("어댑터 usage", () => {
     respondWith(200, { content: [{ type: "tool_use", name: "bori_response", input: JSON.parse(reply) }], usage: { input_tokens: 200 } });
     const result = await createAnthropicAdapter({ apiKey: "k", model: "claude-sonnet-5", baseUrl: "http://mock" }).complete(request);
     assert.equal(result.usage, undefined);
-  });
-});
-
-describe("createLlmClient onCall", () => {
-  const settings: LlmSettings = {
-    enabled: true,
-    provider: "openai",
-    model: "gpt-4o-mini",
-    maxReplyLength: 120,
-    timeoutMs: 1000,
-    failureThreshold: 3,
-    cooldownSeconds: 60,
-    rollingSummaryEnabled: false,
-    rollingSummaryTurns: 10,
-    macroEnabled: false,
-  };
-
-  test("성공·실패를 모드·모델·토큰과 함께 알리고, 부르지 않은 호출은 알리지 않는다", async () => {
-    const reports: LlmCallReport[] = [];
-    const client = createLlmClient({ onCall: report => reports.push(report) });
-
-    respondWith(200, { choices: [{ message: { content: reply } }], usage: { prompt_tokens: 7, completion_tokens: 3 } });
-    const ok = await client.respond(settings, "key", request);
-    assert.equal(ok.ok, true);
-
-    respondWith(500, { error: "실패" });
-    const failed = await client.respond(settings, "key", { ...request, mode: "broadcast" });
-    assert.equal(failed.ok, false);
-
-    // 꺼져 있으면 업체를 부르지 않으므로 기록도 없다.
-    await client.respond({ ...settings, enabled: false }, "key", request);
-
-    assert.deepEqual(reports, [
-      { mode: "companion", model: "gpt-4o-mini", ok: true, usage: { inputTokens: 7, outputTokens: 3 } },
-      { mode: "broadcast", model: "gpt-4o-mini", ok: false },
-    ]);
-  });
-
-  test("형식 검증 실패는 과금된 호출이라 ok로 알린다", async () => {
-    const reports: LlmCallReport[] = [];
-    const client = createLlmClient({ onCall: report => reports.push(report) });
-    respondWith(200, { choices: [{ message: { content: "{\"reply\":1}" } }] });
-    const outcome = await client.respond(settings, "key", request);
-    assert.equal(outcome.ok, false);
-    assert.deepEqual(reports, [{ mode: "companion", model: "gpt-4o-mini", ok: true }]);
-  });
-
-  test("onCall이 던져도 답변은 그대로 나온다", async () => {
-    const client = createLlmClient({ onCall: () => { throw new Error("기록 실패"); } });
-    respondWith(200, { choices: [{ message: { content: reply } }] });
-    const originalError = console.error;
-    console.error = () => {};
-    try {
-      const outcome = await client.respond(settings, "key", request);
-      assert.equal(outcome.ok, true);
-    } finally {
-      console.error = originalError;
-    }
   });
 });
