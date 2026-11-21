@@ -37,7 +37,16 @@ function asDictionary(value: Record<string, unknown> | null): ErDictionary | nul
   const characters = value.characters.filter((entry): entry is ErDictionary["characters"][number] =>
     isRecord(entry) && typeof entry.code === "number" && typeof entry.name === "string" && Array.isArray(entry.weapons));
   const seasonName = value.seasonLabel === SEASON_LABEL ? value.seasonName : legacySeasonName(value.seasonName);
-  return { characters, weaponNames: value.weaponNames as ErDictionary["weaponNames"], seasonId: value.seasonId, seasonName };
+  // 장비·특성 이름과 시즌 끝 시각이 없는 예전 파일은 빈 값으로 둔다(다음 갱신 때 채운다)
+  return {
+    characters,
+    weaponNames: value.weaponNames as ErDictionary["weaponNames"],
+    itemNames: isRecord(value.itemNames) ? value.itemNames as ErDictionary["itemNames"] : {},
+    traitNames: isRecord(value.traitNames) ? value.traitNames as ErDictionary["traitNames"] : {},
+    seasonId: value.seasonId,
+    seasonName,
+    seasonEnd: typeof value.seasonEnd === "string" ? value.seasonEnd : null,
+  };
 }
 
 function asMeta(value: Record<string, unknown> | null): { stats: ErCharacterStat[]; basis: ErMetaBasis } | null {

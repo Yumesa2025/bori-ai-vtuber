@@ -79,3 +79,20 @@ test("못 찾으면 비슷한 이름을 최대 3개 제안한다", async () => {
   // 전혀 다른 말에는 제안이 없다
   assert.deepEqual(findCharacter("오늘 날씨 좋다", dict), { match: null, suggestions: [] });
 });
+
+test("장비·특성 한국어 이름과 현재 시즌 끝 시각을 담는다", async () => {
+  const dict = await loadDictionary(fakeClient(dictionaryRoutes()));
+  assert.equal(dict.itemNames?.[117406], "저지먼트");
+  assert.equal(dict.itemNames?.[202529], "화령장");
+  assert.equal(dict.traitNames?.[7000601], "아드레날린");
+  // 숫자가 아닌 변형 키(202529_D)는 넣지 않는다
+  assert.equal(Object.keys(dict.itemNames ?? {}).some((key) => !/^\d+$/.test(key)), false);
+  // "2026-11-12 09:00:00"은 한국 시간으로 읽는다
+  assert.equal(dict.seasonEnd, "2026-11-12T00:00:00.000Z");
+});
+
+test("시즌 끝 시각을 읽지 못하면 null", async () => {
+  const routes = { ...dictionaryRoutes(), "/v2/data/Season": { code: 200, message: "Success", data: [{ seasonID: 41, seasonName: "Season21", isCurrent: 1 }] } };
+  const dict = await loadDictionary(fakeClient(routes));
+  assert.equal(dict.seasonEnd, null);
+});
