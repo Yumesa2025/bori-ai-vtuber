@@ -9,8 +9,9 @@ import { COLLECTION_FORMAT, createErHistory, parseCollection } from "./history.j
  * 이터널리턴 데이터(캐릭터 사전·조합 집계)를 data/ 아래 파일로 두고 읽는다.
  * - 서버 시작 때 `er-dictionary.json`·`er-meta.json`이 있으면 읽는다. 없으면 missing이다.
  *   조합 집계가 없는 예전 형식 `er-meta.json`(stats만)은 없는 것으로 본다. 다음 갱신 때 새 형식으로 쓴다.
- * - 갱신(refresh)이 백그라운드로 사전과 집계를 다시 받아 원자적으로 쓰고(설정 파일 공통 방식),
- *   집계를 `er-history/`에도 하나 남긴다(최근 10개). 실패하면 지난 파일은 그대로다.
+ * - 갱신(refresh)이 백그라운드로 사전과 집계를 다시 받고, 집계까지 성공한 뒤에만 둘을 원자적으로 쓴다(설정 파일 공통 방식).
+ *   집계를 `er-history/`에도 하나 남긴다(최근 10개). 실패하면 사전·집계 파일과 메모리 모두 지난 것 그대로다.
+ * - 직전 집계(변화량 비교 대상)는 갱신 때는 그 전까지 화면에 보이던 집계, 켤 때는 history에서 찾는다.
  * - 갱신 중에는 전적 조회를 받지 않는다. 개인 키는 초당 1회라 갱신 요청 뒤에 줄을 서면 몇 분을 기다린다.
  * - 오류 메시지에는 키가 없다(@bori/er 클라이언트가 키·쿼리를 빼고 만든다).
  */
@@ -63,9 +64,10 @@ export function createErData(options: {
   const metaFile = createConfigFile(resolve(options.dataDir, "er-meta.json"), "이터널리턴 메타");
   const history = createErHistory({ dir: resolve(options.dataDir, "er-history") });
   const refreshedListeners = new Set<() => void>();
+  const failedListeners = new Set<() => void>();
   let dictionary: ErDictionary | null = null;
   let meta: ErMetaCollection | null = null;
-  /** history에서 찾은 직전 집계 */
+  /** 직전 집계. 갱신 때는 그 전 집계, 켤 때는 history에서 찾은 것 */
   let previous: ErMetaCollection | null = null;
   let refreshing = false;
   let progress: number | null = null;
@@ -77,15 +79,20 @@ export function createErData(options: {
     let succeeded = false;
     try {
       const nextDictionary = await loadDictionary(client);
-      dictionaryFile.write({ ...nextDictionary, seasonLabel: SEASON_LABEL });
-      dictionary = nextDictionary;
+      const skipped = { ranker: 0, game: 0 };
       const collected = await collectMeta(client, nextDictionary, {
         rankers: options.rankers,
         gamesPerRanker: options.gamesPerRanker,
         now,
         onProgress: (done, total) => { progress = total > 0 ? Math.min(1, done / total) : 0; },
+        onSkip: (what) => { skipped[what] += 1; },
       });
+      // 집계까지 성공한 뒤에만 사전과 집계를 바꾼다(설계 1.3 "실패하면 지난 파일 그대로").
+      // 사전만 새 시즌으로 바뀌면 전적은 새 시즌, 메타는 지난 시즌을 보게 된다.
+      dictionaryFile.write({ ...nextDictionary, seasonLabel: SEASON_LABEL });
       metaFile.write({ format: COLLECTION_FORMAT, ...collected, seasonLabel: SEASON_LABEL });
+      const shown = meta;
+      dictionary = nextDictionary;
       meta = collected;
       try {
         history.save(collected);
@@ -93,10 +100,11 @@ export function createErData(options: {
         // 기록을 못 남겨도 이번 집계는 쓴다. 다음 비교에서 이번 것이 빠질 뿐이다.
         console.warn("[bori-server] 이터널리턴 집계 기록을 남기지 못했습니다:", error instanceof Error ? error.message : "알 수 없는 오류");
       }
-      previous = findPrevious(collected);
+      // 직전 = 그 전까지 화면에 보이던 집계. 처음 갱신이면 history에서 찾는다(지난 history 쓰기가 실패해도 어긋나지 않는다)
+      previous = shown ?? findPrevious(collected);
       lastError = null;
       succeeded = true;
-      console.log(`[bori-server] 이터널리턴 메타 갱신 완료 (경기 ${collected.basis.games}판, 참가자 ${collected.basis.participants}명, 조합 ${collected.combos.length}개)`);
+      console.log(`[bori-server] 이터널리턴 메타 갱신 완료 (경기 ${collected.basis.games}판, 참가자 ${collected.basis.participants}명, 조합 ${collected.combos.length}개, 건너뜀 랭커 ${skipped.ranker}명·경기 ${skipped.game}판)`);
     } catch (error) {
       lastError = error instanceof Error ? error.message : "이터널리턴 데이터를 받지 못했습니다.";
       console.error("[bori-server] 이터널리턴 메타 갱신 실패:", lastError);
@@ -104,13 +112,11 @@ export function createErData(options: {
       refreshing = false;
       progress = null;
     }
-    if (succeeded) {
-      for (const listener of refreshedListeners) {
-        try {
-          listener();
-        } catch (error) {
-          console.error("[bori-server] 이터널리턴 갱신 알림 처리 실패:", error instanceof Error ? error.message : "알 수 없는 오류");
-        }
+    for (const listener of succeeded ? refreshedListeners : failedListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error("[bori-server] 이터널리턴 갱신 알림 처리 실패:", error instanceof Error ? error.message : "알 수 없는 오류");
       }
     }
   }
@@ -161,6 +167,12 @@ export function createErData(options: {
     onRefreshed(listener: () => void): () => void {
       refreshedListeners.add(listener);
       return () => { refreshedListeners.delete(listener); };
+    },
+
+    /** 갱신이 실패해 끝난 뒤 부른다(지난 데이터는 그대로). 돌려준 함수로 그만 듣는다. */
+    onRefreshFailed(listener: () => void): () => void {
+      failedListeners.add(listener);
+      return () => { failedListeners.delete(listener); };
     },
 
     /** 키와 사전이 있고 갱신 중이 아니면 전적을 볼 수 있다. */
