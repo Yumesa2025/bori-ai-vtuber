@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>보리 (Bori) — 이터널리턴 메타 대시보드</title>
-<meta name="description" content="이터널리턴 상위 랭커 경기로 캐릭터·무기 조합 메타를 보여 주고, Live2D 캐릭터 보리가 수치만 근거로 한 대사로 읽어 주는 로컬 앱(구현 중).">
+<meta name="description" content="이터널리턴 상위 랭커 경기로 캐릭터·무기 조합 메타를 보여 주고, Live2D 캐릭터 보리가 수치만 근거로 한 대사로 읽어 주는 로컬 앱.">
 <meta property="og:title" content="보리 (Bori) — 이터널리턴 메타 대시보드">
 <meta property="og:description" content="경기 수집·조합 집계·직전 비교·사실 목록·검사된 LLM 대사·음성·Live2D로 이어지는 메타 분석 파이프라인.">
 <meta property="og:type" content="website">
@@ -249,8 +249,8 @@ footer p{margin:0 0 7px; color:inherit; max-width:none}
       <li><b>목소리에 맞춰 입이 움직인다.</b> 대사를 TTS로 합성하고, 음성 파형의 실효값을 읽어 입 벌림에 반영한다. 줄마다 감정에 맞는 표정을 낸다.</li>
     </ul>
     <div class="notice">
-      <p><strong>지금은 구현 중이다(2026-11-21).</strong></p>
-      <p>집계·비교·사실 목록·대사 검사 모듈과 대시보드 화면은 만들었고 단위 검사와 가짜 API로 확인했다. 이것들을 서버 하나로 잇는 일과 실제 키로 끝까지 돌려 보는 확인이 남았다. 이전에 만들던 치지직 방송 시스템과 1:1 대화 기능은 이번 방향 전환에서 지웠다.</p>
+      <p><strong>지금 상태(2026-11-21).</strong></p>
+      <p>집계·비교·사실 목록·대사 검사·대시보드 화면을 서버 하나로 이었고, 가짜 이터널리턴·가짜 OpenAI 서버에 실제 서버를 붙여 "대시보드 열기 → 자동 갱신 → 대사 → 음성"까지 통합 검사로 확인했다. 실제 키로 끝까지 돌려 보는 확인과 Live2D가 뜬 실제 화면 확인은 아직 남았다. 이전에 만들던 치지직 방송 시스템과 1:1 대화 기능은 이번 방향 전환에서 지웠다.</p>
     </div>
   </div>
 </section>
@@ -353,7 +353,7 @@ footer p{margin:0 0 7px; color:inherit; max-width:none}
       </a>
       <a class="card" data-doc="README.md">
         <h3>README</h3>
-        <p>프로젝트 소개, 지금 되는 것과 구현 중인 것, 실행 전 알아둘 제약, 설치와 실행 절차.</p>
+        <p>프로젝트 소개, 지금 되는 것과 아직 확인하지 않은 것, 실행 전 알아둘 제약, 설치와 실행 절차.</p>
       </a>
     </div>
   </div>
@@ -364,8 +364,7 @@ footer p{margin:0 0 7px; color:inherit; max-width:none}
     <p class="kicker">Status</p>
     <h2>현재 상태와 한계</h2>
     <ul class="plain">
-      <li><b>서버 연결이 남았다.</b> 대시보드 상태(<code>/api/dashboard</code>), 자동 갱신, 보리 읽어 주기, 닉네임 저장 라우트를 서버에 잇는 중이다.</li>
-      <li><b>실제 키로 끝까지 확인하지 않았다.</b> 집계·비교·대사 검사는 고정 자료와 가짜 API로 확인했다.</li>
+      <li><b>실제 키와 실제 화면으로 끝까지 확인하지 않았다.</b> 집계·비교·대사 검사와 서버 연결은 고정 자료와 가짜 API(통합 검사)로 확인했다. Live2D가 뜬 대시보드는 아직 실제로 띄워 보지 않았다.</li>
       <li><b>표본은 상위 랭커 경기다.</b> 기본 랭커 100명 × 최근 3판이라 전체 이용자 메타와 다를 수 있다.</li>
       <li><b>사용자 인증이 없다.</b> 로컬 단일 사용자를 가정한다. 서버는 <code>127.0.0.1</code>에만 열리며 외부 공개 서버로는 쓸 수 없다.</li>
     </ul>

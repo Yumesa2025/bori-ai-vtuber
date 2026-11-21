@@ -3,7 +3,7 @@
 이터널리턴 메타 대시보드와 Live2D 진행자 "보리"의 구조 문서다. 설계 결정의 배경과 트레이드오프는 [decisions.md](./decisions.md)에, 이번 구조의 설계는 [superpowers/specs/2026-11-21-er-meta-dashboard-design.md](./superpowers/specs/2026-11-21-er-meta-dashboard-design.md)에 있다.
 
 > 2026-11-21 치지직 방송 시스템과 1:1 대화(대화 엔진·장기 기억)를 지우면서 이 문서를 새로 썼다(ADR-028). 방송 큐·세션 세대·발화권·3단 폴백·기억 검색을 다룬 예전 문서는 git 기록(이 문서의 이전 판)과 [architecture-v2.md](./architecture-v2.md)에 남아 있다.
-> 아래에서 **(구현 중)**으로 표시한 연결은 모듈은 있지만 서버(`apps/server/src/index.ts`)에 아직 이어지지 않은 것이다.
+> 대시보드 상태·자동 갱신·보리 읽어 주기·닉네임 저장은 서버(`apps/server/src/index.ts`, `http/dashboard-routes.ts`)에 이어져 있다(2026-11-21 마무리 연결). 실제 키와 Live2D가 뜬 실제 화면으로는 아직 확인하지 않았다.
 
 ---
 
@@ -26,25 +26,29 @@ npm workspaces 모노레포다. 애플리케이션 3개, 패키지 5개, 도구 
 
 ### 의존 방향
 
+워크스페이스 사이의 컴파일타임 의존이다. 2026-11-21에 `package.json` 선언과 소스의 `import`를 대조했다. 선언만 있고 import가 아직 없는 것은 `apps/server` → `character` 하나다.
+
+| 워크스페이스 | 의존하는 패키지 |
+|---|---|
+| `apps/server` | `shared`, `er`, `llm`, `live2d`(감정 이름·설명), `character`(선언. 보리 대사 지시문이 프로필·말투 문장을 쓰도록 잇는 작업이 진행 중이다) |
+| `apps/companion` | `shared`(대시보드 타입), `live2d`(감정 → 표정·모션) |
+| `apps/admin` | `shared` |
+| `packages/er`, `packages/llm` | `shared` |
+| `packages/shared`, `packages/character`, `packages/live2d` | 없음 |
+
+실행할 때의 연결은 다음과 같다.
+
 ```
-                         packages/shared (타입만)
-                                ▲
-     ┌──────────────┬───────────┼─────────────┬──────────────┐
- packages/er   packages/llm  packages/character  packages/live2d
-     ▲              ▲              ▲              ▲      ▲
-     └──────────────┴──────┬───────┴──────────────┘      │
-                     apps/server                         │
-               (er/ · narration/ · http/ · usage/)       │
-                           │ HTTP (폴링·명령)              │
-              ┌────────────┴────────────┐                │
-        apps/companion             apps/admin ───────────┘
-     (대시보드 + Live2D) ─────────────────────────────────┘
-              │ Cubism SDK for Web (private-assets/, 저장소 밖)
-              ▼
-          WebGL 캔버스
+ apps/admin (스튜디오) ──iframe /companion/──▶ apps/companion (대시보드 + Live2D)
+        │ HTTP(설정·상태)                          │ HTTP(폴링·명령)       │ Cubism SDK for Web
+        └───────────────▶ apps/server ◀────────────┘                       │ (private-assets/, 저장소 밖)
+                   (er/ · narration/ · http/ · usage/)                     ▼
+                          │ fetch                                     WebGL 캔버스
+                          ▼
+      이터널리턴 Open API · LLM(OpenAI·Anthropic) · TTS(Fish·ElevenLabs·OpenAI)
 ```
 
-화살표는 컴파일타임 의존이다. 역방향 의존은 없다. 서버와 두 화면 사이는 HTTP뿐이고, 화면 쪽은 `packages/shared` 타입이나 자체 타입만 쓴다.
+역방향 의존은 없다. 서버와 두 화면 사이는 HTTP뿐이다. 화면은 서버 코드를 import하지 않고 `packages/shared` 타입과, 대시보드의 경우 `packages/live2d`의 감정 매핑 함수만 쓴다.
 
 `packages/*`는 빌드 산출물을 만들지 않는다. `main`이 `./src/index.ts`를 직접 가리키고, 소비하는 쪽(`tsx`, Vite)이 TypeScript 원본을 그대로 읽는다.
 
@@ -55,20 +59,20 @@ npm workspaces 모노레포다. 애플리케이션 3개, 패키지 5개, 도구 
 ### 갱신
 
 ```
-POST /api/er/refresh (또는 대시보드를 열 때 자동 갱신 판정 — 구현 중)
+POST /api/er/refresh (또는 GET /api/dashboard 때 자동 갱신 판정)
   → packages/er: 사전(l10n 캐릭터·무기·장비·특성 이름, 시즌) → 상위 랭커 → 랭커별 최근 랭크 경기 상세
   → 이번 시즌 랭크 경기만 (캐릭터, 무기) 조합별 원래 개수로 센다
   → apps/server/src/er/: data/er-meta.json(최신), data/er-history/(최근 10개)에 원자적으로 쓴다
-  → onRefreshed 알림 (→ 보리 읽어 주기 — 구현 중)
+  → onRefreshed 알림 → 보리 읽어 주기
 ```
 
 개인 키는 초당 1회라 기본 규모(랭커 100명 × 3판)는 몇 분 걸린다. 경기 하나·랭커 하나의 실패는 건너뛴다. 갱신이 실패하면 지난 파일을 그대로 두고 마지막 오류만 남긴다.
 
-### 대시보드 상태 (구현 중)
+### 대시보드 상태
 
 `createDashboardData`(`apps/server/src/er/dashboard-state.ts`)가 최신·직전 집계, 설정 파일의 게임 닉네임, 전적 조회 결과로 `DashboardState`(`packages/shared`)를 만든다. 비율·평균은 원래 개수에서 서버가 계산하고, 직전 갱신과 조합 키(캐릭터 코드 + 무기 코드)로 비교해 변화량과 `patchChanged`를 붙인다. 대시보드는 `GET /api/dashboard`를 갱신 중 2초, 평소 30초마다 폴링한다.
 
-### 보리 읽어 주기 (구현 중)
+### 보리 읽어 주기
 
 `createNarrator`(`apps/server/src/narration/`)의 순서다.
 
@@ -106,6 +110,7 @@ POST /api/er/refresh (또는 대시보드를 열 때 자동 갱신 판정 — �
 ```
 
 - **요청 경계**(`apps/server/src/http/guard.ts`): 모든 요청이 라우트 전에 Host(루프백만, 421)·Origin(허용 목록만, 403)·Content-Type(JSON만, 415)·본문 크기(64KB, 413)·경로 인코딩(400) 검사를 거친다.
+- **화면 iframe 제한**(`apps/server/src/http/static.ts`): 서버가 내주는 화면(`/studio/`·`/companion/`·`/private-*`)에 `Content-Security-Policy: frame-ancestors 'self'`·`X-Frame-Options: SAMEORIGIN`·`X-Content-Type-Options: nosniff`를 붙인다. 다른 웹사이트가 API 키 화면을 투명 iframe으로 덮어 버튼을 누르게 하는 것(클릭재킹)을 막고, 스튜디오 → `/companion/` iframe은 같은 출처라 그대로 된다.
 - **키 저장**(`secret-store.ts`): 화면에서 넣은 키만 AES-256-GCM으로 암호화해 `data/`에 쓴다. 환경변수 키는 파일에 쓰지 않는다. 같은 머신에서 코드를 실행할 수 있는 주체는 복호화도 할 수 있다는 한계가 있다.
 - **파일 쓰기**(`atomic-file.ts`, `config-file.ts`): 임시 파일에 쓰고 fsync 뒤 rename한다. 깨진 파일은 `*.unreadable-<시각>.json`으로 원본을 남기고 기본값으로 시작하며, 있는데 읽지 못한 파일은 덮어쓰지 않는다. 30일 지난 백업은 시작할 때 지운다(`retention.ts`).
 - **사용자 인증이 없다.** 로컬 단일 사용자를 가정한다.
