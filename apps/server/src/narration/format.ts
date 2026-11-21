@@ -41,3 +41,9 @@ export function formatCount(value: number): string {
   const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return value < 0 && grouped !== "0" ? `-${grouped}` : grouped;
 }
+
+/** 대사 검사에 쓰는 숫자 꼴(설계 3절). "7,200"은 "7"과 "200"으로 갈리지만 사실 쪽도 같은 정규식으로 뽑아 양쪽이 같다. */
+export const NUMBER_PATTERN = /\d+(\.\d+)?/g;
+
+/** 문장 속 숫자 문자열을 나온 순서대로 뽑는다. */
+export const extractNumbers = (text: string): string[] => text.match(NUMBER_PATTERN) ?? [];
