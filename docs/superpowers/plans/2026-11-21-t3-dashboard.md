@@ -345,3 +345,13 @@ export async function playNarration(lines, deps, options: { audio: boolean; sign
 - [ ] 자막·다시 듣기·감정 전달은 콘솔 `[bori] emotion=…` 로그로 확인
 - [ ] `npm run typecheck`, `npm run test:unit` 전체 통과 확인(출력 숫자 기록)
 - [ ] push, `gh pr create --base feature/er-meta-dashboard`
+
+---
+
+## 실행하면서 계획과 다르게 한 것
+
+- `NarratorDeps.llm`은 `NarrationLlm | null`만 받는다. 함수와 "함수를 돌려주는 함수"를 인자 개수로 가르는 방식은 믿을 수 없어 뺐다. 꺼짐·키 없음·회로 열림은 주입하는 함수가 `{ ok: false }`로 돌려준다.
+- `ui.ts`는 지우지 않고 `speechNotice`만 남겼다(읽기 결과 안내).
+- 표 부품에 `Trend.tsx`(▲▼ 한 칸)를 따로 두었다.
+- 비공개 자산이 없는 체크아웃에서는 `vite --mode mock`도 `@sdk-sample/lappdelegate`를 찾지 못해 화면이 안 떴다. `dev/mock-api.ts` 플러그인이 가짜 API 모드에서만, SDK 파일이 없을 때만 그 import를 "SDK 없음" 모듈로 바꾼다. 실제 빌드·실서버 개발 모드는 그대로다.
+- `npm --workspace apps/companion run build`는 비공개 자산이 없으면 일부러 멈춘다(tools/vite/private-assets.ts). 워크트리에서는 같은 대체 모듈을 쓰는 스크래치패드 설정으로 번들만 확인했고, 실제 빌드는 원래 체크아웃에서 확인해야 한다.
