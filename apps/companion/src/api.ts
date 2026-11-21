@@ -1,35 +1,8 @@
 /**
- * 1:1 대화 API 클라이언트.
- * 타입은 세 워커가 함께 정한 API 계약을 그대로 옮긴 것이다. 서버 타입이 공용 패키지로 나오면 그쪽으로 바꾼다.
- * 소유자는 서버가 정하므로 클라이언트는 사용자 ID를 보내지 않는다.
+ * 대시보드 API 클라이언트. 형식은 packages/shared의 DashboardState(설계 4절)다.
+ * 서버 경로: GET /api/dashboard, POST /api/er/refresh, POST /api/narration/replay, GET /api/tts/:id
  */
-
-export type Conversation = { id: string; title: string; createdAt: string; updatedAt: string; messageCount: number };
-
-/** 1:1 기록 모두 지우기(DELETE /api/me/data)로 지운 개수. */
-export type ClearedData = { conversations: number; messages: number; memories: number };
-
-export type MessageEmotion = { primary: string; intensity: number; durationSeconds: number };
-export type MessageAction = { name: string; layer: string; priority: number };
-export type MessageSource = "llm" | "rule" | "fallback" | "blocked";
-
-export type Message = {
-  id: string;
-  role: "user" | "bori";
-  content: string;
-  createdAt: string;
-  // 아래 세 값은 role이 bori일 때만 온다.
-  emotion?: MessageEmotion;
-  actions?: MessageAction[];
-  source?: MessageSource;
-};
-
-export type SendResult = { userMessage: Message; reply: Message; audioId?: string; failure?: { kind: string } };
-export type Memory = { id: string; text: string; createdAt: string; expiresAt: string | null };
-export type CharacterProfile = { name: string; personaLines: string[]; companionPolicyTitle: string };
-
-/** 서버가 받는 메시지 최대 길이. 넘기면 400이므로 입력창에서 먼저 막는다. */
-export const MAX_MESSAGE_LENGTH = 500;
+import type { DashboardState, Narration } from "@bori/shared";
 
 /**
  * 화면에 보여 줄 오류 종류.
@@ -52,10 +25,10 @@ export function errorKindForStatus(status: number): ApiErrorKind {
 
 /** 오류 종류별 안내 문구. 서버 원문은 개발자용이라 그대로 보여 주지 않는다. */
 export const errorMessages: Record<ApiErrorKind, string> = {
-  disconnected: "서버에 연결할 수 없어요. 서버가 켜져 있는지 확인한 뒤 다시 시도해 주세요.",
-  badRequest: "보낼 수 없는 내용이에요. 비어 있거나 500자를 넘지 않았는지 확인해 주세요.",
-  notFound: "대화를 찾을 수 없어요. 이미 지워졌을 수 있어요.",
-  conflict: "보리가 아직 앞 메시지에 답하는 중이에요. 답변이 끝난 뒤 다시 보내 주세요.",
+  disconnected: "서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.",
+  badRequest: "요청을 처리할 수 없어요.",
+  notFound: "아직 읽을 대사가 없어요.",
+  conflict: "이미 처리 중이에요. 잠시 뒤 다시 눌러 주세요.",
   server: "서버에서 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
 };
 
@@ -80,34 +53,20 @@ export async function readResponse<T>(response: Response): Promise<T> {
   throw new ApiError(errorKindForStatus(response.status), response.status, serverMessage);
 }
 
-async function request<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+async function request<T>(path: string, method = "GET"): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, {
-      method: init?.method ?? "GET",
-      headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-    });
+    response = await fetch(path, { method, cache: "no-store" });
   } catch {
     throw new ApiError("disconnected", null, null);
   }
   return readResponse<T>(response);
 }
 
-const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`;
-
 export const api = {
-  listConversations: () => request<{ conversations: Conversation[] }>("/api/conversations").then(body => body.conversations),
-  createConversation: (title?: string) =>
-    request<{ conversation: Conversation }>("/api/conversations", { method: "POST", body: title ? { title } : {} }).then(body => body.conversation),
-  getMessages: (id: string) => request<{ conversation: Conversation; messages: Message[] }>(`${conversationPath(id)}/messages`),
-  sendMessage: (id: string, content: string, tts: boolean) =>
-    request<SendResult>(`${conversationPath(id)}/messages`, { method: "POST", body: { content, tts } }),
-  deleteConversation: (id: string) => request<{ deleted: true }>(conversationPath(id), { method: "DELETE" }),
-  listMemories: () => request<{ memories: Memory[] }>("/api/me/memories").then(body => body.memories),
-  deleteMemory: (id: string) => request<{ deleted: true }>(`/api/me/memories/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  deleteAllMemories: () => request<{ deleted: number }>("/api/me/memories", { method: "DELETE" }).then(body => body.deleted),
-  /** 1:1 대화·메시지·대화 요약·기억을 모두 지운다. 방송 기록은 남는다. */
-  deleteAllData: () => request<{ deleted: ClearedData }>("/api/me/data", { method: "DELETE" }).then(body => body.deleted),
-  getProfile: () => request<CharacterProfile>("/api/character/profile"),
+  /** 대시보드 상태. 서버가 데이터가 오래됐다고 보면 이 요청에서 자동 갱신을 시작한다. */
+  getDashboard: () => request<DashboardState>("/api/dashboard"),
+  refresh: () => request<{ started: boolean }>("/api/er/refresh", "POST"),
+  /** 최신 대사를 다시 받는다. 사라진 음성은 서버가 다시 만든다. */
+  replayNarration: () => request<{ narration: Narration }>("/api/narration/replay", "POST").then(body => body.narration),
 };
