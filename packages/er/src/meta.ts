@@ -36,7 +36,7 @@ export type ErComboTally = {
 export type ErMetaCollectionBasis = {
   seasonId: number;
   seasonName: string;
-  /** 센 경기에서 가장 많은 "versionMajor.versionMinor". 모르면 null */
+  /** 센 경기에서 가장 많은 "versionSeason.versionMajor"(게임 패치 표기, 예 13.1). versionMinor(핫픽스)는 넣지 않는다. 모르면 null */
   patch: string | null;
   /** 센 경기 수 */
   games: number;
@@ -67,6 +67,8 @@ type GameRow = {
   characterNum?: number;
   gameRank?: number;
   bestWeapon?: number;
+  /** 게임 표기 시즌 번호. 경기 상세에만 있고 유저 경기 목록 행에는 없다(2026-11-21 실제 응답 확인) */
+  versionSeason?: number;
   versionMajor?: number;
   versionMinor?: number;
   mmrGain?: number;
@@ -188,8 +190,9 @@ export async function collectMeta(
     if (rows.length > 0) {
       games += 1;
       const first = rows[0]!;
-      if (typeof first.versionMajor === "number" && typeof first.versionMinor === "number") {
-        const patch = `${first.versionMajor}.${first.versionMinor}`;
+      if (typeof first.versionSeason === "number" && typeof first.versionMajor === "number") {
+        // 게임 패치 표기는 "시즌.패치"다(공개 패치 노트와 맞춰 봄). versionMinor(핫픽스)까지 넣으면 핫픽스마다 "패치 바뀜"이 뜬다.
+        const patch = `${first.versionSeason}.${first.versionMajor}`;
         patches.set(patch, (patches.get(patch) ?? 0) + 1);
       }
     }

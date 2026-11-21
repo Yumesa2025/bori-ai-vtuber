@@ -27,13 +27,14 @@ import * as security from "./security.mjs";
 import * as secrets from "./secrets.mjs";
 import * as durability from "./durability.mjs";
 import * as usage from "./usage.mjs";
+import * as dashboard from "./dashboard.mjs";
 
 const mockPort = Number(process.env.MOCK_PORT ?? 4390);
 const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
-const allScenarios = { security, secrets, durability, usage };
+const allScenarios = { security, secrets, durability, usage, dashboard };
 const only = process.argv.slice(2);
 const unknown = only.filter(name => !Object.hasOwn(allScenarios, name));
 if (unknown.length > 0) {

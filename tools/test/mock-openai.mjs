@@ -19,6 +19,9 @@
  *                              tts에는 mode=empty(200·0바이트), garbage(200·mp3 아님), long(ms 길이의 mp3)도 있다.
  *   GET /v1/voices             ElevenLabs 목소리 목록 흉내. 받은 횟수를 calls에 voices로 남긴다
  *
+ * 보리 대사(스키마에 lines가 있는 요청)는 사실 목록(fN: …)을 줄마다 그대로 읊고, 끝에 숫자를 지어낸 줄 하나를 붙인다.
+ * 서버의 숫자 검사가 그 줄을 버리는지 NARRATION_FABRICATED_MARK로 확인한다.
+ *
  * 답변 생성 응답에는 고정 토큰 사용량(usage)을 붙인다. 사용량 집계를 확인할 때 쓴다.
  */
 import { createHash } from "node:crypto";
@@ -56,6 +59,22 @@ const sendJson = (response, status, body) => {
 /** 답변 생성 응답에 붙이는 토큰 사용량. 값은 usage.mjs와 맞춘다. */
 const MOCK_USAGE = { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 };
 
+/**
+ * 보리 대사 응답에서 숫자를 지어낸 줄의 표식. 이 줄은 사실 목록에 없는 숫자(987.6)를 말한다.
+ * 이 파일은 불러오면 서버가 뜨므로 dashboard.mjs는 import하지 않고 같은 값을 따로 둔다.
+ */
+const NARRATION_FABRICATED_MARK = "지어낸 수치";
+/** 사실 문장을 읊는 줄 수 상한. 지어낸 줄까지 5줄 안에 들어가게 한다. */
+const NARRATION_ECHO_LIMIT = 4;
+
+/** user 프롬프트의 "[사실 목록]" 아래 "f1: 문장" 줄들. */
+function narrationFacts(user) {
+  return user.split("\n").flatMap(line => {
+    const match = /^(f\d+): (.+)$/.exec(line);
+    return match ? [{ id: match[1], text: match[2] }] : [];
+  });
+}
+
 /** 1:1 누적 요약 응답. 방송 요약과 구분해 지난 대화 요약·재시작 복원을 확인한다. */
 const MOCK_COMPANION_SUMMARY = "가짜 1:1 요약";
 /** 방송 종료 요약 응답. 지정하지 않으면 누적 요약과 같은 기본값(하이라이트 없음)을 쓴다. */
@@ -80,6 +99,12 @@ function companionLines(user) {
  */
 function replyFor(schema, system, user = "") {
   const properties = schema?.properties ?? {};
+  if ("lines" in properties) {
+    const facts = narrationFacts(user);
+    const echoed = facts.slice(0, NARRATION_ECHO_LIMIT).map(fact => ({ text: fact.text, emotion: "calm", factIds: [fact.id] }));
+    const fabricated = { text: `${NARRATION_FABRICATED_MARK} 987.6이 보여요`, emotion: "happy", factIds: facts.slice(0, 1).map(fact => fact.id) };
+    return JSON.stringify({ lines: [...echoed, fabricated] });
+  }
   if ("memories" in properties) {
     const echoed = companionLines(user).filter(text => text.includes(DIGEST_ECHO_MARK)).map(text => `상대가 말한 취향: ${text}`);
     return JSON.stringify({ memories: [...MOCK_DIGEST_MEMORIES, ...echoed].map(text => ({ text, replaces: [] })) });

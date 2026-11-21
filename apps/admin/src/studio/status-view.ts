@@ -2,7 +2,7 @@
  * 보리 스튜디오 설정 탭이 화면에 그릴 문구와 판정.
  * React에 묶이지 않아 화면 밖 단위 검사(test/status-view.test.ts)에서 그대로 부른다.
  */
-import type { ErConnection, ErMetaBasis, LlmStatus } from "@bori/shared";
+import type { DashboardState, ErConnection, LlmStatus } from "@bori/shared";
 
 /** 연결 표시에 쓰는 상태. 이터널리턴 데이터 상태(ErConnection)와 LLM·TTS 연결, 아직 받지 못한 unknown. */
 export type ConnectionState = ErConnection | "connected" | "error" | "off" | "unknown";
@@ -36,8 +36,8 @@ export function ttsConnection(view: { settings: { enabled: boolean }; hasApiKey:
   return view.settings.enabled && view.hasApiKey ? "connected" : "off";
 }
 
-/** GET /api/er/status 응답. */
-export type ErStatusView = { basis: ErMetaBasis | null; refreshing: boolean; progress: number | null; lastError: string | null };
+/** GET /api/dashboard 응답 중 설정 탭이 쓰는 칸. 조합 표·대사는 대시보드 탭이 그린다. */
+export type ErDataView = Pick<DashboardState, "connection" | "refresh" | "basis">;
 
 const pad = (value: number) => String(value).padStart(2, "0");
 /** 이 컴퓨터 시간으로 "10월 15일 14:03". 형식이 아니면 원문 그대로. */
@@ -47,15 +47,29 @@ function formatCollectedAt(iso: string): string {
   return `${date.getMonth() + 1}월 ${date.getDate()}일 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** 설정 탭 "이터널리턴 데이터" 칸의 문구. 지금 어떤 데이터로 분석하는지 바로 보이게 한다. */
-export function erSummary(status: ErStatusView | null): { title: string; updated: string; description: string; progress: string | null } {
-  if (!status) return { title: "확인 중", updated: "", description: "", progress: null };
-  const { basis } = status;
+const count = (value: number) => value.toLocaleString("ko-KR");
+
+/** 설정 탭 "이터널리턴 데이터" 칸의 문구와 갱신 버튼 상태. 지금 어떤 데이터로 분석하는지 바로 보이게 한다. */
+export function erSummary(view: ErDataView | null): {
+  title: string;
+  updated: string;
+  description: string;
+  progress: string | null;
+  badge: { tone: BadgeTone; text: string };
+  /** 키가 있고 갱신 중이 아닐 때만 버튼을 켠다 */
+  canRefresh: boolean;
+  lastError: string | null;
+} {
+  if (!view) return { title: "확인 중", updated: "", description: "", progress: null, badge: connectionBadge("unknown"), canRefresh: false, lastError: null };
+  const { basis, refresh } = view;
   return {
-    title: basis ? `${basis.seasonName} · ${basis.sampleGames.toLocaleString("ko-KR")}판` : "데이터 없음",
+    title: basis ? [basis.seasonName, ...(basis.patch ? [`패치 ${basis.patch}`] : []), `경기 ${count(basis.games)}판`].join(" · ") : "데이터 없음",
     updated: basis ? `마지막 갱신 ${formatCollectedAt(basis.collectedAt)}` : "아직 갱신하지 않았습니다",
-    description: basis?.description ?? "",
-    progress: status.refreshing ? `갱신 중 ${Math.round((status.progress ?? 0) * 100)}%` : null,
+    description: basis ? `상위 랭커 ${count(basis.rankers)}명의 랭크 경기 ${count(basis.games)}판(참가자 ${count(basis.participants)}명) 기준` : "",
+    progress: refresh.running ? `갱신 중 ${Math.round((refresh.progress ?? 0) * 100)}%` : null,
+    badge: connectionBadge(view.connection),
+    canRefresh: refresh.available && !refresh.running,
+    lastError: refresh.lastError,
   };
 }
 

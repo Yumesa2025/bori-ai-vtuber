@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LlmProvider, LlmSettings, LlmStatus, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
+import type { DashboardState, LlmProvider, LlmSettings, LlmStatus, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
 import { buildPatch, clearSaved, pickDrafts, readError, savedSummary, shownText, type DraftValue, type Drafts, type FieldSpec } from '../form';
 import { isSubmitEnter } from '../keys';
 import { createPoller, SETTINGS_POLL_MS, STATUS_POLL_MS } from '../poll';
-import { connectionBadge, erSummary, llmConnection, nicknameBody, type ErStatusView } from './status-view';
+import { connectionBadge, erSummary, llmConnection, nicknameBody, type ErDataView } from './status-view';
 import { getJson, isServerUp, JSON_HEADERS, MUTATION_TIMEOUT_MS, postAction, readJson, request } from './api';
 
 // 업체 표시 이름. 알 수 없는 값은 원문 그대로 보여 준다.
@@ -65,7 +65,7 @@ export default function SettingsTab() {
   const [elevenKeyInput, setElevenKeyInput] = useState('');
   const [fishVoiceInput, setFishVoiceInput] = useState('');
   const [usage, setUsage] = useState<UsageReport | null>(null);
-  const [er, setEr] = useState<ErStatusView | null>(null);
+  const [er, setEr] = useState<ErDataView | null>(null);
   const [nickname, setNickname] = useState<string | null>(null);
   const [nicknameInput, setNicknameInput] = useState('');
   const llmDrafts = useDrafts();
@@ -73,12 +73,13 @@ export default function SettingsTab() {
   const pollers = useRef<{ status: ReturnType<typeof createPoller>; settings: ReturnType<typeof createPoller> } | null>(null);
   // 자주 바뀌는 것(LLM 회로·이터널리턴 갱신 진행률)만 짧은 간격으로 받는다. 서버 끊김은 /api/llm 응답으로 본다.
   async function refreshStatus() {
-    const [llmResponse, nextEr] = await Promise.all([request('/api/llm'), getJson<ErStatusView>('/api/er/status')]);
+    const [llmResponse, nextDashboard] = await Promise.all([request('/api/llm'), getJson<DashboardState>('/api/dashboard')]);
     if (!isServerUp(llmResponse)) { setServerOnline(false); return; }
     setServerOnline(true);
     const nextLlm = llmResponse.ok ? await readJson<LlmView>(llmResponse) : null;
     if (nextLlm) setLlm(nextLlm);
-    if (nextEr) setEr(nextEr);
+    // 대시보드 상태 중 연결·갱신·기준만 쓴다. 조합 표와 대사는 대시보드 탭이 그린다.
+    if (nextDashboard) setEr({ connection: nextDashboard.connection, refresh: nextDashboard.refresh, basis: nextDashboard.basis });
   }
   // 사용량·음성 설정·닉네임은 드물게 받는다. 이 화면에서 저장하면 저장 응답으로 바로 맞춘다.
   async function refreshSettings() {
@@ -172,13 +173,13 @@ export default function SettingsTab() {
     {!serverOnline && <div className="server-alert"><strong>API 서버에 연결할 수 없습니다.</strong> 대시보드와 설정이 동작하지 않습니다. 스튜디오가 띄운 서버가 꺼졌다면 스튜디오를 다시 실행하세요. 서버 로그는 데이터 폴더의 <code>studio-server.log</code>에 있습니다.</div>}
     {notice && <div className="panel notice" role="status">{notice}</div>}
     <section className="control-grid">
-      <article className="panel"><h2>이터널리턴 데이터</h2>
+      <article className="panel"><h2>이터널리턴 데이터 <span className={`badge badge-${summary.badge.tone}`}>{summary.badge.text}</span></h2>
         <div className="er-title">{summary.title}</div>
         <p className="hint">{summary.updated}{summary.description ? ` · ${summary.description}` : ''}</p>
-        {summary.progress && <div className="progress" role="progressbar" aria-valuenow={Math.round((er?.progress ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}><div style={{ width: `${Math.round((er?.progress ?? 0) * 100)}%` }} /><span>{summary.progress}</span></div>}
-        {er?.lastError && <div className="notice">마지막 갱신 오류: {er.lastError}</div>}
-        <div className="button-row"><button onClick={() => void refreshEr()} disabled={!serverOnline || er?.refreshing === true}>데이터 갱신</button></div>
-        <p className="hint">이터널리턴 Open API 키는 저장소 루트 <code>.env</code>의 <code>ER_API_KEY</code>에서 읽습니다. 키가 없으면 갱신할 수 없고, 갱신을 누르면 키 없음 오류가 위에 보입니다. 갱신에 실패하면 마지막으로 저장한 데이터를 그대로 씁니다.</p>
+        {summary.progress && <div className="progress" role="progressbar" aria-valuenow={Math.round((er?.refresh.progress ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}><div style={{ width: `${Math.round((er?.refresh.progress ?? 0) * 100)}%` }} /><span>{summary.progress}</span></div>}
+        {summary.lastError && <div className="notice">마지막 갱신 오류: {summary.lastError}</div>}
+        <div className="button-row"><button onClick={() => void refreshEr()} disabled={!serverOnline || !summary.canRefresh}>데이터 갱신</button></div>
+        <p className="hint">이터널리턴 Open API 키는 저장소 루트 <code>.env</code>의 <code>ER_API_KEY</code>에서 읽습니다. 키가 없으면 상태가 "데이터 없음"이고 갱신 버튼이 꺼집니다. 갱신에 실패하면 마지막으로 저장한 데이터를 그대로 씁니다.</p>
       </article>
       <article className="panel"><h2>게임 닉네임</h2><p>대시보드 "내 전적" 칸에 쓸 이터널리턴 닉네임입니다. 이 컴퓨터의 데이터 폴더에만 저장하고, 로그와 보리 대사에는 넣지 않습니다.</p>
         <p className="hint">지금 저장된 닉네임: {nickname ?? '없음'}</p>
