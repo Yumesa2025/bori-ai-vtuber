@@ -127,7 +127,7 @@ describe("대시보드 상태", () => {
     assert.equal(aya.change, null);
   });
 
-  test("두 번째 갱신 뒤에는 직전 대비 변화량과 직전 수집 시각이 있다", async () => {
+  test("두 번째 갱신 뒤에는 직전 수집 시각이 있고, 표본 적은 조합은 변화량을 내지 않는다", async () => {
     const second = routes();
     const { erData, dashboard } = setup({ client: fakeClient(second) });
     dashboard.refresh();
@@ -139,9 +139,8 @@ describe("대시보드 상태", () => {
     await refreshed(erData, "둘째 갱신");
     const state = dashboard.state();
     assert.equal(state.basis?.previousCollectedAt, "2026-11-21T00:00:00.000Z");
-    const aya = state.combos.find((c) => c.characterCode === 2 && c.weaponCode === 9)!;
-    // 1.5위 → 2위, 1등 비율 0.5 → 0, 픽률 2/8 → 1/4, MMR 37.5 → 30 (모두 이번 − 직전)
-    assert.deepEqual(aya.change, { avgRank: 0.5, top1Rate: -0.5, pickRate: 0, avgMmrGain: -7.5 });
+    // 고정 자료는 조합마다 참가자가 30명 미만이라 모두 표본 적음 → 변화량 없음. 수치 변화량은 er-combos 검사가 본다
+    assert.ok(state.combos.every((c) => c.lowSample && c.change === null));
   });
 
   test("키가 없으면 missing, 갱신할 수 없고 자동 갱신도 하지 않는다", () => {

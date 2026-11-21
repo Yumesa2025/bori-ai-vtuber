@@ -61,13 +61,17 @@ export function toComboStats(collection: ErMetaCollection, names: Names | null):
 
 const comboKey = (stat: Pick<ErComboStat, "characterCode" | "weaponCode">) => `${stat.characterCode}:${stat.weaponCode}`;
 
-/** 직전 갱신 대비 변화량을 붙인다. 비교 키는 캐릭터 code + 무기 code(이름은 번역이 바뀔 수 있다). */
+/**
+ * 직전 갱신 대비 변화량을 붙인다. 비교 키는 캐릭터 code + 무기 code(이름은 번역이 바뀔 수 있다).
+ * 직전이나 이번 중 하나라도 표본이 적으면 change는 null이다. 잡음끼리의 차이를 화면 ▲▼·오르고 내린 조합·보리 대사가
+ * 모두 같은 기준으로 거르게 한다(직전 5명 6.2위 → 이번 35명 3.8위 같은 가짜 급등을 막는다).
+ */
 function withChanges(current: ErComboStat[], previous: ErComboStat[] | null): ErComboStat[] {
   if (!previous) return current;
   const before = new Map(previous.map((stat) => [comboKey(stat), stat]));
   return current.map((stat) => {
     const old = before.get(comboKey(stat));
-    if (!old) return stat;
+    if (!old || old.lowSample || stat.lowSample) return stat;
     return {
       ...stat,
       change: {
@@ -80,7 +84,7 @@ function withChanges(current: ErComboStat[], previous: ErComboStat[] | null): Er
   });
 }
 
-/** 대시보드 combos. 직전 집계가 없으면 change는 모두 null. */
+/** 대시보드 combos. 직전 집계가 없으면 change는 모두 null. 직전·이번 중 하나라도 표본이 적은 조합도 null. */
 export function dashboardCombos(current: ErMetaCollection, previous: ErMetaCollection | null, names: Names | null): ErComboStat[] {
   return withChanges(toComboStats(current, names), previous ? toComboStats(previous, names) : null);
 }
