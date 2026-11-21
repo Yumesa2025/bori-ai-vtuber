@@ -59,3 +59,12 @@ export const fixturePlayer: ErPlayerSummary = {
   recent: [{ characterName: "재키", weaponName: "쌍검", rank: 2, kills: 5, mmrGain: 30 }],
   mainCharacters: [{ name: "재키", games: 23, avgRank: 4.24, metaRank: 2 }, { name: "아야", games: 10, avgRank: 5, metaRank: null }],
 };
+
+/**
+ * 이름 검사용 가짜 사전. 실제로는 er-dictionary.json의 전체 캐릭터·무기 이름이다.
+ * 이번 집계에 없는 레온·리 다이린, 다른 낱말과 겹치는 기타·암기·하트·아야를 일부러 넣었다.
+ */
+export const fixtureNames = {
+  characters: ["재키", "아야", "현우", "나딘", "하트", "유키", "레온", "리 다이린", "혜진"],
+  weapons: ["쌍검", "권총", "글러브", "활", "기타", "양손검", "암기", "돌격 소총"],
+};

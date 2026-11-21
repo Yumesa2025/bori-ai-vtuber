@@ -24,10 +24,16 @@ export const mockScenarios = [
   "player-loading",
   "player-not-found",
   "player-error",
+  "no-key-with-data",
+  "template-narration",
+  "tts-failed",
+  "no-narration",
 ] as const;
 export type MockScenario = (typeof mockScenarios)[number];
 
 export const MOCK_NICKNAME = "테스트유저";
+/** 서버 dashboard-settings.ts와 같은 상한 */
+const MAX_NICKNAME_LENGTH = 32;
 /** 버튼으로 시작한 가짜 갱신이 끝나는 데 걸리는 시간 */
 export const MOCK_REFRESH_MS = 10_000;
 /** "refreshing" 시나리오에서 멈춰 보이는 진행률. 캡처가 늘 같은 화면이 되게 한다. */
@@ -137,20 +143,27 @@ const PLAYER: ErPlayerSummary = {
   ],
 };
 
-/** 보리 대사 예시. 실제 서버는 사실 목록에서 만들고 검사한다. */
-function narrationFor(id: string, createdAt: number): Narration {
-  return {
-    id,
-    createdAt: new Date(createdAt).toISOString(),
-    source: "llm",
-    lines: [
-      { text: "오늘의 이터널리턴 메타 분석을 정리해 봤어요!", emotion: "greeting" },
-      { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요.", emotion: "gaming" },
-      { text: "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요. 요즘 꽤 힘이 좋은 것 같아요.", emotion: "happy" },
-      { text: "아야 권총은 3.5위에서 4.1위로 내려갔어요.", emotion: "sad" },
-      { text: "자주 하시는 재키는 지금 메타 조합 순위 1위예요.", emotion: "excited" },
-    ].map((line, index) => ({ ...line, audioId: `mock-audio-${id}-${index}` })),
-  };
+type NarrationKind = "llm" | "template" | "tts-failed";
+
+/** 보리 대사 예시. 실제 서버는 사실 목록에서 만들고 검사한다. 정해진 문장은 서버 template.ts와 같은 꼴이다. */
+function narrationFor(id: string, createdAt: number, kind: NarrationKind = "llm"): Narration {
+  const llmLines = [
+    { text: "오늘의 이터널리턴 메타 분석을 정리해 봤어요!", emotion: "greeting" },
+    { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요.", emotion: "gaming" },
+    { text: "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요. 좋아 보이는 것 같아요.", emotion: "happy" },
+    { text: "아야 권총은 평균 순위가 3.5위에서 4.1위로 내려갔어요.", emotion: "sad" },
+    { text: "자주 하시는 재키는 지금 메타 조합 순위 1위예요.", emotion: "excited" },
+  ];
+  const templateLines = [
+    { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요.", emotion: "gaming" },
+    { text: "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요.", emotion: "happy" },
+    { text: "자주 하시는 재키는 지금 메타 조합 순위 1위예요.", emotion: "gaming" },
+  ];
+  const lines = (kind === "template" ? templateLines : llmLines).map((line, index) => (
+    // 음성 실패: 서버 TTS가 둘째·넷째 줄을 만들지 못해 id가 없는 경우
+    kind === "tts-failed" && index % 2 === 1 ? line : { ...line, audioId: `mock-audio-${id}-${index}` }
+  ));
+  return { id, createdAt: new Date(createdAt).toISOString(), source: kind === "template" ? "template" : "llm", lines };
 }
 
 const PLAYER_STATUS: Partial<Record<MockScenario, DashboardPlayerStatus>> = {
@@ -159,7 +172,9 @@ const PLAYER_STATUS: Partial<Record<MockScenario, DashboardPlayerStatus>> = {
   "player-not-found": "not-found",
   "player-error": "error",
   missing: "unset",
-  "no-key": "unset",
+  // 실제 서버(dashboard-state.ts)는 키가 없으면 닉네임이 있어도 조회하지 못해 error로 둔다.
+  "no-key": "error",
+  "no-key-with-data": "error",
 };
 
 export function createMockStore(initial: MockScenario = "ready", options: { now?: () => number } = {}) {
@@ -170,7 +185,7 @@ export function createMockStore(initial: MockScenario = "ready", options: { now?
   let narrationSeq = 0;
   let nickname: string | null = MOCK_NICKNAME;
 
-  const nextNarration = (at: number) => narrationFor(`mock-${(narrationSeq += 1)}`, at);
+  const nextNarration = (at: number, kind?: NarrationKind) => narrationFor(`mock-${(narrationSeq += 1)}`, at, kind);
 
   function build(name: MockScenario): DashboardState {
     const at = now();
@@ -186,6 +201,15 @@ export function createMockStore(initial: MockScenario = "ready", options: { now?
         return { ...ready, connection: "missing", basis: null, combos: [], narration: null };
       case "no-key":
         return { ...ready, connection: "missing", refresh: { ...refresh, available: false }, basis: null, combos: [], narration: null };
+      case "no-key-with-data":
+        // 실제 서버는 키가 없어도 저장된 집계를 그대로 준다. 상태만 missing이다.
+        return { ...ready, connection: "missing", refresh: { ...refresh, available: false }, basis: basisAt(at - 50 * HOUR) };
+      case "template-narration":
+        return { ...ready, narration: nextNarration(at - 2 * HOUR, "template") };
+      case "tts-failed":
+        return { ...ready, narration: nextNarration(at - 2 * HOUR, "tts-failed") };
+      case "no-narration":
+        return { ...ready, narration: null };
       case "refreshing":
         return { ...ready, connection: "refreshing", refresh: { ...refresh, running: true, progress: FROZEN_PROGRESS, autoStarted: true }, basis: basisAt(at - 30 * HOUR) };
       case "error":
@@ -217,7 +241,8 @@ export function createMockStore(initial: MockScenario = "ready", options: { now?
       connection: "ready",
       refresh: { ...state.refresh, running: false, progress: null, lastError: null },
       basis: { ...basisAt(at), previousCollectedAt: previous },
-      combos: baseCombos(),
+      // 직전 갱신이 없으면 실제 서버처럼 변화량이 모두 null이다.
+      combos: previous === null ? baseCombos().map(entry => ({ ...entry, change: null })) : baseCombos(),
       narration: nextNarration(at),
     };
   }
@@ -263,7 +288,8 @@ export function createMockStore(initial: MockScenario = "ready", options: { now?
 
     saveSettings(body: unknown): MockResult {
       const value = (body as { nickname?: unknown } | null)?.nickname;
-      if (value !== null && (typeof value !== "string" || value.trim().length === 0 || value.length > 40)) return { status: 400, body: { error: "닉네임은 1~40자입니다." } };
+      // 실제 서버(dashboard-settings.ts)와 같이 앞뒤 공백을 떼고 코드포인트 32자까지
+      if (value !== null && (typeof value !== "string" || value.trim().length === 0 || Array.from(value.trim()).length > MAX_NICKNAME_LENGTH)) return { status: 400, body: { error: `닉네임은 ${MAX_NICKNAME_LENGTH}자까지입니다.` } };
       nickname = value === null ? null : value.trim();
       state = { ...state, player: nickname ? { status: "ready", summary: { ...PLAYER, nickname } } : { status: "unset", summary: null } };
       return { status: 200, body: { nickname } };

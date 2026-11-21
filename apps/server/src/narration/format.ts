@@ -10,21 +10,26 @@ function round1(value: number): number {
   return rounded === 0 ? 0 : rounded;
 }
 
-const fixed1 = (value: number) => round1(value).toFixed(1);
+/** 수가 아닌 값(NaN·무한)을 보일 때 쓰는 표시. "NaN%"가 화면에 나가지 않게 한다(점검 V2 19번). */
+const NOT_A_NUMBER = "—";
+const finite = (value: number) => Number.isFinite(value);
+
+const fixed1 = (value: number) => (finite(value) ? round1(value).toFixed(1) : NOT_A_NUMBER);
 
 const signed = (value: number) => {
+  if (!finite(value)) return NOT_A_NUMBER;
   const rounded = round1(value);
   return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}`;
 };
 
 /** 0~1 비율 → "12.3%" */
-export const formatPercent = (rate: number) => `${fixed1(rate * 100)}%`;
+export const formatPercent = (rate: number) => (finite(rate) ? `${fixed1(rate * 100)}%` : NOT_A_NUMBER);
 
 /** 평균 순위 → "3.9" */
 export const formatRank = (rank: number) => fixed1(rank);
 
 /** 비율 변화량 → "+1.2%p" */
-export const formatPointChange = (delta: number) => `${signed(delta * 100)}%p`;
+export const formatPointChange = (delta: number) => (finite(delta) ? `${signed(delta * 100)}%p` : NOT_A_NUMBER);
 
 /** 평균 순위 변화량 → "-0.5" */
 export const formatRankChange = (delta: number) => signed(delta);
@@ -37,13 +42,8 @@ export const formatDecimal = (value: number) => fixed1(value);
 
 /** 개수 → "7,200" */
 export function formatCount(value: number): string {
+  if (!finite(value)) return NOT_A_NUMBER;
   const digits = String(Math.round(Math.abs(value)));
   const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return value < 0 && grouped !== "0" ? `-${grouped}` : grouped;
 }
-
-/** 대사 검사에 쓰는 숫자 꼴(설계 3절). "7,200"은 "7"과 "200"으로 갈리지만 사실 쪽도 같은 정규식으로 뽑아 양쪽이 같다. */
-export const NUMBER_PATTERN = /\d+(\.\d+)?/g;
-
-/** 문장 속 숫자 문자열을 나온 순서대로 뽑는다. */
-export const extractNumbers = (text: string): string[] => text.match(NUMBER_PATTERN) ?? [];

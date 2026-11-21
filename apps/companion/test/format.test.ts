@@ -54,4 +54,16 @@ describe("숫자 모양", () => {
     assert.equal(formatCollectedAt(local.toISOString()), "11월 21일 09:05");
     assert.equal(formatCollectedAt("엉터리"), "—");
   });
+
+  test("수가 아닌 값(NaN·무한)은 'NaN%' 대신 '—'로 보인다", () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      assert.equal(formatPercent(bad), "—");
+      assert.equal(formatRank(bad), "—");
+      assert.equal(formatCount(bad), "—");
+      assert.equal(formatDecimal(bad), "—");
+      assert.equal(formatMmr(bad), "—");
+      assert.equal(formatPointChange(bad), "—");
+      assert.equal(formatRankChange(bad), "—");
+    }
+  });
 });

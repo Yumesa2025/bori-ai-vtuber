@@ -15,6 +15,8 @@ import { buildFacts } from "../src/narration/facts.js";
 import type { NarrationLlm } from "../src/narration/writer.js";
 import { FAKE_NICKNAME, fixtureBasis, fixtureCombos, fixturePlayer } from "./narration-fixtures.js";
 
+const topSpoken = "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 8.1%, 평균 순위 3.4위예요.";
+
 const input = { basis: fixtureBasis, combos: fixtureCombos, player: fixturePlayer };
 const facts = buildFacts(input);
 const riserId = facts.find(fact => fact.kind === "riser")!.id;
@@ -56,7 +58,7 @@ function setup(overrides: Partial<NarratorDeps> = {}) {
 }
 
 describe("narrator", () => {
-  test("LLM 대사 중 검사를 통과한 줄만 읽고 줄마다 음성을 만든다", async () => {
+  test("LLM 대사 중 검사를 통과한 줄만 읽고, 3줄이 안 되면 정해진 문장으로 채우고, 줄마다 음성을 만든다", async () => {
     const { narrator, spoken } = setup();
     const narration = await narrator.narrate(input);
     assert.equal(narration.source, "llm");
@@ -65,6 +67,7 @@ describe("narrator", () => {
     assert.deepEqual(narration.lines, [
       { text: "오늘의 메타 분석이에요!", emotion: "greeting", audioId: "audio-1" },
       { text: "재키 쌍검이 3.9위에서 3.4위로 올랐어요. 좋아진 것 같아요.", emotion: "happy", audioId: "audio-2" },
+      { text: topSpoken, emotion: "gaming", audioId: "audio-3" },
     ]);
     assert.deepEqual(spoken, narration.lines.map(line => line.text));
     // 로그에는 버린 줄 수와 이유만 남고 대사 본문은 없다.
@@ -77,6 +80,46 @@ describe("narrator", () => {
     const narration = await narrator.narrate(input);
     assert.equal(narration.source, "template");
     assert.deepEqual(narration.lines.map(line => line.text), templateLines(facts).map(line => line.text));
+  });
+
+  test("사실을 말한 줄 없이 인사만 남으면 전체를 정해진 문장으로 읽는다", async () => {
+    const { narrator } = setup({ llm: answer([{ text: "오늘의 메타 분석이에요!", emotion: "greeting", factIds: [] }]) });
+    const narration = await narrator.narrate(input);
+    assert.equal(narration.source, "template");
+    assert.deepEqual(narration.lines.map(line => line.text), templateLines(facts).map(line => line.text));
+  });
+
+  test("이름 검사는 주입한 사전의 전체 이름을 쓴다(집계에 없는 레온도 막는다)", async () => {
+    const lines = [
+      { text: "레온 쌍검이 새로 떠올랐어요.", emotion: "happy", factIds: [riserId] },
+      { text: "재키 쌍검이 3.9위에서 3.4위로 올랐어요.", emotion: "happy", factIds: [riserId] },
+    ];
+    const dictionary = { characters: [{ name: "재키" }, { name: "레온" }], weaponNames: { 13: "쌍검" } };
+    const narration = await setup({ llm: answer(lines), dictionary: () => dictionary }).narrator.narrate(input);
+    assert.ok(!narration.lines.some(line => line.text.includes("레온")));
+    assert.ok(logs.some(message => message.includes("name")));
+  });
+
+  test("줄 길이 상한은 주입한 maxLineLength를 따르고 지시에도 적는다", async () => {
+    const prompts: string[] = [];
+    const long = { text: `재키 쌍검이 3.9위에서 3.4위로 올랐어요. ${"정말".repeat(10)}`, emotion: "happy", factIds: [riserId] };
+    const llm: NarrationLlm = async request => { prompts.push(request.systemPrompt); return { ok: true, raw: { lines: [long] } }; };
+    const narration = await setup({ llm, maxLineLength: () => 30 }).narrator.narrate(input);
+    assert.equal(narration.source, "template");
+    assert.match(prompts[0], /30자/);
+  });
+
+  test("LLM이 시간 상한 안에 답하지 않으면 정해진 문장으로 넘어간다", async () => {
+    const llm: NarrationLlm = () => new Promise(() => undefined);
+    const narration = await setup({ llm, timeoutMs: 40 }).narrator.narrate(input);
+    assert.equal(narration.source, "template");
+    assert.ok(logs.some(message => message.includes("시간")));
+  });
+
+  test("음성 합성이 시간 상한 안에 끝나지 않으면 그 줄은 자막만 남고 다음 줄로 넘어간다", async () => {
+    const narration = await setup({ llm: null, prepareAudio: () => new Promise(() => undefined), audioTimeoutMs: 20 }).narrator.narrate(input);
+    assert.equal(narration.lines.length, 3);
+    assert.ok(narration.lines.every(line => line.audioId === undefined));
   });
 
   test("LLM이 없거나 실패하거나 던지면 정해진 문장을 읽는다", async () => {
@@ -97,7 +140,7 @@ describe("narrator", () => {
     const { narrator } = setup({ prepareAudio: async () => { call += 1; if (call === 1) return undefined; throw new Error("TTS 실패"); } });
     const narration = await narrator.narrate(input);
     assert.ok(narration.lines.every(line => line.audioId === undefined));
-    assert.equal(narration.lines.length, 2);
+    assert.equal(narration.lines.length, 3);
   });
 
   test("닉네임은 LLM 요청에 들어가지 않는다", async () => {
@@ -120,7 +163,7 @@ describe("narrator", () => {
     const broken: NarrationStore = { load: () => null, save: () => { throw new Error("디스크 꽉 참"); } };
     const { narrator } = setup({ store: broken });
     const narration = await narrator.narrate(input);
-    assert.equal(narration.lines.length, 2);
+    assert.equal(narration.lines.length, 3);
     assert.deepEqual(narrator.latest(), narration);
     assert.ok(logs.some(message => message.includes("디스크 꽉 참")));
   });
@@ -137,6 +180,13 @@ describe("narrator", () => {
     assert.deepEqual(replayed?.lines.map(line => line.audioId), ["alive", "audio-1", "audio-2"]);
     assert.equal(replayed?.id, "old");
     assert.deepEqual(createNarrationStore(join(dir, "narration.json")).load(), replayed);
+  });
+
+  test("다시 듣기: 사라진 음성을 다시 만들지 못하면 죽은 id를 빼고 돌려준다", async () => {
+    store.save({ id: "old", createdAt: "2026-11-20T03:00:00.000Z", source: "template", lines: [{ text: "가", emotion: "calm", audioId: "expired" }] });
+    const { narrator } = setup({ hasAudio: () => false, prepareAudio: async () => undefined });
+    const replayed = await narrator.replay();
+    assert.deepEqual(replayed?.lines, [{ text: "가", emotion: "calm" }]);
   });
 
   test("다시 듣기: 대사가 없으면 null, 모든 음성이 살아 있으면 그대로", async () => {

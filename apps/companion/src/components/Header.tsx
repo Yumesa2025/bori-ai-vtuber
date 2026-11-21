@@ -1,15 +1,16 @@
 import type { DashboardState } from "@bori/shared";
-import { connectionBadge, refreshView } from "../dashboard";
+import { connectionBadge, headerNotices, refreshView } from "../dashboard";
 import { formatCollectedAt, formatCount } from "../format";
 
-type Props = { state: DashboardState | null; requesting: boolean; notice: string | null; onRefresh: () => void };
+type Props = { state: DashboardState | null; requesting: boolean; loadNotice: string | null; actionNotice: string | null; onRefresh: () => void };
 
 /** 위 띠: 기준 정보, 데이터 상태 배지, 갱신 버튼과 진행률(설계 2.1). */
-export function Header({ state, requesting, notice, onRefresh }: Props) {
+export function Header({ state, requesting, loadNotice, actionNotice, onRefresh }: Props) {
   const basis = state?.basis ?? null;
   const badge = state ? connectionBadge(state) : { tone: "muted" as const, label: "불러오는 중" };
   const view = state ? refreshView(state) : null;
-  const message = notice ?? view?.notice ?? null;
+  // 받기 오류·버튼 안내·상태 안내(키 없음·지난 실패)를 모두 보인다. 하나가 다른 것을 가리지 않는다.
+  const messages = headerNotices({ load: loadNotice, action: actionNotice, view: view?.notice ?? null });
 
   return (
     <header className="dash-header">
@@ -41,7 +42,9 @@ export function Header({ state, requesting, notice, onRefresh }: Props) {
         )}
         <button type="button" className="primary-button" disabled={!view || view.disabled || requesting} onClick={onRefresh}>{view?.buttonLabel ?? "갱신"}</button>
       </div>
-      {message && <p className={`header-notice${state && !state.refresh.available ? " header-notice-error" : ""}`} role="alert">{message}</p>}
+      {messages.map(message => (
+        <p key={message} className={`header-notice${state && !state.refresh.available ? " header-notice-error" : ""}`} role="alert" title={message === view?.notice ? view.noticeDetail : undefined}>{message}</p>
+      ))}
     </header>
   );
 }

@@ -246,6 +246,8 @@ const narrator = createNarrator({
   prepareAudio,
   hasAudio: id => audioCache.has(id),
   store: createNarrationStore(resolve(dataRoot, "narration.json")),
+  dictionary: () => erData.dictionary(),
+  maxLineLength: () => llmSettings.maxReplyLength,
 });
 // 켤 때 마지막 대사(data/narration.json)를 읽어 둔다. 갱신 없이도 지난 분석을 보여 준다.
 const startupNarration = narrator.latest();

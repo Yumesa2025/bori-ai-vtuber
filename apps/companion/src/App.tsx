@@ -15,7 +15,7 @@ import { PlayerCard } from "./components/PlayerCard";
  * 위 띠: 기준·상태·갱신 / 왼쪽: 보리 / 가운데: 메타 TOP·오르고 내린 조합 / 오른쪽: 캐릭터 상세·내 전적
  */
 export function App() {
-  const { state, disconnected, notice, requesting, refresh, reload } = useDashboard();
+  const { state, disconnected, loadNotice, actionNotice, requesting, refresh, reload, visible } = useDashboard();
   const [ttsEnabled, setTtsEnabled] = useState(loadTtsEnabled);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const combos = useMemo(() => state?.combos ?? [], [state]);
@@ -34,16 +34,16 @@ export function App() {
           <button type="button" className="ghost-button" onClick={() => void reload()}>다시 연결</button>
         </div>
       )}
-      <Header state={state} requesting={requesting} notice={notice} onRefresh={() => void refresh()} />
+      <Header state={state} requesting={requesting} loadNotice={loadNotice} actionNotice={actionNotice} onRefresh={() => void refresh()} />
       <main className="dashboard-body">
-        <Narrator narration={state?.narration ?? null} ttsEnabled={ttsEnabled} onToggleTts={toggleTts} />
+        <Narrator narration={state?.narration ?? null} ttsEnabled={ttsEnabled} onToggleTts={toggleTts} visible={visible} />
         <div className="dashboard-center">
-          <MetaTable combos={combos} selectedKey={selected ? comboKey(selected) : null} onSelect={select} />
+          <MetaTable combos={combos} basis={state?.basis ?? null} selectedKey={selected ? comboKey(selected) : null} onSelect={select} />
           <Movers combos={combos} onSelect={select} />
         </div>
         <div className="dashboard-side">
           <CharacterDetail combos={combos} selected={selected} onSelect={select} />
-          <PlayerCard player={state?.player ?? null} />
+          <PlayerCard player={state?.player ?? null} erAvailable={state?.refresh.available ?? true} />
         </div>
       </main>
     </div>

@@ -16,7 +16,11 @@ export type PlayerDeps = {
   onLine(index: number | null): void;
 };
 
-export type PlayResult = "done" | "cancelled" | "audioBlocked";
+/**
+ * audioBlocked: 자동 재생이 막혔다(화면을 눌러야 풀림). audioFailed: 음성을 켰는데 못 낸 줄이 있다
+ * (파일 오류이거나 서버가 음성을 만들지 못해 id가 없는 줄). 둘 다면 막힘을 먼저 알린다(점검 V2 11번).
+ */
+export type PlayResult = "done" | "cancelled" | "audioBlocked" | "audioFailed";
 
 export async function playNarration(
   lines: readonly NarrationLine[],
@@ -24,17 +28,20 @@ export async function playNarration(
   options: { audio: boolean; signal: { cancelled: boolean } },
 ): Promise<PlayResult> {
   let blocked = false;
+  let failed = false;
   try {
     for (const [index, line] of lines.entries()) {
       if (options.signal.cancelled) return "cancelled";
       deps.onLine(index);
       deps.react(line.emotion);
       // 소리가 한 번 막히면 같은 재생에서는 다시 시도하지 않는다. 화면을 눌러야 풀린다.
+      if (options.audio && line.audioId === undefined) failed = true;
       const outcome = await deps.speak(line, options.audio && !blocked && line.audioId !== undefined);
       if (outcome === "audioBlocked") blocked = true;
+      if (outcome === "audioFailed") failed = true;
       if (options.signal.cancelled) return "cancelled";
     }
-    return blocked ? "audioBlocked" : "done";
+    return blocked ? "audioBlocked" : failed ? "audioFailed" : "done";
   } finally {
     deps.onLine(null);
   }

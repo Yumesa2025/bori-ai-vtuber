@@ -1,5 +1,11 @@
 <!doctype html>
 <html lang="ko">
-  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>보리 메타 대시보드</title><link rel="icon" href="data:," /></head>
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 스튜디오와 같은 출처 iframe으로 뜨므로 스튜디오(apps/admin/index.html)와 같은 수준으로 막는다.
+         이 출처의 스크립트와 /api만 쓰고 외부 스크립트·외부 전송을 막는다. 개발 서버는 vite.config.ts에서 HMR에 필요한 것만 더한다.
+         Live2D: Cubism Core 5-r.5는 wasm2js(자바스크립트로 바꾼 wasm)라 eval·WebAssembly·blob이 필요 없다. 텍스처는 이 출처 이미지(/private-model/)다.
+         음성은 /api/tts/:id를 Audio로 튼다(media-src). style-src 'unsafe-inline'은 React style 속성(진행률 막대)에 필요하다. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>보리 메타 대시보드</title><link rel="icon" href="data:," /></head>
   <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
 </html>

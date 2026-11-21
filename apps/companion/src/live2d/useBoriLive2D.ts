@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { resumeAudio } from "./audio-unlock";
 import { playbackFailure, waitForModelReady } from "./model-status";
 import { planReaction, type ReactionAction, type ReactionEmotion } from "./reaction";
 
@@ -86,6 +87,8 @@ export function useBoriLive2D() {
   const stopSpeechRef = useRef<(() => void) | null>(null);
   const gazeTargetRef = useRef({ x: 0, y: 0 });
   const gazeCurrentRef = useRef({ x: 0, y: 0 });
+  /** 립싱크용 오디오 컨텍스트. 줄마다 만들지 않고 하나를 다시 쓴다(브라우저마다 개수 상한이 있다). */
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const model = () => delegateRef.current?.getLoadedModel() ?? null;
 
@@ -156,6 +159,8 @@ export function useBoriLive2D() {
       window.clearTimeout(gazeTimerRef.current);
       window.clearTimeout(expressionTimerRef.current);
       stopSpeechRef.current?.();
+      void audioContextRef.current?.close();
+      audioContextRef.current = null;
     };
   }, [scheduleIdleGaze]);
 
@@ -227,10 +232,12 @@ export function useBoriLive2D() {
   const startAudio = useCallback(async (audioId: string, text: string): Promise<{ outcome: SpeechResult; finished: Promise<void> }> => {
     stopSpeechRef.current?.();
     const audio = new Audio(`/api/tts/${encodeURIComponent(audioId)}`);
-    const context = new AudioContext();
+    audioContextRef.current ??= new AudioContext();
+    const context = audioContextRef.current;
     const analyser = context.createAnalyser();
     analyser.fftSize = 256;
-    context.createMediaElementSource(audio).connect(analyser);
+    const source = context.createMediaElementSource(audio);
+    source.connect(analyser);
     analyser.connect(context.destination);
 
     const samples = new Uint8Array(analyser.frequencyBinCount);
@@ -249,7 +256,9 @@ export function useBoriLive2D() {
       cancelAnimationFrame(frame);
       audio.pause();
       model()?.setManualLipSync(null);
-      void context.close();
+      // 컨텍스트는 다음 줄에 다시 쓰므로 닫지 않고 이 줄의 연결만 끊는다.
+      source.disconnect();
+      analyser.disconnect();
     };
 
     const step = () => {
@@ -276,7 +285,13 @@ export function useBoriLive2D() {
     audio.addEventListener("error", stop);
     stopSpeechRef.current = stop;
     try {
-      await context.resume();
+      // 사용자 조작 전에는 resume()이 끝나지 않을 수 있다. 기다리다 멈추지 않게 짧게 판정하고, 막혔으면 자막으로 넘어간다(점검 V2 5번).
+      if (await resumeAudio(context) === "blocked") {
+        if (stopped) return { outcome: "text", finished };
+        stop();
+        if (import.meta.env.DEV) console.warn(`[bori] audio=${audioId} 자동 재생이 막혔습니다(오디오 컨텍스트 대기)`);
+        return { outcome: "audioBlocked", finished: speakText(text) };
+      }
       await audio.play();
       if (stopped) return { outcome: "audio", finished };
       frame = requestAnimationFrame(step);
