@@ -23,36 +23,52 @@ export const historyFileName = (collectedAt: string) => `${collectedAt.replace(/
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
-function asCounts(value: unknown): Record<string, number> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] => isNumber(entry[1])));
+const isCount = (value: unknown): value is number => isNumber(value) && Number.isSafeInteger(value) && value >= 0;
+
+function asCounts(value: unknown, participants: number): Record<string, number> | null {
+  if (!isRecord(value) || !Object.values(value).every(count => isCount(count) && count <= participants)) return null;
+  if (Object.values(value).reduce<number>((sum, count) => sum + (count as number), 0) > participants) return null;
+  return value as Record<string, number>;
 }
 
 function asTally(value: unknown): ErComboTally | null {
   if (!isRecord(value)) return null;
   const numbers = ["characterCode", "weaponCode", "participants", "rankSum", "top1", "mmrGainSum", "mmrGainSamples", "kills", "assists", "deaths", "damage"] as const;
   if (!numbers.every((key) => isNumber(value[key]))) return null;
-  const equipment = isRecord(value.equipment)
-    ? Object.fromEntries(Object.entries(value.equipment).map(([slot, counts]) => [slot, asCounts(counts)]))
-    : {};
-  return { ...(Object.fromEntries(numbers.map((key) => [key, value[key]])) as Omit<ErComboTally, "traits" | "equipment">), traits: asCounts(value.traits), equipment };
+  if (!numbers.filter(key => key !== "mmrGainSum").every(key => isCount(value[key]))) return null;
+  const participants = value.participants as number;
+  if (participants === 0 || (value.top1 as number) > participants || (value.mmrGainSamples as number) > participants || (value.rankSum as number) < participants) return null;
+  const traits = asCounts(value.traits, participants);
+  if (!traits || !isRecord(value.equipment)) return null;
+  const equipment: Record<string, Record<string, number>> = {};
+  for (const [slot, raw] of Object.entries(value.equipment)) {
+    const counts = asCounts(raw, participants);
+    if (!counts) return null;
+    equipment[slot] = counts;
+  }
+  return { ...(Object.fromEntries(numbers.map((key) => [key, value[key]])) as Omit<ErComboTally, "traits" | "equipment">), traits, equipment };
 }
 
 function asBasis(value: unknown): ErMetaCollectionBasis | null {
   if (!isRecord(value)) return null;
   const { seasonId, seasonName, patch, games, participants, rankers, gamesPerRanker, collectedAt } = value;
   if (!isNumber(seasonId) || typeof seasonName !== "string" || !(patch === null || typeof patch === "string")) return null;
-  if (!isNumber(games) || !isNumber(participants) || !isNumber(rankers) || !isNumber(gamesPerRanker)) return null;
+  if (!isCount(games) || !isCount(participants) || !isCount(rankers) || !isCount(gamesPerRanker) || !isCount(seasonId)) return null;
+  if (!games || !participants || !rankers || !gamesPerRanker) return null;
   if (typeof collectedAt !== "string" || !Number.isFinite(Date.parse(collectedAt))) return null;
   return { seasonId, seasonName, patch, games, participants, rankers, gamesPerRanker, collectedAt };
 }
 
-/** 파일에서 읽은 집계. 모양이 틀리면 null(예전 stats 형식도 null). 틀린 조합 행 하나는 버린다. */
+/** 한 행이라도 손상되면 분모와 비교 기준을 보존할 수 없어 집계 전체를 거부한다. */
 export function parseCollection(value: unknown): ErMetaCollection | null {
   if (!isRecord(value) || !Array.isArray(value.combos)) return null;
   const basis = asBasis(value.basis);
   if (!basis) return null;
-  return { combos: value.combos.map(asTally).filter((tally): tally is ErComboTally => tally !== null), basis };
+  const combos = value.combos.map(asTally);
+  if (!combos.length || !combos.every((tally): tally is ErComboTally => tally !== null)) return null;
+  if (combos.reduce((sum, tally) => sum + tally.participants, 0) !== basis.participants) return null;
+  if (new Set(combos.map(tally => `${tally.characterCode}:${tally.weaponCode}`)).size !== combos.length) return null;
+  return { combos, basis };
 }
 
 export function createErHistory(options: { dir: string; keep?: number; warn?: (message: string) => void }) {
