@@ -1,17 +1,58 @@
 # 검증 기록
 
-최종 갱신: 2026-10-12 (수동 검증 기록 1~12절은 2026-08-30 기준)
+최종 갱신: 2026-11-21 (자동 검사 0절. 0-기록절은 2026-10-12, 수동 검증 기록 1~12절은 2026-08-30 기준)
 
 이 문서는 두 종류의 기록을 구분해 담는다.
 
-- **자동 검사**(0절) — `npm run typecheck`, `npm run test:unit`(단위), `npm run test`(통합). 명령 하나로 다시 돌릴 수 있다. 가짜 API와 순수 함수를 대상으로 하므로 실제 LLM·TTS 응답과 화면은 확인하지 않는다. CI 설정은 없어 로컬에서 직접 실행한다.
+- **자동 검사**(0절) — `npm run typecheck`, `npm run test:unit`(단위), `npm run test`(통합). 명령 하나로 다시 돌릴 수 있다. 가짜 API와 순수 함수를 대상으로 하므로 실제 LLM·TTS·이터널리턴 응답과 화면은 확인하지 않는다. GitHub Actions CI(`.github/workflows/ci.yml`)가 Ubuntu에서 타입·단위·통합 검사와 스튜디오 빌드를, Windows에서 단위·통합 검사를 돈다.
 - **수동 검증**(1~12절) — 개발 중 브라우저 콘솔, 파라미터 측정, API 호출, 화면 확인으로 직접 관찰한 내용이다. 자동으로 다시 돌지 않는다. 2026-08-30까지의 기록이며 당시 그대로 둔다. 이후 코드가 바뀌어 지금과 맞지 않게 된 항목에는 해당 줄에 `현재:`로 덧붙였다.
 
 영역별 요약과 현재 진행 상황은 [진행 현황](./progress.md)에 있다.
 
 ---
 
-## 0. 자동 검사
+## 0. 자동 검사 (2026-11-21, 메타 대시보드)
+
+2026-11-21, Node v24.12.0, Windows 11, 통합 브랜치 `feature/er-meta-dashboard`(`95ef8ec`, 마무리 연결 #53 병합 뒤) 위의 정리 브랜치 `feature/dash-fix-x3-docs`(`858a990`)에서 실행했다.
+
+| 명령 | 결과 |
+|---|---|
+| `npm run typecheck` | 종료 코드 0. 8개 워크스페이스(shared·server·admin·live2d·llm·character·companion·er) |
+| `npm run test:unit` | 443건 중 443건 통과, 0건 실패(묶음 99개) |
+| `npm test` | 66건 중 66건 통과, 0건 실패 (38.7초, 시나리오 5개) |
+
+### 단위 검사 (`packages/*/test/*.test.ts`, `apps/*/test/*.test.ts`, `node:test` + `tsx`)
+
+| 워크스페이스 | 파일 | 확인하는 것 |
+|---|---|---|
+| `packages/er` | client·dictionary·meta·player·mask | 가짜 fetch로 API 클라이언트(초당 1회·재시도), 사전(캐릭터·무기·장비·특성 이름, 시즌), 조합 집계(이번 시즌 랭크만, 경기 수·참가자 수, 특성·장비 빈도), 전적 요약, 닉네임 가림 |
+| `packages/llm` | client·retry·tts·redact·redact-error·usage·validate | 구조화 출력 클라이언트(꺼짐·키·회로), 429 재시도와 회로 차단기, 음성 합성 업체별 요청·실패, 오류 본문 가리기, 토큰 사용량, 출력 글 다듬기 |
+| `packages/character` | character | 메타 분석 진행자 문장, 방송·채팅·1:1 낱말 없음, 자기 설정, 존댓말 한 줄, 말하는 범위 |
+| `apps/server` er | er-data·er-combos·er-history·er-auto-refresh·er-dashboard-settings·er-dashboard-state | 집계 저장, 원래 개수 → 비율·표본 기준, 갱신 기록 10개·직전 비교·패치 바뀜, 자동 갱신 판정(24시간·시즌·하루 한 번), 닉네임 설정 파일, 대시보드 상태 |
+| `apps/server` narration | narration-facts·narration-format·narration-writer·narration-check·narration-template·narration-store·narration-narrator | 사실 목록 규칙, 화면과 같은 반올림, 대사 지시문·스키마, 숫자·이름 검사, 정해진 문장, `narration.json` 저장, 전체 흐름과 LLM 실패 |
+| `apps/server` http·파일 | dashboard-routes·guard·guard-path·static·static-routes·settings-validation·llm-settings-validation·api-key-slot·secret-store·config-file·atomic-file·data-safety·retention·load-env·input-text·usage | 대시보드 라우트, 요청 경계(Host·Origin·Content-Type·본문 크기·경로 인코딩), 정적 화면(경로 탈출, iframe 제한 헤더), 설정 검증, 키 출처와 암호화, 원자적 쓰기·손상 파일 보존, 보관 기간, `.env` 읽기, 입력 글 정리, 사용량 |
+| `apps/companion` | dashboard·format·narration-player·companion·ui·private-assets | 표 정렬·▲▼·배지, 숫자 모양, 대사 차례 재생, 화면 밖 규칙, 음성·모델 안내, 비공개 자산 Vite 설정 |
+| `apps/admin` | status-view·form·poll·server-process·window-policy·log-file | 설정 탭 문구·판정, 폼, 폴링, 서버 자식 프로세스, Electron 창 정책, 로그 회전 |
+
+### 통합 검사 (`tools/test`)
+
+실제 서버를 가짜 OpenAI(`mock-openai.mjs`)와 가짜 이터널리턴 API(`fixtures/fake-er.mjs`)에 붙이고 임시 데이터 디렉터리로 띄워 HTTP로 조작한다. `data/`를 건드리지 않는다.
+
+| 시나리오 | 건수 | 확인하는 것 |
+|---|---|---|
+| 보안 경계 | 14 | 허용 밖 Origin·루프백 아닌 Host·깨진 경로 인코딩·JSON 아닌 본문·64KB 초과, 음성 설정 검증 |
+| API 키 저장 | 11 | 환경변수·`.env` 키는 `data/`에 쓰지 않고, 화면에서 넣은 키만 암호화해 저장 |
+| 데이터 파일 손상·쓰기 실패 | 10 | 깨진·잘린 설정 파일, 풀지 못한 암호문 키, 쓰기 실패에도 데이터를 잃지 않고 서버가 산다 |
+| API 사용량 | 9 | 예전 방송·1:1 사용량 줄 읽기, 응답에 숫자와 이름만, 재시작 뒤 유지, LLM 설정 검증 |
+| 대시보드 흐름 | 22 | 처음 열면 자동 갱신 → 조합 → 보리 대사(지어낸 숫자 줄은 빠짐) → 음성 id 200 → 닉네임 저장·전적 → 다시 듣기 → LLM 실패면 정해진 문장 → 재시작 뒤 마지막 대사, 로그에 닉네임 없음 |
+
+자동 검사가 다루지 않는 것: 실제 이터널리턴·LLM·TTS 응답과 지연, 대시보드·스튜디오 화면을 실제 브라우저로 띄운 모습, Live2D 렌더링과 립싱크. 이 셋은 실제 키와 비공개 Live2D 자산으로 따로 확인해야 하며, 2026-11-21 현재 아직 하지 않았다.
+
+---
+
+## 0-기록. 자동 검사 (2026-10-12, 방송·1:1 시절)
+
+> 아래는 방송·1:1 대화 시절의 기록이다. 표에 나오는 `packages/memory`, `apps/broadcast`, 지연·동작·기억 격리 시나리오 등은 2026-11-21에 지웠다.
 
 2026-10-12, Node v24.12.0, Windows 11, `main`(`4da0220`) 기준 브랜치에서 실행했다.
 

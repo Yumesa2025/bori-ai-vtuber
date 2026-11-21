@@ -196,7 +196,7 @@ export type ErPlayerSummary = {
   mainCharacters: Array<{ name: string; games: number; avgRank: number; metaRank: number | null }>;
 };
 
-/** 보리가 읽는 대사 한 줄. emotion은 packages/character의 감정 이름. */
+/** 보리가 읽는 대사 한 줄. emotion은 packages/live2d의 감정 이름(boriEmotionNames). */
 export type NarrationLine = { text: string; emotion: string; audioId?: string };
 
 export type Narration = {
@@ -320,7 +320,7 @@ git commit -m "구조: ER 데이터 모듈을 er/로 옮기고 대시보드 형�
   - `store.ts`: `data/narration.json`을 원자적으로 쓴다
   - `index.ts`: `createNarrator({ llm, prepareAudio, store, now })` → `{ narrate(input): Promise<Narration>, latest(): Narration | null, replay(): Promise<Narration | null> }`
   - `index.ts`(서버 본체)에는 연결하지 않는다.
-- 감정 이름은 `packages/character`의 감정 표에서 고른다. T2가 그 표를 남기므로 지금 있는 이름을 쓴다.
+- 감정 이름은 `packages/live2d`의 감정 표(`boriEmotionNames`)에서 고른다. (2026-11-21 정정: 처음에는 `packages/character`로 잘못 적었다)
 - LLM 어댑터는 `packages/llm`의 `LlmAdapter`와 `overrideSchema` 경로를 쓴다. 이 경로는 T2가 남긴다. 혹시 대화 전용 필드가 필수로 묶여 있으면, 얇은 호출 함수를 narration 안에 두고 코디네이터에게 알린다.
 
 **완료 기준:**
