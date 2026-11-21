@@ -18,7 +18,7 @@ import { COLLECTION_FORMAT, createErHistory, parseCollection } from "./history.j
  */
 
 /** 갱신 진행 상태. 대시보드 상태의 refresh 칸이 쓴다. */
-export type ErStatus = { refreshing: boolean; progress: number | null; lastError: string | null };
+export type ErStatus = { refreshing: boolean; progress: number | null; startedAt?: number | null; lastError: string | null };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -73,6 +73,7 @@ export function createErData(options: {
   /** 직전 집계. 갱신 때는 그 전 집계, 켤 때는 history에서 찾은 것 */
   let previous: ErMetaCollection | null = null;
   let refreshing = false;
+  let startedAt: number | null = null;
   let progress: number | null = null;
   let lastError: string | null = null;
 
@@ -166,7 +167,7 @@ export function createErData(options: {
       return Number.isFinite(collectedAt) && now() - collectedAt <= STALE_AFTER_MS ? "ready" : "stale";
     },
 
-    status: (): ErStatus => ({ refreshing, progress, lastError }),
+    status: (): ErStatus => ({ refreshing, progress, lastError, ...(refreshing ? { startedAt } : {}) }),
 
     /** 갱신을 시작한다. 이미 도는 중이거나 키가 없으면 false. */
     refresh(): boolean {
@@ -176,6 +177,7 @@ export function createErData(options: {
         return false;
       }
       refreshing = true;
+      startedAt = now();
       progress = 0;
       void runRefresh(options.client);
       return true;
