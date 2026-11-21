@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DashboardState } from "@bori/shared";
 import { api, describeError, loadFailureView } from "./api";
 import { pollIntervalMs } from "./dashboard";
-import { useDocumentVisible } from "./visibility";
+import { pageActive } from "./studio-tab";
+import { useDocumentVisible, useStudioTabActive } from "./visibility";
 
 /**
  * 대시보드 상태 폴링. 갱신 중에는 2초, 평소에는 30초마다 다시 받는다(설계 4절).
  * 탭이 숨겨져 있으면 늦추고, 다시 보이면 바로 받는다(점검 V2 14번).
+ * 보리 스튜디오에서 다른 탭(설정)에 있을 때도 숨긴 것으로 본다(Codex C2 6절). visible은 자동 읽기도 막는다.
  * 서버에 닿지 못하면 지난 상태를 그대로 두고 연결 안내를 띄운다.
  *
  * 안내는 둘로 나눈다(점검 V2 13번).
@@ -21,7 +23,9 @@ export function useDashboard() {
   const [requesting, setRequesting] = useState(false);
   /** 받기를 시도할 때마다 오른다. 실패해서 state가 그대로여도 다음 폴링을 다시 잡는다. */
   const [attempt, setAttempt] = useState(0);
-  const visible = useDocumentVisible();
+  const documentVisible = useDocumentVisible();
+  const tabActive = useStudioTabActive();
+  const visible = pageActive(documentVisible, tabActive);
   const wasVisible = useRef(visible);
 
   const load = useCallback(async () => {
@@ -68,5 +72,5 @@ export function useDashboard() {
     }
   }, [load]);
 
-  return { state, disconnected, loadNotice, actionNotice, requesting, refresh, reload: load, visible };
+  return { state, disconnected, loadNotice, actionNotice, requesting, refresh, reload: load, visible, tabActive };
 }
