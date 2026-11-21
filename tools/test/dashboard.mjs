@@ -3,7 +3,7 @@
  *
  * 가짜 이터널리턴 API(fixtures/fake-er.mjs)와 가짜 OpenAI(mock-openai.mjs)로 서버를 띄워 다음을 본다.
  * - 대시보드를 처음 열면(GET /api/dashboard) 데이터가 없어 자동 갱신이 시작되고, 끝나면 조합이 있다
- * - 갱신이 끝나면 보리 대사가 생긴다(source llm). 가짜 LLM이 숫자를 지어낸 줄은 검사에서 빠진다
+ * - 갱신이 끝나면 보리 대사가 생긴다(source llm). 줄 문장은 서버가 만들고, 가짜 LLM이 숫자를 지어낸 감상은 검사에서 빠진다
  * - 줄마다 음성 id가 있고 /api/tts/:id로 받을 수 있다. 사용량은 모드 narration으로 센다
  * - 게임 닉네임을 저장하면 전적을 다시 조회한다(ready / not-found / unset). 본문 검사는 400
  * - 다시 듣기는 같은 대사를 { narration }으로 돌려준다
@@ -26,8 +26,10 @@ export const meta = {
 
 const ER_PORT = Number(process.env.BORI_TEST_ER_PORT ?? 4392);
 const UNKNOWN_NICKNAME = "없는가짜닉";
-/** mock-openai.mjs가 숫자를 지어낸 줄에 붙이는 표식(그 파일의 NARRATION_FABRICATED_MARK와 같은 값). */
+/** mock-openai.mjs가 숫자를 지어낸 감상에 붙이는 표식(그 파일의 NARRATION_FABRICATED_MARK와 같은 값). */
 const NARRATION_FABRICATED_MARK = "지어낸 수치";
+/** mock-openai.mjs가 붙이는 규칙에 맞는 감상(그 파일의 NARRATION_GOOD_COMMENT와 같은 값). */
+const NARRATION_GOOD_COMMENT = "좋아 보여요.";
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /** 조건이 참이 될 때까지 대시보드 상태를 다시 받는다. 시간이 지나면 마지막 상태로 실패한다. */
@@ -79,8 +81,11 @@ export async function run({ bori, mock, report, dataDir }) {
   const lines = narrated.narration.lines;
   report.check("갱신이 끝나면 LLM이 쓴 대사가 생긴다", narrated.narration.source === "llm" && lines.length > 0, `source=${narrated.narration.source} lines=${lines.length}`);
   report.check(
-    "LLM이 숫자를 지어낸 줄은 검사에서 빠진다",
-    lines.every(line => !line.text.includes(NARRATION_FABRICATED_MARK)) && /검사에서 1줄을 버렸습니다 \(number\)/.test(runningScript("bori-server").output()),
+    "LLM이 숫자를 지어낸 감상은 빠지고 서버 문장은 남는다(규칙에 맞는 감상은 다음 줄부터 붙는다)",
+    lines.every(line => !line.text.includes(NARRATION_FABRICATED_MARK) && !line.text.includes("987"))
+      && !lines[0].text.endsWith(NARRATION_GOOD_COMMENT)
+      && lines.slice(1).every(line => line.text.endsWith(` ${NARRATION_GOOD_COMMENT}`))
+      && /검사에서 감상 1개를 버렸습니다 \(number\)/.test(runningScript("bori-server").output()),
     lines.map(line => line.text).join(" / "),
   );
   const llmCalls = await mock.llmCalls();

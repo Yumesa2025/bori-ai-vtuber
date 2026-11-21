@@ -1,6 +1,11 @@
 /**
  * 보리 대사를 줄마다 차례로 읽는다: 자막 표시 → 감정을 Live2D 표정으로 → 말하기(음성 또는 글자 길이만큼 입 모양).
  * DOM·오디오는 주입받아 화면 밖 검사에서 순서와 분기를 확인한다.
+ *
+ * createPlayback은 재생 하나를 맡는 제어기다(Codex C2 4·5·7).
+ * - 재생마다 세대(signal)를 두고, 지금 세대가 아닌 재생의 콜백(자막·표정·말하기)은 무시한다. 새 대사가 재생을 바꿔도 이전 재생이 새 자막을 지우지 않는다.
+ * - 음성 설정은 줄마다 함수로 읽는다. 재생 중 바꾸면 audioModeChanged가 지금 줄을 멈추고 새 설정으로 다시 말한다.
+ * - dispose는 전체 재생을 취소하고 그 뒤의 재생을 막는다(컴포넌트 언마운트).
  */
 import type { NarrationLine } from "@bori/shared";
 
@@ -22,27 +27,108 @@ export type PlayerDeps = {
  */
 export type PlayResult = "done" | "cancelled" | "audioBlocked" | "audioFailed";
 
+/** 재생 하나의 상태. cancelled면 다음 줄로 가지 않는다. restart면 지금 줄을 새 음성 설정으로 다시 말한다. */
+export type PlaySignal = { cancelled: boolean; restart: boolean };
+
 export async function playNarration(
   lines: readonly NarrationLine[],
   deps: PlayerDeps,
-  options: { audio: boolean; signal: { cancelled: boolean } },
+  options: { audio: () => boolean; signal: PlaySignal },
 ): Promise<PlayResult> {
+  const { signal } = options;
   let blocked = false;
   let failed = false;
   try {
     for (const [index, line] of lines.entries()) {
-      if (options.signal.cancelled) return "cancelled";
+      if (signal.cancelled) return "cancelled";
       deps.onLine(index);
       deps.react(line.emotion);
-      // 소리가 한 번 막히면 같은 재생에서는 다시 시도하지 않는다. 화면을 눌러야 풀린다.
-      if (options.audio && line.audioId === undefined) failed = true;
-      const outcome = await deps.speak(line, options.audio && !blocked && line.audioId !== undefined);
-      if (outcome === "audioBlocked") blocked = true;
-      if (outcome === "audioFailed") failed = true;
-      if (options.signal.cancelled) return "cancelled";
+      for (;;) {
+        // 음성 설정은 말할 때마다 다시 읽는다. 재생 중에 바꿔도 지금·남은 줄에 바로 맞춘다.
+        const wantAudio = options.audio();
+        if (wantAudio && line.audioId === undefined) failed = true;
+        // 소리가 한 번 막히면 같은 재생에서는 다시 시도하지 않는다. 화면을 눌러야 풀린다.
+        const outcome = await deps.speak(line, wantAudio && !blocked && line.audioId !== undefined);
+        if (outcome === "audioBlocked") blocked = true;
+        if (outcome === "audioFailed") failed = true;
+        if (signal.cancelled) return "cancelled";
+        if (!signal.restart) break;
+        signal.restart = false;
+      }
     }
     return blocked ? "audioBlocked" : failed ? "audioFailed" : "done";
   } finally {
     deps.onLine(null);
   }
+}
+
+export type Playback = {
+  /** 이전 재생을 멈추고 새로 읽는다. 다른 재생에 바뀌었거나 멈췄거나 해제됐으면 cancelled */
+  play(lines: readonly NarrationLine[], audio: () => boolean): Promise<PlayResult>;
+  /** 지금 재생을 멈춘다. 그 재생의 남은 콜백은 부르지 않으므로 자막은 부르는 쪽이 내린다 */
+  stop(): void;
+  /** 음성 설정이 바뀌었다. 지금 줄을 멈추고 새 설정으로 다시 말한다 */
+  audioModeChanged(): void;
+  /** 전체 재생을 취소하고 그 뒤의 재생을 막는다 */
+  dispose(): void;
+  readonly playing: boolean;
+};
+
+export function createPlayback(deps: PlayerDeps & { stopSpeech(): void }): Playback {
+  let current: PlaySignal | null = null;
+  let disposed = false;
+
+  /** 이 재생이 지금 세대일 때만 화면에 반영한다 */
+  const guarded = (signal: PlaySignal): PlayerDeps => ({
+    react: emotion => { if (current === signal) deps.react(emotion); },
+    speak: (line, useAudio) => (current === signal ? deps.speak(line, useAudio) : Promise.resolve<SpeechOutcome>("text")),
+    onLine: index => { if (current === signal) deps.onLine(index); },
+  });
+
+  const stop = () => {
+    if (current) current.cancelled = true;
+    current = null;
+    deps.stopSpeech();
+  };
+
+  return {
+    async play(lines, audio) {
+      if (disposed) return "cancelled";
+      stop();
+      const signal: PlaySignal = { cancelled: false, restart: false };
+      current = signal;
+      const result = await playNarration(lines, guarded(signal), { audio, signal });
+      if (current === signal) current = null;
+      return result;
+    },
+    stop() {
+      if (!disposed) stop();
+    },
+    audioModeChanged() {
+      if (disposed || !current) return;
+      current.restart = true;
+      deps.stopSpeech();
+    },
+    dispose() {
+      if (disposed) return;
+      stop();
+      disposed = true;
+    },
+    get playing() {
+      return current !== null;
+    },
+  };
+}
+
+/**
+ * 요청 세대. 다시 듣기 응답이 언마운트 뒤나 다음 요청 뒤에 늦게 와도 무시하게 한다(Codex C2 7절).
+ * next()로 받은 값이 isCurrent일 때만 응답을 반영한다. invalidate()는 지금 세대를 끝낸다(언마운트).
+ */
+export function createGeneration() {
+  let current = 0;
+  return {
+    next: () => (current += 1),
+    isCurrent: (generation: number) => generation === current,
+    invalidate: () => { current += 1; },
+  };
 }

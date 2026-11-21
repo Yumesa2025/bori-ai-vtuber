@@ -15,7 +15,7 @@ import { PlayerCard } from "./components/PlayerCard";
  * 위 띠: 기준·상태·갱신 / 왼쪽: 보리 / 가운데: 메타 TOP·오르고 내린 조합 / 오른쪽: 캐릭터 상세·내 전적
  */
 export function App() {
-  const { state, disconnected, loadNotice, actionNotice, requesting, refresh, reload, visible } = useDashboard();
+  const { state, disconnected, loadNotice, actionNotice, requesting, refresh, reload, visible, tabActive } = useDashboard();
   const [ttsEnabled, setTtsEnabled] = useState(loadTtsEnabled);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const combos = useMemo(() => state?.combos ?? [], [state]);
@@ -36,7 +36,7 @@ export function App() {
       )}
       <Header state={state} requesting={requesting} loadNotice={loadNotice} actionNotice={actionNotice} onRefresh={() => void refresh()} />
       <main className="dashboard-body">
-        <Narrator narration={state?.narration ?? null} ttsEnabled={ttsEnabled} onToggleTts={toggleTts} visible={visible} />
+        <Narrator narration={state?.narration ?? null} ttsEnabled={ttsEnabled} onToggleTts={toggleTts} visible={visible} tabActive={tabActive} />
         <div className="dashboard-center">
           <MetaTable combos={combos} basis={state?.basis ?? null} selectedKey={selected ? comboKey(selected) : null} onSelect={select} />
           <Movers combos={combos} onSelect={select} />

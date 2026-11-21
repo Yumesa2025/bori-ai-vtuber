@@ -1,12 +1,12 @@
 /**
  * 보리가 메타 분석을 읽어 주는 narrator(설계 3절).
- * 사실 목록 → LLM 대사 → 숫자·이름 검사 → (3줄이 안 되면) 정해진 문장으로 채움 → 줄마다 음성 → 저장.
+ * 사실 목록 → LLM이 고른 사실·감상 → 서버 문장 + 통과한 감상(check.ts) → (3줄이 안 되면) 정해진 문장으로 채움 → 줄마다 음성 → 저장.
  * LLM·음성에는 narrator 쪽 시간 상한이 있어, 주입한 함수가 멈춰도 대사 큐가 막히지 않는다(점검 V2 12번).
  * 서버 본체(index.ts)가 갱신이 끝날 때 narrate를, 다시 듣기 라우트에서 replay를 부른다.
  */
 import { randomUUID } from "node:crypto";
 import type { Narration, NarrationLine } from "@bori/shared";
-import { checkLines, DEFAULT_MAX_LINE_LENGTH } from "./check.js";
+import { composeLines, DEFAULT_MAX_LINE_LENGTH } from "./check.js";
 import { buildFacts, type NarrationFact, type NarrationInput } from "./facts.js";
 import { dictionaryNames, type DictionaryLike, type NameDictionary } from "./names.js";
 import type { NarrationStore } from "./store.js";
@@ -30,11 +30,11 @@ export type NarratorDeps = {
   hasAudio?: (audioId: string) => boolean;
   store: NarrationStore;
   /**
-   * 이름 검사에 쓰는 이터널리턴 사전(erData.dictionary()). 사전에 있는 캐릭터·무기 이름 전체를 본다.
+   * 감상 이름 검사에 쓰는 이터널리턴 사전(erData.dictionary()). 사전에 있는 캐릭터·무기·장비·특성 이름 전체를 본다.
    * 주지 않거나 null이면 이번 집계 조합과 주캐릭터 이름만 본다.
    */
   dictionary?: () => DictionaryLike | null;
-  /** 대사 한 줄 글자 상한. LLM 설정 maxReplyLength를 넘긴다. 기본 120 */
+  /** 대사 한 줄 글자 상한. LLM 설정 maxReplyLength를 넘긴다. 서버 문장 + 감상이 넘으면 감상을 뺀다. 기본 120 */
   maxLineLength?: () => number;
   now?: () => Date;
   newId?: () => string;
@@ -42,7 +42,7 @@ export type NarratorDeps = {
   timeoutMs?: number;
   /** 줄마다 음성 합성 기다림 상한. 넘으면 그 줄은 자막만 보여 준다. 기본 20초 */
   audioTimeoutMs?: number;
-  /** 대사 본문과 닉네임은 넘기지 않는다. 버린 줄 수·이유·오류 메시지만 */
+  /** 대사 본문과 닉네임은 넘기지 않는다. 버린 줄·감상 수와 이유, 오류 메시지만 */
   log?: (message: string) => void;
 };
 
@@ -70,11 +70,11 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OU
 
 /** 사전이 없을 때 쓰는 이름: 이번 집계 조합과 주캐릭터 */
 function inputNames(input: NarrationInput): NameDictionary {
-  const unique = (names: string[]) => [...new Set(names)].filter(name => name.length > 0);
-  return {
-    characters: unique([...input.combos.map(combo => combo.characterName), ...(input.player?.mainCharacters.map(main => main.name) ?? [])]),
-    weapons: unique(input.combos.map(combo => combo.weaponName)),
-  };
+  const names = [
+    ...input.combos.flatMap(combo => [combo.characterName, combo.weaponName]),
+    ...(input.player?.mainCharacters.map(main => main.name) ?? []),
+  ];
+  return { names: [...new Set(names)].filter(name => name.length > 0) };
 }
 
 export function createNarrator(deps: NarratorDeps): Narrator {
@@ -123,18 +123,19 @@ export function createNarrator(deps: NarratorDeps): Narrator {
     }
   }
 
-  /** LLM 대사를 쓰고 검사해 3줄로 채운다. 쓸 수 없거나 사실을 말한 줄이 없으면 null */
+  /** LLM이 고른 줄로 대사를 만들고 3줄로 채운다. 쓸 수 없거나 남은 줄이 없으면 null */
   async function writeWithLlm(input: NarrationInput, facts: readonly NarrationFact[]): Promise<NarrationLine[] | null> {
     const llm = facts.length > 0 ? deps.llm : null;
     if (!llm) return null;
     const maxLineLength = deps.maxLineLength?.() ?? DEFAULT_MAX_LINE_LENGTH;
-    const written = await within(writeLines(llm, facts, { timeoutMs, maxLineLength }), timeoutMs + Math.min(LLM_GRACE_MS, timeoutMs));
+    const written = await within(writeLines(llm, facts, { timeoutMs }), timeoutMs + Math.min(LLM_GRACE_MS, timeoutMs));
     if (written === TIMED_OUT) { log("LLM이 시간 상한 안에 답하지 않아 정해진 문장을 씁니다."); return null; }
     if (!written.ok) { log(`LLM 대사를 쓰지 못해 정해진 문장을 씁니다: ${written.reason}`); return null; }
-    const { kept, dropped } = checkLines(written.lines, facts, { names: names(input), maxLineLength });
-    if (dropped.length > 0) log(`검사에서 ${dropped.length}줄을 버렸습니다 (${[...new Set(dropped.map(entry => entry.reason))].join(", ")})`);
+    const { kept, dropped, commentDropped } = composeLines(written.lines, facts, { names: names(input), maxLineLength });
+    if (dropped.length > 0) log(`검사에서 ${dropped.length}줄을 버렸습니다 (${[...new Set(dropped)].join(", ")})`);
+    if (commentDropped.length > 0) log(`검사에서 감상 ${commentDropped.length}개를 버렸습니다 (${[...new Set(commentDropped)].join(", ")})`);
     const filled = fillLines(kept, facts);
-    if (!filled) log("사실을 말한 LLM 줄이 남지 않아 정해진 문장을 씁니다.");
+    if (!filled) log("남은 LLM 줄이 없어 정해진 문장을 씁니다.");
     return filled;
   }
 

@@ -177,8 +177,13 @@ tr.low-sample .row-button { font-weight: 500; }
 @media (max-width: 1280px) {
   .dash-header { grid-template-columns: 1fr; }
   .refresh { justify-self: start; }
-  .dashboard-body { grid-template-columns: 1fr; overflow-y: auto; }
-  .dashboard-center, .dashboard-side { grid-template-rows: auto; }
+  /*
+   * 한 열로 쌓을 때는 행을 내용 높이(max-content)로 둔다. 칸들이 min-height: 0이라 auto 행이면 창 높이에 맞춰 짓눌려
+   * 패널이 겹치고, 표는 머리 높이만 남아 sticky 머리가 두 번째 행 클릭을 가렸다(1280×720, Y3 smoke).
+   */
+  .dashboard-body { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: max-content; overflow-y: auto; }
+  .dashboard-center, .dashboard-side { grid-template-rows: none; grid-auto-rows: max-content; }
   .character-stage { min-height: 320px; }
-  .table-scroll { max-height: 520px; }
+  /* 칸 높이가 정해지지 않으므로 flex: 1(기준 0) 대신 내용 높이(최대 520px)로 둔다. */
+  .table-scroll { flex: none; max-height: 520px; }
 }

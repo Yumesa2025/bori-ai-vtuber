@@ -16,10 +16,21 @@ let browser;
 try {
   await waitForHttp(`${base}/__mock/scenario`);
   browser = await chromium.launch({ headless: true });
+  const errors = [];
+  // 좁은 창(한 열 배치)에서도 표 머리가 행 클릭을 가리지 않는다(1280×720에서 sticky 머리가 두 번째 행을 덮던 문제).
+  // 먼저 따로 닫는다. 창을 둘 띄워 두면 뒤 창의 타이머가 느려져 자동 읽기가 늦게 끝난다.
+  const narrow = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  narrow.setDefaultTimeout(10_000);
+  narrow.on("pageerror", error => errors.push(error.message));
+  await narrow.goto(`${base}/companion/`);
+  const narrowRow = narrow.getByRole("region", { name: "메타 TOP" }).locator("tbody tr").nth(1).getByRole("button");
+  await narrowRow.click();
+  await expect(narrowRow).toHaveAttribute("aria-pressed", "true");
+  await narrow.close();
+
   const page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
   page.setDefaultTimeout(10_000);
   page.setDefaultNavigationTimeout(10_000);
-  const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(`${base}/companion/`);
   const table = page.getByRole("region", { name: "메타 TOP" });
@@ -38,7 +49,7 @@ try {
   await expect(page.getByRole("alert").filter({ hasText: "키" })).toBeVisible();
   await expect(page.locator(".refresh button")).toBeDisabled();
   expect(errors).toEqual([]);
-  console.log("PASS dashboard smoke: 표, 상세 선택, 다시 듣기 POST, 키 없음 (4/4)");
+  console.log("PASS dashboard smoke: 표, 상세 선택, 1280×720 행 선택, 다시 듣기 POST, 키 없음 (5/5)");
 } catch (error) {
   console.error(output);
   throw error;
