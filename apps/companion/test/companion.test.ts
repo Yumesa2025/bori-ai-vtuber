@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 import type { DashboardState, Narration } from "@bori/shared";
 import { ApiError, errorKindForStatus, readResponse } from "../src/api";
 import { planReaction } from "../src/live2d/reaction";
-import { createMockStore, mockScenarios, MOCK_REFRESH_MS } from "../dev/mock-store";
+import { readFileSync } from "node:fs";
+import { createMockStore, mockScenarios, MOCK_NICKNAME, MOCK_REFRESH_MS } from "../dev/mock-store";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -148,5 +149,75 @@ describe("개발용 가짜 API", () => {
     assert.equal(stateOf(store).player.summary?.nickname, "다른유저");
     store.saveSettings({ nickname: null });
     assert.equal(stateOf(store).player.status, "unset");
+  });
+
+  test("키 없음: 실제 서버처럼 닉네임이 있으면 전적은 error다", () => {
+    const { player, connection, refresh } = stateOf(createMockStore("no-key"));
+    assert.equal(connection, "missing");
+    assert.equal(refresh.available, false);
+    assert.deepEqual(player, { status: "error", summary: null });
+  });
+
+  test("키 없음 + 지난 데이터: 실제 서버처럼 저장된 기준·조합을 그대로 준다", () => {
+    const state = stateOf(createMockStore("no-key-with-data"));
+    assert.equal(state.connection, "missing");
+    assert.equal(state.refresh.available, false);
+    assert.ok(state.basis && state.combos.length > 0);
+    assert.equal(state.player.status, "error");
+  });
+
+  test("데이터 없음에서 갱신하면 직전 갱신이 없으므로 변화량이 모두 null이다", () => {
+    let clock = 1_000_000;
+    const store = createMockStore("missing", { now: () => clock });
+    store.refresh();
+    clock += MOCK_REFRESH_MS * 2;
+    const done = stateOf(store);
+    assert.equal(done.basis?.previousCollectedAt, null);
+    assert.ok(done.combos.length > 0 && done.combos.every(entry => entry.change === null));
+  });
+
+  test("정해진 문장·음성 실패·대사 없음 시나리오", () => {
+    assert.equal(stateOf(createMockStore("template-narration")).narration?.source, "template");
+    const failed = stateOf(createMockStore("tts-failed")).narration!;
+    assert.ok(failed.lines.some(line => line.audioId === undefined) && failed.lines.some(line => line.audioId !== undefined));
+    const none = createMockStore("no-narration");
+    assert.equal(stateOf(none).narration, null);
+    assert.ok(stateOf(none).combos.length > 0);
+    assert.equal(none.replay().status, 404);
+  });
+
+  test("가짜 대사도 서버 검사 규칙(3~5줄)을 따른다", () => {
+    for (const name of mockScenarios) {
+      const narration = stateOf(createMockStore(name)).narration;
+      if (narration) assert.ok(narration.lines.length >= 3 && narration.lines.length <= 5, name);
+    }
+  });
+
+  test("닉네임은 서버와 같이 32자(코드포인트)까지", () => {
+    const store = createMockStore("player-unset");
+    assert.equal(store.saveSettings({ nickname: "가".repeat(33) }).status, 400);
+    assert.equal(store.saveSettings({ nickname: "😊".repeat(32) }).status, 200);
+    assert.ok(MOCK_NICKNAME.length <= 32);
+  });
+});
+
+describe("대시보드 화면 CSP", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const csp = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? "";
+  const directive = (name: string) => csp.split(";").map(part => part.trim()).find(part => part.startsWith(`${name} `)) ?? "";
+
+  test("스튜디오와 같은 수준으로 이 출처 밖 스크립트·전송을 막는다", () => {
+    assert.equal(directive("default-src"), "default-src 'self'");
+    assert.equal(directive("script-src"), "script-src 'self'");
+    assert.equal(directive("connect-src"), "connect-src 'self'");
+    assert.equal(directive("media-src"), "media-src 'self' blob:");
+    assert.equal(directive("object-src"), "object-src 'none'");
+    assert.equal(directive("base-uri"), "base-uri 'none'");
+    assert.ok(!csp.includes("unsafe-eval"), "Cubism Core 5-r.5는 wasm2js라 eval이 필요 없다");
+  });
+
+  test("Live2D 텍스처(이 출처 이미지)와 React 인라인 style은 허용한다", () => {
+    assert.match(directive("img-src"), /'self'/);
+    assert.match(directive("style-src"), /'unsafe-inline'/);
   });
 });
