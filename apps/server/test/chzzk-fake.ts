@@ -29,13 +29,4 @@ type FakeModule = {
 const fakeModuleUrl = new URL("../../../tools/test/fixtures/fake-chzzk.mjs", import.meta.url).href;
 export const loadFakeChzzk = async () => (await import(fakeModuleUrl)) as FakeModule;
 
-/** 조건이 참이 될 때까지 기다린다. 시간이 지나면 실패한다. */
-export async function waitFor(check: () => boolean, label: string, timeoutMs = 3000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!check()) {
-    if (Date.now() > deadline) throw new Error(`기다리다 시간이 지났습니다: ${label}`);
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-}
-
-export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+export { sleep, waitFor } from "./wait.js";

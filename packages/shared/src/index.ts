@@ -339,10 +339,13 @@ export type DashboardView =
   | { kind: "player"; status: "waiting" | "loading" | "ready" | "not-found" | "error"; report: ErPlayerReport | null }
   | { kind: "summary"; characters: string[] };
 
+/** 이터널리턴 데이터 상태. 화면 배지와 자동 갱신 판단에 쓴다. */
+export type ErConnection = "ready" | "stale" | "missing" | "refreshing";
+
 export type ShowConnections = {
   chzzk: "off" | "connecting" | "connected" | "error";
   obs: "off" | "connecting" | "connected" | "error";
-  er: "ready" | "stale" | "missing" | "refreshing";
+  er: ErConnection;
 };
 
 export type ShowState = {
@@ -361,3 +364,97 @@ export type ShowState = {
   /** 코너 자동 진행. 지금 코너에 주어진 시간(초, 제한 없으면 0)과 지난 시간(초). */
   auto?: { enabled: boolean; stageSeconds: number; elapsedSeconds: number };
 };
+
+// ── 이터널리턴 메타 대시보드 (2026-11-21 설계, docs/superpowers/specs/2026-11-21-er-meta-dashboard-design.md) ──
+
+/** 캐릭터+무기 조합 하나의 집계. 비율은 0~1, 순위는 1이 1등. */
+export type ErComboStat = {
+  characterCode: number;
+  characterName: string;
+  /** 무기를 모르면 0과 "" */
+  weaponCode: number;
+  weaponName: string;
+  participants: number;
+  /** 전체 참가자 대비 */
+  pickRate: number;
+  avgRank: number;
+  top1Rate: number;
+  /** 랭크 MMR 증감 표본이 없으면 null */
+  avgMmrGain: number | null;
+  avgKills: number;
+  avgAssists: number;
+  avgDeaths: number;
+  avgDamage: number;
+  /** 많이 고른 코어 특성, 최대 2 */
+  topTraits: Array<{ code: number; name: string; rate: number }>;
+  /** 부위(0~4)별 많이 쓴 최종 장비, 부위마다 최대 2 */
+  topEquipment: Array<{ slot: number; items: Array<{ code: number; name: string; rate: number }> }>;
+  /** 참가자 30명 미만 */
+  lowSample: boolean;
+  /** 직전 갱신 대비 변화량. 직전 갱신이 없거나 그때 없던 조합이면 null */
+  change: { avgRank: number; top1Rate: number; pickRate: number; avgMmrGain: number | null } | null;
+};
+
+/** 대시보드 집계의 기준. 화면과 보리 대사에 그대로 밝힌다. */
+export type ErMetaBasisV2 = {
+  seasonId: number;
+  /** 게임 표기, 예: "시즌 13" */
+  seasonName: string;
+  /** 표본에서 가장 많은 패치, 예: "1.47". 모르면 null */
+  patch: string | null;
+  /** 집계한 경기 수 */
+  games: number;
+  /** 집계한 참가자 수(경기 수 × 참가자) */
+  participants: number;
+  rankers: number;
+  gamesPerRanker: number;
+  collectedAt: string;
+  previousCollectedAt: string | null;
+  /** 직전 갱신과 시즌이나 패치가 다르다 */
+  patchChanged: boolean;
+};
+
+/** 대시보드 "내 전적" 칸. 닉네임은 본인 화면에만 보이고 로그·LLM에는 넣지 않는다. */
+export type ErPlayerSummary = {
+  nickname: string;
+  seasonName: string;
+  mmr: number | null;
+  /** 0~1, 작을수록 상위 */
+  rankPercent: number | null;
+  games: number;
+  avgRank: number;
+  top1Rate: number;
+  avgKills: number | null;
+  avgAssists: number | null;
+  /** 최근 경기, 최신 먼저, 최대 10 */
+  recent: Array<{ characterName: string; weaponName: string; rank: number; kills: number; mmrGain: number | null }>;
+  /** 많이 한 캐릭터, 최대 3. metaRank는 현재 메타 조합 순위(픽률 순)에서 그 캐릭터 최고 조합의 순위 */
+  mainCharacters: Array<{ name: string; games: number; avgRank: number; metaRank: number | null }>;
+};
+
+/** 보리가 읽는 대사 한 줄. emotion은 packages/character의 감정 이름. */
+export type NarrationLine = { text: string; emotion: string; audioId?: string };
+
+export type Narration = {
+  id: string;
+  createdAt: string;
+  /** LLM이 썼는지, 정해진 문장인지 */
+  source: "llm" | "template";
+  lines: NarrationLine[];
+};
+
+export type DashboardPlayerStatus = "unset" | "loading" | "ready" | "not-found" | "error";
+
+/** GET /api/dashboard 응답 */
+export type DashboardState = {
+  connection: ErConnection;
+  refresh: { running: boolean; progress: number | null; lastError: string | null; autoStarted: boolean };
+  basis: ErMetaBasisV2 | null;
+  /** 픽률 순 */
+  combos: ErComboStat[];
+  player: { status: DashboardPlayerStatus; summary: ErPlayerSummary | null };
+  narration: Narration | null;
+};
+
+/** GET/PUT /api/dashboard/settings */
+export type DashboardSettings = { nickname: string | null };

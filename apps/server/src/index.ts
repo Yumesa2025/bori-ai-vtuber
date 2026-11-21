@@ -27,7 +27,7 @@ import { createAutopilot } from "./show/autopilot.js";
 import { createDemoChats, parseDemoScript } from "./show/demo-chats.js";
 import { createPlayerCommand } from "./show/commands.js";
 import { createShowController } from "./show/controller.js";
-import { createErData } from "./show/er-data.js";
+import { createErData } from "./er/er-data.js";
 import { buildGameData, isMetaQuestion } from "./show/game-data.js";
 
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);

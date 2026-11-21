@@ -8,9 +8,9 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createErData } from "../src/show/er-data.js";
+import { createErData } from "../src/er/er-data.js";
 import { dictionaryRoutes, fakeClient, fixture } from "../../../packages/er/test/fake-client.js";
-import { waitFor } from "./chzzk-fake.js";
+import { waitFor } from "./wait.js";
 
 const nicknamePath = (nickname: string) => `/v1/user/nickname?query=${encodeURIComponent(nickname)}`;
 const routes = (): Record<string, unknown> => ({

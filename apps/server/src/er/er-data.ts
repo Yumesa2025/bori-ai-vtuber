@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { collectMeta, loadDictionary, lookupPlayer, officialSeasonNumber, type ErClient, type ErDictionary } from "@bori/er";
-import type { ErCharacterStat, ErMetaBasis, ErPlayerReport, ShowConnections } from "@bori/shared";
+import type { ErCharacterStat, ErMetaBasis, ErConnection, ErPlayerReport } from "@bori/shared";
 import { createConfigFile } from "../config-file.js";
 
 /**
@@ -102,7 +102,7 @@ export function createErData(options: {
     basis: () => meta?.basis ?? null,
     top5: (): ErCharacterStat[] => (meta?.stats ?? []).slice(0, TOP_COUNT),
 
-    connection(): ShowConnections["er"] {
+    connection(): ErConnection {
       if (refreshing) return "refreshing";
       if (!dictionary || !meta) return "missing";
       const collectedAt = Date.parse(meta.basis.collectedAt);
