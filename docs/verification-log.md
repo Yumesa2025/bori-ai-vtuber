@@ -13,22 +13,22 @@
 
 ## 0. 자동 검사 (2026-11-21, 메타 대시보드)
 
-2026-11-21, Node v24.12.0, Windows 11, 통합 브랜치 `feature/er-meta-dashboard`(`95ef8ec`, 마무리 연결 #53 병합 뒤) 위의 정리 브랜치 `feature/dash-fix-x3-docs`(`858a990`)에서 실행했다.
+2026-11-21, Node v24.12.0, Windows 11, 통합 브랜치 `feature/er-meta-dashboard`(`cec4a7f`, 마무리 연결 #53과 데이터·서버 보완 #54 병합 뒤)를 합친 정리 브랜치 `feature/dash-fix-x3-docs`에서 실행했다.
 
 | 명령 | 결과 |
 |---|---|
 | `npm run typecheck` | 종료 코드 0. 8개 워크스페이스(shared·server·admin·live2d·llm·character·companion·er) |
-| `npm run test:unit` | 443건 중 443건 통과, 0건 실패(묶음 99개) |
-| `npm test` | 66건 중 66건 통과, 0건 실패 (38.7초, 시나리오 5개) |
+| `npm run test:unit` | 456건 중 456건 통과, 0건 실패(묶음 100개) |
+| `npm test` | 66건 중 66건 통과, 0건 실패 (36.0초, 시나리오 5개) |
 
 ### 단위 검사 (`packages/*/test/*.test.ts`, `apps/*/test/*.test.ts`, `node:test` + `tsx`)
 
 | 워크스페이스 | 파일 | 확인하는 것 |
 |---|---|---|
-| `packages/er` | client·dictionary·meta·player·mask | 가짜 fetch로 API 클라이언트(초당 1회·재시도), 사전(캐릭터·무기·장비·특성 이름, 시즌), 조합 집계(이번 시즌 랭크만, 경기 수·참가자 수, 특성·장비 빈도), 전적 요약, 닉네임 가림 |
+| `packages/er` | client·dictionary·meta·player | 가짜 fetch로 API 클라이언트(초당 1회·재시도), 사전(캐릭터·무기·장비·특성 이름, 시즌), 조합 집계(이번 시즌 랭크만, 경기 수·참가자 수, 특성·장비 빈도), 전적 요약 |
 | `packages/llm` | client·retry·tts·redact·redact-error·usage·validate | 구조화 출력 클라이언트(꺼짐·키·회로), 429 재시도와 회로 차단기, 음성 합성 업체별 요청·실패, 오류 본문 가리기, 토큰 사용량, 출력 글 다듬기 |
 | `packages/character` | character | 메타 분석 진행자 문장, 방송·채팅·1:1 낱말 없음, 자기 설정, 존댓말 한 줄, 말하는 범위 |
-| `apps/server` er | er-data·er-combos·er-history·er-auto-refresh·er-dashboard-settings·er-dashboard-state | 집계 저장, 원래 개수 → 비율·표본 기준, 갱신 기록 10개·직전 비교·패치 바뀜, 자동 갱신 판정(24시간·시즌·하루 한 번), 닉네임 설정 파일, 대시보드 상태 |
+| `apps/server` er | er-data·er-combos·er-history·er-auto-refresh·er-dashboard-settings·er-dashboard-state | 집계 저장, 원래 개수 → 비율·표본 기준, 갱신 기록 10개·직전 비교(표본 적은 조합은 변화량 없음)·패치 바뀜, 자동 갱신 판정(24시간·시즌·하루 한 번), 닉네임 설정 파일(정리·32자 상한), 대시보드 상태 |
 | `apps/server` narration | narration-facts·narration-format·narration-writer·narration-check·narration-template·narration-store·narration-narrator | 사실 목록 규칙, 화면과 같은 반올림, 대사 지시문·스키마, 숫자·이름 검사, 정해진 문장, `narration.json` 저장, 전체 흐름과 LLM 실패 |
 | `apps/server` http·파일 | dashboard-routes·guard·guard-path·static·static-routes·settings-validation·llm-settings-validation·api-key-slot·secret-store·config-file·atomic-file·data-safety·retention·load-env·input-text·usage | 대시보드 라우트, 요청 경계(Host·Origin·Content-Type·본문 크기·경로 인코딩), 정적 화면(경로 탈출, iframe 제한 헤더), 설정 검증, 키 출처와 암호화, 원자적 쓰기·손상 파일 보존, 보관 기간, `.env` 읽기, 입력 글 정리, 사용량 |
 | `apps/companion` | dashboard·format·narration-player·companion·ui·private-assets | 표 정렬·▲▼·배지, 숫자 모양, 대사 차례 재생, 화면 밖 규칙, 음성·모델 안내, 비공개 자산 Vite 설정 |

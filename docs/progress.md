@@ -1010,5 +1010,5 @@ a6 보고서 2절 방식이다. 1일차 7개 메시지 → 서버 정지·저장
 - 보안: 서버가 내주는 화면(`/studio/` 등)에 `frame-ancestors 'self'`·`X-Frame-Options: SAMEORIGIN`·`nosniff`를 붙여 클릭재킹을 막았다.
 - 쓰지 않는 코드: `packages/live2d`의 표시 이름·모션 설명, 가짜 OpenAI의 요약·기억 정리·임베딩 경로, `docs/macros.example.json`.
 - 의존 선언: admin → live2d를 빼고 companion → shared를 더했다.
-- 문서: README·소개 페이지·운영·아키텍처의 "구현 중" 표시와 지운 `/api/er/status`를 실제 상태로, [검증 기록](./verification-log.md) 0절을 지금 기준으로(`typecheck` 8개 워크스페이스, 단위 443건, 통합 66건 모두 통과).
+- 문서: README·소개 페이지·운영·아키텍처의 "구현 중" 표시와 지운 `/api/er/status`를 실제 상태로, [검증 기록](./verification-log.md) 0절을 지금 기준으로(`typecheck` 8개 워크스페이스, 단위 456건, 통합 66건 모두 통과. 데이터·서버 보완 #54 병합 뒤).
 - 남은 것: 11.5절과 같다. 로컬에만 있는 예전 폴더(`apps/broadcast/` 등)는 사용자 확인 뒤 정리한다.

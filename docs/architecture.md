@@ -70,7 +70,7 @@ POST /api/er/refresh (또는 GET /api/dashboard 때 자동 갱신 판정)
 
 ### 대시보드 상태
 
-`createDashboardData`(`apps/server/src/er/dashboard-state.ts`)가 최신·직전 집계, 설정 파일의 게임 닉네임, 전적 조회 결과로 `DashboardState`(`packages/shared`)를 만든다. 비율·평균은 원래 개수에서 서버가 계산하고, 직전 갱신과 조합 키(캐릭터 코드 + 무기 코드)로 비교해 변화량과 `patchChanged`를 붙인다. 대시보드는 `GET /api/dashboard`를 갱신 중 2초, 평소 30초마다 폴링한다.
+`createDashboardData`(`apps/server/src/er/dashboard-state.ts`)가 최신·직전 집계, 설정 파일의 게임 닉네임, 전적 조회 결과로 `DashboardState`(`packages/shared`)를 만든다. 비율·평균은 원래 개수에서 서버가 계산하고, 직전 갱신과 조합 키(캐릭터 코드 + 무기 코드)로 비교해 변화량과 `patchChanged`를 붙인다. 직전·이번 중 하나라도 표본이 적은(참가자 30명 미만) 조합은 변화량을 붙이지 않는다. 대시보드는 `GET /api/dashboard`를 갱신 중 2초, 평소 30초마다 폴링한다.
 
 ### 보리 읽어 주기
 
@@ -125,4 +125,4 @@ POST /api/er/refresh (또는 GET /api/dashboard 때 자동 갱신 판정)
 
 ## 6. 상태 동기화
 
-WebSocket 없이 폴링한다. 화면이 서버 상태를 주기적으로 받고, 서버가 바뀐 값을 그대로 돌려준다. 이벤트 순서·재연결을 다룰 필요가 없고, 서버를 다시 띄워도 화면이 다음 폴링에서 따라온다. 대가는 갱신이 폴링 간격만큼 늦게 보이는 것이다. 스튜디오 설정 탭은 LLM·이터널리턴 상태를 3초, 사용량·음성 설정을 30초마다 받는다.
+WebSocket 없이 폴링한다. 화면이 서버 상태를 주기적으로 받고, 서버가 바뀐 값을 그대로 돌려준다. 이벤트 순서·재연결을 다룰 필요가 없고, 서버를 다시 띄워도 화면이 다음 폴링에서 따라온다. 대가는 갱신이 폴링 간격만큼 늦게 보이는 것이다. 스튜디오 설정 탭은 LLM과 이터널리턴 상태(`GET /api/dashboard/status`: 연결·갱신·기준만, 자동 갱신 판정과 조합 계산 없음)를 3초, 사용량·음성 설정을 30초마다 받는다.

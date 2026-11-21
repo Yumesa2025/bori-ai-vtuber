@@ -121,7 +121,7 @@ npm run dev:server
 | 걸리는 시간 | 개인 키는 초당 1회라 기본 규모는 몇 분(설계 추정 최대 약 9분) |
 | 수동 갱신 | 스튜디오 설정 탭 "데이터 갱신" 또는 `POST /api/er/refresh` → `{ started }` |
 | 자동 갱신 | 대시보드가 `GET /api/dashboard`를 부를 때 서버가 판정한다. 데이터가 없거나, 마지막 수집이 24시간 넘게 지났거나, 시즌이 바뀌었으면 시작한다. 하루에 한 번만 판정한다 |
-| 상태 | `GET /api/dashboard`의 `connection`(ready·stale·missing·refreshing)과 `refresh`(갱신할 수 있는지·진행 중 여부·진행률·마지막 오류·자동 시작 여부) |
+| 상태 | `GET /api/dashboard`(또는 가벼운 `GET /api/dashboard/status`)의 `connection`(ready·stale·missing·refreshing)과 `refresh`(갱신할 수 있는지·진행 중 여부·진행률·마지막 오류·자동 시작 여부) |
 | 파일 | `data/er-dictionary.json`(사전), `data/er-meta.json`(최신 집계), `data/er-history/`(갱신마다, 최근 10개), `data/dashboard-settings.json`(게임 닉네임), `data/narration.json`(마지막 보리 대사) |
 
 ### 대시보드 라우트
@@ -129,8 +129,9 @@ npm run dev:server
 | 메서드 | 경로 | 내용 |
 |---|---|---|
 | GET | `/api/dashboard` | 대시보드 상태(`DashboardState`). 필요하면 자동 갱신을 시작한다 |
+| GET | `/api/dashboard/status` | 연결·갱신·기준만. 자동 갱신 판정과 조합 계산을 하지 않는다(스튜디오 설정 탭이 3초마다 묻는다) |
 | POST | `/api/er/refresh` | 갱신 시작. `{ started }`. 이미 갱신 중이거나 `ER_API_KEY`가 없으면 false |
-| GET / PUT | `/api/dashboard/settings` | `{ nickname }`. PUT하면 저장한 뒤 전적을 다시 조회한다 |
+| GET / PUT | `/api/dashboard/settings` | `{ nickname }`. PUT하면 제어문자·방향 바꿈 문자·개행을 지우고 정리한 뒤(32자까지, 넘으면 400) 저장하고 전적을 다시 조회한다 |
 | POST | `/api/narration/replay` | 다시 듣기. 마지막 대사를 `{ narration }`으로 돌려준다(없으면 404) |
 
 갱신이 끝나면 서버가 사실 목록을 만들어 보리 대사를 쓰고 음성을 준비한다. LLM 키가 없거나 실패하면 정해진 문장으로, TTS가 실패한 줄은 자막만 나온다. 게임 닉네임은 화면에만 보이고 로그·LLM 사실 목록에는 넣지 않는다.
