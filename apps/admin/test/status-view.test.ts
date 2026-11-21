@@ -4,7 +4,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { connectionBadge, erSummary, llmConnection, nicknameBody, ttsConnection } from "../src/studio/status-view";
+import { connectionBadge, erSummary, llmConnection, nicknameBody, ttsConnection, type ErDataView } from "../src/studio/status-view";
 
 describe("연결 표시", () => {
   test("상태마다 색과 문구를 준다", () => {
@@ -36,22 +36,48 @@ describe("연결 표시", () => {
 });
 
 describe("ER 데이터 상태", () => {
-  const basis = { seasonName: "시즌 12", sampleGames: 7200, collectedAt: new Date(2026, 9, 15, 14, 3).toISOString(), description: "최근 7일 상위 랭커 7,200판 기준" };
+  const basis = {
+    seasonId: 43, seasonName: "시즌 13", patch: "13.1", games: 1234, participants: 29616, rankers: 100, gamesPerRanker: 3,
+    collectedAt: new Date(2026, 9, 15, 14, 3).toISOString(), previousCollectedAt: null, patchChanged: false,
+  };
+  const refresh = { available: true, running: false, progress: null, lastError: null, autoStarted: false };
+  const view = (overrides: Partial<ErDataView> = {}): ErDataView => ({ connection: "ready", refresh, basis, ...overrides });
 
-  test("기준 시즌·판 수·마지막 갱신 시각을 보여 준다", () => {
-    const summary = erSummary({ basis, refreshing: false, progress: null, lastError: null });
-    assert.equal(summary.title, "시즌 12 · 7,200판");
+  test("기준 시즌·패치·경기 수와 마지막 갱신 시각, 상태 배지를 보여 준다", () => {
+    const summary = erSummary(view());
+    assert.equal(summary.title, "시즌 13 · 패치 13.1 · 경기 1,234판");
     assert.equal(summary.updated, "마지막 갱신 10월 15일 14:03");
-    assert.equal(summary.description, "최근 7일 상위 랭커 7,200판 기준");
+    assert.equal(summary.description, "상위 랭커 100명의 랭크 경기 1,234판(참가자 29,616명) 기준");
     assert.equal(summary.progress, null);
+    assert.deepEqual(summary.badge, { tone: "ok", text: "준비됨" });
+    assert.equal(summary.canRefresh, true);
   });
 
-  test("갱신 중이면 진행률을, 데이터가 없으면 그렇다고 말한다", () => {
-    assert.equal(erSummary({ basis: null, refreshing: true, progress: 0.426, lastError: null }).progress, "갱신 중 43%");
-    const empty = erSummary({ basis: null, refreshing: false, progress: null, lastError: "키 없음" });
+  test("패치를 모르면 패치는 빼고 말한다", () => {
+    assert.equal(erSummary(view({ basis: { ...basis, patch: null } })).title, "시즌 13 · 경기 1,234판");
+  });
+
+  test("갱신 중이면 진행률을 보이고 버튼을 끈다", () => {
+    const summary = erSummary(view({ connection: "refreshing", refresh: { ...refresh, running: true, progress: 0.426 } }));
+    assert.equal(summary.progress, "갱신 중 43%");
+    assert.deepEqual(summary.badge, { tone: "warn", text: "갱신 중" });
+    assert.equal(summary.canRefresh, false);
+  });
+
+  test("데이터가 없으면 그렇다고 말하고, 키가 없으면 버튼을 끈다", () => {
+    const empty = erSummary(view({ connection: "missing", basis: null, refresh: { ...refresh, available: false, lastError: "키 없음" } }));
     assert.equal(empty.title, "데이터 없음");
     assert.equal(empty.updated, "아직 갱신하지 않았습니다");
-    assert.equal(erSummary(null).title, "확인 중");
+    assert.equal(empty.description, "");
+    assert.equal(empty.canRefresh, false);
+    assert.equal(empty.lastError, "키 없음");
+  });
+
+  test("아직 받지 못했으면 확인 중이다", () => {
+    const unknown = erSummary(null);
+    assert.equal(unknown.title, "확인 중");
+    assert.deepEqual(unknown.badge, { tone: "off", text: "확인 중" });
+    assert.equal(unknown.canRefresh, false);
   });
 });
 
