@@ -4,7 +4,10 @@
  * 실제 키 없이 사전 → 메타 집계 → 전적 조회 흐름을 서버 프로세스째로 검사한다.
  * 응답은 @bori/er 단위 검사의 고정 자료(packages/er/test/fixtures)를 그대로 쓴다. 현재 시즌은 41(API Season21, 게임 표기 시즌 12)이다.
  * - 랭커: 랭커A(uid-a)·랭커B(uid-b), 경기 1001·1002
- * - 전적: PLAYER_NICKNAME(uid-p)만 있다. 다른 닉네임은 404다.
+ *   경기 상세는 실제 응답 모양(seasonId·versionMajor/Minor·mmrGain·킬·딜량·코어 특성·장비)이라 대시보드 조합 집계가 그대로 돈다.
+ *   사전의 시즌 41은 끝 시각(2026-11-12)이 지난 값이라 자동 갱신 판정은 "시즌 지남"으로 본다(하루 한 번).
+ * - 전적: PLAYER_NICKNAME(uid-p)만 있다. 다른 닉네임은 404다. 최근 경기에 무기·킬·MMR 증감, 통계에 MMR·백분위·평균 킬이 있다.
+ * - 경기 목록의 다음 쪽(?next=)은 쓰지 않는다.
  * 요청 기록에는 경로만 남기고 쿼리(닉네임)·키는 남기지 않는다.
  *
  *   FAKE_ER_PORT=4846 node tools/test/fixtures/fake-er.mjs

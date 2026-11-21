@@ -167,7 +167,7 @@ export type ErComboStat = {
   topEquipment: Array<{ slot: number; items: Array<{ code: number; name: string; rate: number }> }>;
   /** 참가자 30명 미만 */
   lowSample: boolean;
-  /** 직전 갱신 대비 변화량. 직전 갱신이 없거나 그때 없던 조합이면 null */
+  /** 직전 갱신 대비 변화량(이번 값 − 직전 값). 직전 갱신이 없거나 그때 없던 조합이면 null */
   change: { avgRank: number; top1Rate: number; pickRate: number; avgMmrGain: number | null } | null;
 };
 
@@ -224,7 +224,8 @@ export type DashboardPlayerStatus = "unset" | "loading" | "ready" | "not-found" 
 /** GET /api/dashboard 응답 */
 export type DashboardState = {
   connection: ErConnection;
-  refresh: { running: boolean; progress: number | null; lastError: string | null; autoStarted: boolean };
+  /** available: 갱신할 수 있는지(ER_API_KEY가 있는지). false면 화면은 "키 없음"을 보이고 갱신 버튼을 끈다 */
+  refresh: { available: boolean; running: boolean; progress: number | null; lastError: string | null; autoStarted: boolean };
   basis: ErMetaBasisV2 | null;
   /** 픽률 순 */
   combos: ErComboStat[];
