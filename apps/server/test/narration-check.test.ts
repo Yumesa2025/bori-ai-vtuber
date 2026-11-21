@@ -6,6 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { composeLines, DEFAULT_MAX_LINE_LENGTH, MAX_LINES } from "../src/narration/check.js";
+import { COMMENT_EXAMPLE_POOL } from "../src/narration/examples.js";
 import { buildFacts } from "../src/narration/facts.js";
 import { renderFact } from "../src/narration/template.js";
 import { fixtureBasis, fixtureCombos, fixtureNames, fixturePlayer } from "./narration-fixtures.js";
@@ -57,6 +58,45 @@ describe("대사 줄 만들기", () => {
     assert.deepEqual(result.kept.map(entry => entry.text), [renderFact(f1)]);
     assert.deepEqual(result.commentDropped, ["length"]);
     assert.ok(DEFAULT_MAX_LINE_LENGTH >= 100);
+  });
+
+  test("과제 A: 예시를 그대로·공백과 문장부호만 바꿔 베낀 감상은 copied로 버리고 서버 문장은 남긴다", () => {
+    const example = COMMENT_EXAMPLE_POOL.riser[0];
+    const nearCopy = `${example.replace(/[.!?]+$/, "").replace(/ /g, "  ")}!`;
+    const result = composeLines([line(f1.id, example), line(f2.id, nearCopy), line(f3.id, "오늘따라 유난히 반가워요.")], facts, options);
+    assert.deepEqual(result.kept.map(entry => entry.text), [renderFact(f1), renderFact(f2), `${renderFact(f3)} 오늘따라 유난히 반가워요.`]);
+    assert.deepEqual(result.commentDropped, ["copied", "copied"]);
+  });
+
+  test("과제 A: 안전 규칙이 먼저다. 규칙을 어긴 감상은 베꼈는지와 관계없이 그 이유로 버린다", () => {
+    const result = composeLines([line(f1.id, "픽률이 99%예요.")], facts, options);
+    assert.deepEqual(result.commentDropped, ["number"]);
+  });
+
+  test("과제 A: 같은 대사 안에서 같은 감상(공백·문장부호만 다른 것 포함)이 다시 나오면 두 번째부터 repeated로 버린다", () => {
+    const result = composeLines([
+      line(f1.id, "오늘따라 유난히 반가워요."),
+      line(f2.id, "오늘따라 유난히 반가워요!"),
+      line(f3.id, "오늘따라  유난히 반가워요."),
+      line(f4.id, "흐름이 재미있네요."),
+    ], facts, options);
+    assert.deepEqual(result.kept.map(entry => entry.text), [
+      `${renderFact(f1)} 오늘따라 유난히 반가워요.`,
+      renderFact(f2),
+      renderFact(f3),
+      `${renderFact(f4)} 흐름이 재미있네요.`,
+    ]);
+    assert.deepEqual(result.commentDropped, ["repeated", "repeated"]);
+  });
+
+  test("과제 A: 글자 상한으로 빠진 감상은 붙인 것으로 치지 않는다. 다음 줄의 같은 감상은 남는다", () => {
+    const comment = "흐름이 재미있네요.";
+    const [longer, shorter] = [...facts].sort((a, b) => [...renderFact(b)].length - [...renderFact(a)].length);
+    const limit = [...`${renderFact(shorter)} ${comment}`].length;
+    assert.ok([...`${renderFact(longer)} ${comment}`].length > limit);
+    const result = composeLines([line(longer.id, comment), line(shorter.id, comment)], facts, { ...options, maxLineLength: limit });
+    assert.deepEqual(result.kept.map(entry => entry.text), [renderFact(longer), `${renderFact(shorter)} ${comment}`]);
+    assert.deepEqual(result.commentDropped, ["length"]);
   });
 
   test("모르는 감정은 calm으로 바꾼다", () => {
