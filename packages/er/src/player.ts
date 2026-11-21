@@ -49,6 +49,16 @@ async function fetchStats(client: ErClient, path: string): Promise<UserStats | n
   }
 }
 
+/** 최근 경기 목록. 경기 기록이 없는 계정은 404로 올 수 있어 빈 목록으로 본다. */
+async function fetchGames(client: ErClient, path: string): Promise<GameRow[]> {
+  try {
+    return (await client.get<GamesResponse>(path)).userGames ?? [];
+  } catch (error) {
+    if (isNotFound(error)) return [];
+    throw error;
+  }
+}
+
 /** 없으면 null */
 export async function lookupPlayer(client: ErClient, dict: ErDictionary, nickname: string): Promise<ErPlayerLookup | null> {
   let user: NicknameResponse["user"];
@@ -70,10 +80,10 @@ export async function lookupPlayer(client: ErClient, dict: ErDictionary, nicknam
   const sameMode = normal
     ? (game: GameRow) => game.matchingMode === NORMAL_MODE
     : (game: GameRow) => game.matchingMode === RANKED_MODE && game.seasonId === dict.seasonId;
-  const games = await client.get<GamesResponse>(`/v1/user/games/uid/${uid}`);
+  const games = await fetchGames(client, `/v1/user/games/uid/${uid}`);
   const names = new Map(dict.characters.map((character) => [character.code, character.name]));
   const characterName = (code: number) => names.get(code) ?? `캐릭터 ${code}`;
-  const recent = (games.userGames ?? [])
+  const recent = games
     .filter((game) => sameMode(game) && typeof game.gameRank === "number")
     .slice(0, RECENT_GAMES)
     .map((game) => ({

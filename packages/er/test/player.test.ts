@@ -135,3 +135,17 @@ test("그 밖의 오류는 그대로 낸다", async () => {
   const routes = { ...playerRoutes(), [RANKED]: new ErApiError(500, 500, "서버 오류") };
   await assert.rejects(lookup(routes), (error: unknown) => error instanceof ErApiError && error.status === 500);
 });
+
+test("최근 경기 목록이 404(경기 기록 없음)여도 전적은 나오고 최근 경기는 비어 있다", async () => {
+  // 이터널리턴 API는 없는 자료를 HTTP 200 + code 404로 돌려주는 일이 많다
+  for (const notFound of [new ErApiError(200, 404, "Not Found"), new ErApiError(404, null, "Not Found")]) {
+    const { report } = await lookup({ ...playerRoutes(), [GAMES]: notFound });
+    assert.equal(report?.mmr, 3107);
+    assert.deepEqual(report?.recent, []);
+  }
+});
+
+test("최근 경기 목록의 그 밖의 오류는 그대로 낸다", async () => {
+  const routes = { ...playerRoutes(), [GAMES]: new ErApiError(500, 500, "서버 오류") };
+  await assert.rejects(lookup(routes), (error: unknown) => error instanceof ErApiError && error.status === 500);
+});
