@@ -9,9 +9,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConfigFile } from "../src/config-file.js";
-import { pickValidSettings, validateLlmSettingsPatch, validateMemorySettingsPatch, validateTtsSettingsPatch, type PatchResult } from "../src/http/settings.js";
+import { pickValidSettings, validateLlmSettingsPatch, validateTtsSettingsPatch, type PatchResult } from "../src/http/settings.js";
 import { defaultTtsSettings, type TtsSettings } from "@bori/llm";
-import type { MemorySettings } from "@bori/memory";
 
 let dir: string;
 let filePath: string;
@@ -84,12 +83,6 @@ describe("설정 파일", () => {
 });
 
 describe("읽은 설정 검증", () => {
-  test("기억 설정: 틀린 값만 버리고 나머지는 쓴다", () => {
-    const picked = pickValidSettings<MemorySettings>({ retentionDays: "abc", maxMemories: -5, enabled: false, unknown: 1 }, patch => validateMemorySettingsPatch(patch));
-    assert.deepEqual(picked.patch, { enabled: false });
-    assert.deepEqual(picked.rejected.sort(), ["maxMemories", "retentionDays", "unknown"]);
-  });
-
   test("LLM 설정: 업체·타입·범위가 틀린 키를 버린다", () => {
     const picked = pickValidSettings({ provider: "bogus", model: 5, maxReplyLength: "x", timeoutMs: -1, cooldownSeconds: 30 }, patch => validateLlmSettingsPatch(patch));
     assert.deepEqual(picked.patch, { cooldownSeconds: 30 });

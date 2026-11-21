@@ -6,23 +6,19 @@
   "engines": { "node": ">=22" },
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:broadcast\" \"npm:dev:admin\" \"npm:dev:companion\"",
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:admin\" \"npm:dev:companion\"",
     "dev:server": "npm --workspace apps/server run dev",
-    "dev:broadcast": "npm --workspace apps/broadcast run dev",
     "dev:admin": "npm --workspace apps/admin run dev",
     "dev:companion": "npm --workspace apps/companion run dev",
-    "studio": "npm run build:broadcast && npm run build:companion && npm run build:admin && npm --workspace apps/admin run start",
-    "build": "npm run build:admin && npm run build:broadcast && npm run build:companion",
-    "build:broadcast": "npm --workspace apps/broadcast run build",
+    "studio": "npm run build:companion && npm run build:admin && npm --workspace apps/admin run start",
+    "build": "npm run build:admin && npm run build:companion",
     "build:admin": "npm --workspace apps/admin run build",
     "build:companion": "npm --workspace apps/companion run build",
     "test": "node tools/test/run.mjs",
-    "obs:setup": "node tools/obs/setup-show.mjs",
     "test:unit": "node --import tsx --test --test-timeout=30000 \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
-    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:broadcast && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character && npm run typecheck:companion && npm run typecheck:er",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:memory && npm run typecheck:character && npm run typecheck:companion && npm run typecheck:er",
     "typecheck:shared": "npm --workspace packages/shared run typecheck",
     "typecheck:server": "npm --workspace apps/server run typecheck",
-    "typecheck:broadcast": "npm --workspace apps/broadcast run typecheck",
     "typecheck:admin": "npm --workspace apps/admin run typecheck"
     ,"typecheck:live2d": "npm --workspace packages/live2d run typecheck"
     ,"typecheck:llm": "npm --workspace packages/llm run typecheck"

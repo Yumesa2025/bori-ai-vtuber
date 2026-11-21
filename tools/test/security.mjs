@@ -12,7 +12,7 @@ export const meta = {
 };
 
 const EVIL = "https://evil.example";
-const ALLOWED = "http://127.0.0.1:4173";
+const ALLOWED = "http://127.0.0.1:4175";
 
 /** Host 헤더를 지정해 GET을 보낸다. */
 function getWithHost(baseUrl, path, host) {

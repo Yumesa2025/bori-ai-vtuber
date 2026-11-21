@@ -5,9 +5,8 @@
  * 키 허용 목록·타입·범위를 먼저 검사하고, 하나라도 틀리면 아무것도 병합하지 않는다.
  * 범위는 관리자 화면 입력값과 기본값, 통합 검사가 쓰는 값을 모두 받도록 정했다.
  */
-import type { LlmSettings, QueueSettings } from "@bori/shared";
+import type { LlmSettings } from "@bori/shared";
 import { FISH_VOICE_ID, openAiVoices, supportedProviders, type TtsProvider, type TtsSettings } from "@bori/llm";
-import type { MemorySettings } from "@bori/memory";
 import { normalizeApiKey } from "../secret-store.js";
 
 type FieldRule =
@@ -85,51 +84,6 @@ export function pickValidSettings<T>(input: Record<string, unknown>, validate: (
     else rejected.push(key);
   }
   return { patch: patch as Partial<T>, rejected };
-}
-
-// ── 채팅 큐 ──────────────────────────────────────────────────
-
-const queueRules: { readonly [K in keyof QueueSettings]: FieldRule } = {
-  responseDelayMinSeconds: { kind: "number", min: 0, max: 120 },
-  responseDelayMaxSeconds: { kind: "number", min: 0, max: 120 },
-  maxQueueSize: { kind: "number", min: 1, max: 1000, integer: true },
-  visibleChatLimit: { kind: "number", min: 1, max: 50, integer: true },
-  duplicateWindowMinutes: { kind: "number", min: 0, max: 1440 },
-  sameReplyCooldownMinutes: { kind: "number", min: 0, max: 1440 },
-  monologueEnabled: { kind: "boolean" },
-  monologueMinSeconds: { kind: "number", min: 1, max: 3600 },
-  monologueMaxSeconds: { kind: "number", min: 1, max: 3600 },
-};
-
-/** 최솟값이 최댓값보다 크면 거부한다. 한쪽만 보내도 현재 값과 합쳐서 본다. */
-export function validateQueueSettingsPatch(input: unknown, current: QueueSettings): PatchResult<QueueSettings> {
-  const result = checkFields<QueueSettings>(input, queueRules);
-  if (!result.ok) return result;
-
-  const merged = { ...current, ...result.patch };
-  if (merged.responseDelayMinSeconds > merged.responseDelayMaxSeconds) {
-    return { ok: false, error: "responseDelayMinSeconds는 responseDelayMaxSeconds보다 클 수 없습니다." };
-  }
-  if (merged.monologueMinSeconds > merged.monologueMaxSeconds) {
-    return { ok: false, error: "monologueMinSeconds는 monologueMaxSeconds보다 클 수 없습니다." };
-  }
-  return result;
-}
-
-// ── 장기 기억 ────────────────────────────────────────────────
-
-const memoryRules: { readonly [K in keyof MemorySettings]: FieldRule } = {
-  enabled: { kind: "boolean" },
-  maxMemories: { kind: "number", min: 1, max: 20, integer: true },
-  minSimilarity: { kind: "number", min: 0, max: 1 },
-  retentionDays: { kind: "number", min: 1, max: 3650, integer: true },
-  embeddingModel: { kind: "string", pattern: MODEL_NAME, description: "모델 이름(영숫자와 . _ : -, 100자 이하)" },
-  // 0은 LLM 기억 정리를 끈다.
-  privateDigestEveryMessages: { kind: "number", min: 0, max: 50, integer: true },
-};
-
-export function validateMemorySettingsPatch(input: unknown): PatchResult<MemorySettings> {
-  return checkFields<MemorySettings>(input, memoryRules);
 }
 
 // ── 음성 합성 ────────────────────────────────────────────────
