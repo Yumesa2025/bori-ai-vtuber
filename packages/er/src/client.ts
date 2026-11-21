@@ -4,7 +4,7 @@
  * 오류 메시지에는 키와 쿼리 문자열(닉네임), 경로 속 uid를 넣지 않는다.
  */
 
-export type ErClientOptions = { apiKey: string; baseUrl?: string; minIntervalMs?: number; timeoutMs?: number; fetch?: typeof fetch; now?: () => number };
+export type ErClientOptions = { apiKey: string; baseUrl?: string; minIntervalMs?: number; /** 첫 전송부터 본문·재시도까지의 상한. 기본 15000ms */ timeoutMs?: number; fetch?: typeof fetch; now?: () => number };
 /**
  * path가 "/"로 시작하면 API 요청(키 포함, JSON 응답)이다.
  * 절대 주소(언어 데이터 파일)는 키 없이 받아 본문 문자열을 그대로 돌려준다.
@@ -67,41 +67,43 @@ export function createErClient(options: ErClientOptions): ErClient {
     });
     const bounded = <T>(work: Promise<T>) => Promise.race([work, deadline]);
     try {
-    for (let attempt = 0; ; attempt += 1) {
-      if (attempt > 0) { await bounded(sleep(minIntervalMs)); await bounded(waitTurn()); }
-      let response: Response;
-      try {
-        response = await bounded(fetchImpl(url, { headers, signal: controller.signal }));
-      } catch {
-        if (controller.signal.aborted) throw timeoutError;
-        throw new ErApiError(0, null, `이터널리턴 API에 연결하지 못했습니다: ${label}`);
-      }
-      if (RETRY_STATUSES.has(response.status) && attempt === 0) {
-        await bounded(response.body?.cancel().catch(() => undefined) ?? Promise.resolve());
-        continue;
-      }
+      for (let attempt = 0; ; attempt += 1) {
+        if (attempt > 0) { await bounded(sleep(minIntervalMs)); await bounded(waitTurn()); }
+        let response: Response;
+        try {
+          response = await bounded(fetchImpl(url, { headers, signal: controller.signal }));
+        } catch {
+          if (controller.signal.aborted) throw timeoutError;
+          throw new ErApiError(0, null, `이터널리턴 API에 연결하지 못했습니다: ${label}`);
+        }
+        if (RETRY_STATUSES.has(response.status) && attempt === 0) {
+          await bounded(response.body?.cancel().catch(() => undefined) ?? Promise.resolve());
+          continue;
+        }
 
-      const text = await bounded(response.text()).catch(() => {
-        if (controller.signal.aborted) throw timeoutError;
-        throw new ErApiError(0, null, "이터널리턴 응답 본문을 받지 못했습니다.");
-      });
-      if (external) {
-        if (!response.ok) throw new ErApiError(response.status, null, `${label}을 받지 못했습니다(HTTP ${response.status})`);
-        return text;
+        const text = await bounded(response.text()).catch(() => {
+          if (controller.signal.aborted) throw timeoutError;
+          throw new ErApiError(0, null, "이터널리턴 응답 본문을 받지 못했습니다.");
+        });
+        if (external) {
+          if (!response.ok) throw new ErApiError(response.status, null, `${label}을 받지 못했습니다(HTTP ${response.status})`);
+          return text;
+        }
+        let body: { code?: unknown } | null = null;
+        try {
+          body = JSON.parse(text) as { code?: unknown };
+        } catch {
+          body = null;
+        }
+        const code = typeof body?.code === "number" ? body.code : null;
+        if (!response.ok || body === null || code !== 200) {
+          throw new ErApiError(response.status, code, `이터널리턴 API 오류: ${label} (HTTP ${response.status}, code ${code ?? "없음"})`);
+        }
+        return body;
       }
-      let body: { code?: unknown } | null = null;
-      try {
-        body = JSON.parse(text) as { code?: unknown };
-      } catch {
-        body = null;
-      }
-      const code = typeof body?.code === "number" ? body.code : null;
-      if (!response.ok || body === null || code !== 200) {
-        throw new ErApiError(response.status, code, `이터널리턴 API 오류: ${label} (HTTP ${response.status}, code ${code ?? "없음"})`);
-      }
-      return body;
+    } finally {
+      clearTimeout(timer!);
     }
-    } finally { clearTimeout(timer!); }
   }
 
   return {

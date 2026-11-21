@@ -208,3 +208,18 @@ test("재시도 전에 응답 본문을 취소한다", async () => {
   });
   await client.get("/a");
 });
+
+test("본문이 계속 도착해도 첫 전송의 시간 상한을 연장하지 않는다", async () => {
+  let chunks = 0;
+  const client = createErClient({ apiKey: KEY, minIntervalMs: 0, timeoutMs: 80,
+    fetch: (async (_input, init) => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return new Response(new ReadableStream({ start(controller) {
+        const timer = setInterval(() => { chunks += 1; controller.enqueue(new TextEncoder().encode("x")); }, 5);
+        init?.signal?.addEventListener("abort", () => { clearInterval(timer); controller.error(new Error("aborted")); }, { once: true });
+      } }));
+    }) as typeof fetch,
+  });
+  await assert.rejects(client.get("/a"), (error: unknown) => error instanceof ErApiError && /시간/.test(error.message));
+  assert.ok(chunks > 1);
+});
