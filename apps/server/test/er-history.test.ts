@@ -52,6 +52,27 @@ describe("ER history", () => {
     assert.equal(history.previous(at(1)), null);
   });
 
+  test("깨진 파일은 몇 번 읽어도 사본을 만들지 않고, 경고는 파일마다 한 번이다", () => {
+    const warnings: string[] = [];
+    const history = createErHistory({ dir, warn: (message) => warnings.push(message) });
+    history.save(collection(at(1)));
+    writeFileSync(join(dir, historyFileName(at(2))), "{ 깨짐");
+    for (let i = 0; i < 3; i += 1) assert.equal(history.previous(at(3))?.basis.collectedAt, at(1));
+    assert.deepEqual(readdirSync(dir).sort(), [historyFileName(at(1)), historyFileName(at(2))]);
+    assert.equal(warnings.length, 1);
+    // 경고에는 파일 이름만 있다(내용 없음)
+    assert.ok(warnings[0]!.includes(historyFileName(at(2))));
+    assert.ok(!warnings[0]!.includes("깨짐"));
+  });
+
+  test("시계가 뒤로 가도 방금 쓴 파일은 지우지 않는다", () => {
+    const history = createErHistory({ dir, keep: 2, warn: quiet });
+    history.save(collection(at(5)));
+    history.save(collection(at(6)));
+    history.save(collection(at(4)));
+    assert.deepEqual(history.names(), [historyFileName(at(4)), historyFileName(at(6))]);
+  });
+
   test("폴더가 없거나 깨진 파일은 건너뛴다", () => {
     const history = createErHistory({ dir, warn: quiet });
     assert.equal(history.previous(at(5)), null);
