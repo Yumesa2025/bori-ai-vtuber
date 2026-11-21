@@ -10,7 +10,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-/** 치지직 Redirect URL(http://localhost:4310/api/chzzk/callback)에 맞춘 기본 포트. */
+/** 서버 기본 포트(apps/server의 BORI_SERVER_PORT 기본값과 같다). */
 const DEFAULT_SERVER_PORT = 4310;
 /** 저장소 루트를 cwd로 두고 띄운다. tsx도 루트 node_modules에서 찾는다. */
 const SERVER_ARGS = ["--import", "tsx", "apps/server/src/index.ts"];

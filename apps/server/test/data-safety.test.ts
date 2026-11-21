@@ -108,7 +108,7 @@ describe("사용량 파일 읽기 실패", () => {
     mkdirSync(locked);
     const second = createUsageStore(locked, { log: silent });
     second.load();
-    second.record({ feature: "reply", mode: "broadcast", model: "gpt-4o-mini", ok: true });
+    second.record({ feature: "reply", mode: "narration", model: "gpt-4o-mini", ok: true });
     assert.deepEqual(readdirSync(locked), []);
   });
 });

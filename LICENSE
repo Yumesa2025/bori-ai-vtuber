@@ -27,7 +27,7 @@ This license covers the source code in this repository only.
 The following assets are NOT included in this repository and are NOT covered
 by this license:
 
-- The commercial Live2D model used by the broadcast screen. It is subject to
+- The commercial Live2D model used by the dashboard screen. It is subject to
   the vendor's terms of use and may not be redistributed.
 - Live2D Cubism SDK for Web, which is subject to the Live2D Proprietary
   Software License. Only `live2dcubismcore.d.ts`, `live2dcubismcore.js`, and

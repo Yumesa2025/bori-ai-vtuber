@@ -2,7 +2,7 @@
   "name": "bori-ai-vtuber",
   "private": true,
   "version": "0.1.0",
-  "description": "Local AI VTuber broadcast screen and admin app for Bori",
+  "description": "Eternal Return meta dashboard with Bori Live2D narration",
   "engines": { "node": ">=22" },
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
@@ -32,7 +32,6 @@
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
-    "socket.io": "2.5.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",

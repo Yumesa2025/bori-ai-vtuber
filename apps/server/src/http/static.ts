@@ -1,7 +1,7 @@
 /**
- * 빌드한 화면(OBS 페이지·1:1·스튜디오)을 서버가 그대로 내주는 정적 파일 제공.
+ * 빌드한 화면(대시보드·스튜디오)과 Live2D 자산을 서버가 그대로 내주는 정적 파일 제공.
  *
- * OBS 브라우저 소스와 스튜디오가 Vite 없이 서버 주소 하나로 화면을 열 수 있게 한다.
+ * 스튜디오와 브라우저가 Vite 없이 서버 주소 하나로 화면을 열 수 있게 한다.
  * 요청 경로는 접두사 폴더 밖으로 나가지 못하고, 캐시하지 않아 다시 빌드하면 바로 반영된다.
  */
 import { existsSync } from "node:fs";
@@ -11,7 +11,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /**
  * URL 접두사와 빌드 폴더의 대응.
- * 기본은 접두사를 남긴 채 root 아래에서 찾는다(`/obs/a.html` → `root/obs/a.html`).
+ * 기본은 접두사를 남긴 채 root 아래에서 찾는다(`/private-core/a.js` → `root/private-core/a.js`).
  * stripPrefix면 접두사를 떼고 root 바로 아래에서 찾는다(`/companion/a.html` → `root/a.html`).
  */
 export type StaticRoute = { prefix: string; root: string; build: string; stripPrefix?: boolean };
