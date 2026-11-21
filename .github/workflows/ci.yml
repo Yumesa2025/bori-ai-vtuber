@@ -34,14 +34,18 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:unit
-      # mock OpenAI와 보리 서버를 띄우는 통합 검사. 포트는 기본값(4390/4391)을 쓴다.
+      - run: npm run test:harness
+      # mock OpenAI와 보리 서버를 띄우는 통합 검사. 실행마다 빈 포트를 고르고 서버 instance를 확인한다.
       - run: npm run test
 
       # 비공개 자산 없이 되는 빌드는 관리자 화면뿐이다.
       # 대시보드 화면(build:companion)은 Cubism SDK 소스(private-assets/)를 번들에 넣고
       # 구매한 상용 Live2D 모델을 dist로 복사한다(tools/vite/private-assets.ts). 두 폴더는 재배포 금지라
-      # 저장소에 없으므로 CI에서는 빌드하지 않는다. 화면의 타입 검사는 위 typecheck가 맡는다.
+      # 저장소에 없으므로 CI에서는 빌드하지 않는다. 타입 검사와 별도로 dev:mock의 SDK 없음 모듈을 써서 Chromium UI smoke를 돌린다.
       # 서버와 packages/*는 tsx로 소스를 바로 실행하므로 빌드 산출물이 없다(검사는 typecheck).
+      - run: npx playwright install --with-deps chromium
+      - name: Dashboard smoke (공개 자산 dev:mock)
+        run: npm run test:dashboard-smoke
       - run: npm run build:admin
 
   # 앱은 Windows에서 운영한다. 파일 rename·잠금·경로 동작을 Windows에서도 본다.
@@ -58,4 +62,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:unit
+      - run: npm run test:harness
       - run: npm run test

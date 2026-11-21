@@ -35,7 +35,7 @@ async function waitForDashboard(bori, label, check, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   let state = null;
   while (Date.now() < deadline) {
-    state = await bori.dashboard();
+    state = await bori.dashboard({ timeoutMs: Math.max(1, deadline - Date.now()) });
     if (state && check(state)) return state;
     await sleep(300);
   }
@@ -94,7 +94,7 @@ export async function run({ bori, mock, report, dataDir }) {
   const audioIds = lines.map(line => line.audioId);
   const audioStatuses = await Promise.all(audioIds.map(async id => {
     if (!id) return { status: 0, type: "" };
-    const response = await fetch(`${bori.baseUrl}/api/tts/${encodeURIComponent(id)}`);
+    const response = await fetch(`${bori.baseUrl}/api/tts/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(25_000) });
     await response.arrayBuffer();
     return { status: response.status, type: response.headers.get("content-type") ?? "" };
   }));

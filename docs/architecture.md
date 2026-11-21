@@ -62,7 +62,7 @@ npm workspaces 모노레포다. 애플리케이션 3개, 패키지 5개, 도구 
 POST /api/er/refresh (또는 GET /api/dashboard 때 자동 갱신 판정)
   → packages/er: 사전(l10n 캐릭터·무기·장비·특성 이름, 시즌) → 상위 랭커 → 랭커별 최근 랭크 경기 상세
   → 이번 시즌 랭크 경기만 (캐릭터, 무기) 조합별 원래 개수로 센다
-  → apps/server/src/er/: data/er-meta.json(최신), data/er-history/(최근 10개)에 원자적으로 쓴다
+  → apps/server/src/er/: data/er-snapshot.json에 사전·최신 메타를 한 파일로 원자 저장하고, data/er-history/(최근 10개)에 비교용 기록을 남긴다
   → onRefreshed 알림 → 보리 읽어 주기
 ```
 
@@ -77,8 +77,8 @@ POST /api/er/refresh (또는 GET /api/dashboard 때 자동 갱신 판정)
 `createNarrator`(`apps/server/src/narration/`)의 순서다.
 
 1. **사실 목록**(정해진 규칙): 메타 TOP 3, 크게 오른 조합 2개, 크게 내린 조합 1개, 새로 TOP 10에 든 조합, 내 주캐릭터의 메타 위치, 패치 바뀜. 사실마다 화면과 같은 반올림의 숫자 문자열을 둔다. 표본 적은 조합은 넣지 않는다.
-2. **대사 생성**: `packages/llm` 구조화 출력으로 `{ lines: [{ text, emotion, factIds }] }` 3~5줄.
-3. **검사**: 줄의 숫자가 `factIds` 사실들의 숫자에 모두 있어야 하고, 캐릭터 이름은 사전에 있는 것만. 아니면 그 줄을 버린다. 남는 줄이 없거나 LLM이 꺼짐·실패면 정해진 문장 3줄.
+2. **사실 선택과 문장 조립**: 수치·캐릭터·무기 이름이 들어간 문장은 서버가 사실 목록에서 직접 만든다. LLM은 어떤 사실을 말할지와 수치·이름 없는 짧은 감상 한마디만 고른다. 감상에는 숫자·한글 수·이름·영문·효과/빌드/패치류 낱말을 금지하지만, 감상 내용의 정확성은 보장하지 않는다. LLM을 못 쓰거나 유효한 선택이 없으면 정해진 문장을 읽는다.
+3. **검사와 대체**: 허용된 사실 선택과 감상 한마디 규칙을 검사한다. 유효한 선택이 없거나 LLM이 꺼짐·실패면 서버의 정해진 문장을 쓴다. 감상의 의미 전체를 검증하는 장치는 아니다.
 4. **음성**: 서버의 `prepareAudio`(TTS 캐시) → 줄마다 `audioId`. 실패한 줄은 자막만.
 5. `data/narration.json`에 원자적으로 저장. 대시보드는 새 `narration.id`를 한 번 자동으로 읽고, 줄마다 감정을 Live2D 표정으로 보낸다.
 
@@ -111,7 +111,7 @@ POST /api/er/refresh (또는 GET /api/dashboard 때 자동 갱신 판정)
 
 - **요청 경계**(`apps/server/src/http/guard.ts`): 모든 요청이 라우트 전에 Host(루프백만, 421)·Origin(허용 목록만, 403)·Content-Type(JSON만, 415)·본문 크기(64KB, 413)·경로 인코딩(400) 검사를 거친다.
 - **화면 iframe 제한**(`apps/server/src/http/static.ts`): 서버가 내주는 화면(`/studio/`·`/companion/`·`/private-*`)에 `Content-Security-Policy: frame-ancestors 'self'`·`X-Frame-Options: SAMEORIGIN`·`X-Content-Type-Options: nosniff`를 붙인다. 다른 웹사이트가 API 키 화면을 투명 iframe으로 덮어 버튼을 누르게 하는 것(클릭재킹)을 막고, 스튜디오 → `/companion/` iframe은 같은 출처라 그대로 된다.
-- **키 저장**(`secret-store.ts`): 화면에서 넣은 키만 AES-256-GCM으로 암호화해 `data/`에 쓴다. 환경변수 키는 파일에 쓰지 않는다. 같은 머신에서 코드를 실행할 수 있는 주체는 복호화도 할 수 있다는 한계가 있다.
+- **키 저장**(`secret-store.ts`): 화면에서 넣은 키만 AES-256-GCM으로 암호화해 `data/`에 쓴다. 환경변수 키는 파일에 쓰지 않는다. 키 파생 재료인 사용자 이름·컴퓨터 이름을 알면 다른 머신에서도 복호화할 수 있다. 설정 파일 유출을 방어하는 비밀 키 저장소가 아니며 Windows DPAPI/Electron safeStorage 이전이 후속 과제다.
 - **파일 쓰기**(`atomic-file.ts`, `config-file.ts`): 임시 파일에 쓰고 fsync 뒤 rename한다. 깨진 파일은 `*.unreadable-<시각>.json`으로 원본을 남기고 기본값으로 시작하며, 있는데 읽지 못한 파일은 덮어쓰지 않는다. 30일 지난 백업은 시작할 때 지운다(`retention.ts`).
 - **사용자 인증이 없다.** 로컬 단일 사용자를 가정한다.
 
@@ -126,3 +126,10 @@ POST /api/er/refresh (또는 GET /api/dashboard 때 자동 갱신 판정)
 ## 6. 상태 동기화
 
 WebSocket 없이 폴링한다. 화면이 서버 상태를 주기적으로 받고, 서버가 바뀐 값을 그대로 돌려준다. 이벤트 순서·재연결을 다룰 필요가 없고, 서버를 다시 띄워도 화면이 다음 폴링에서 따라온다. 대가는 갱신이 폴링 간격만큼 늦게 보이는 것이다. 스튜디오 설정 탭은 LLM과 이터널리턴 상태(`GET /api/dashboard/status`: 연결·갱신·기준만, 자동 갱신 판정과 조합 계산 없음)를 3초, 사용량·음성 설정을 30초마다 받는다.
+
+
+### 2026-11-21 데이터 안정성 보강 (PR #57)
+
+사전과 메타는 `data/er-snapshot.json` 한 파일로 원자 저장하므로 저장 실패 시 서로 다른 세대가 섞이지 않는다. 스냅샷이 없을 때만 예전 `er-dictionary.json`·`er-meta.json`을 읽고 다음 정상 갱신부터 스냅샷을 쓴다. 필수 집계 행·참가자 합계 등이 손상되면 전체 집계를 무효로 보고, 비교용 history는 손상된 항목을 건너뛰어 더 오래된 정상 기록을 직전으로 쓴다. history 저장 실패는 이미 커밋한 최신 스냅샷을 되돌리지 않는다.
+
+ER 요청은 헤더부터 본문 소비까지 기본 15초 상한을 적용하며, 시간 초과 후에도 공유 요청 큐가 다음 작업을 처리한다.
