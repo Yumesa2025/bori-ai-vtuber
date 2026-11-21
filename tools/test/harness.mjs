@@ -185,6 +185,9 @@ export function createBoriClient(baseUrl) {
     llm: async () => (await send("/api/llm")).body,
     patchLlm: next => withJson("PATCH", "/api/llm", next),
     tts: async () => (await send("/api/tts")).body,
-    erStatus: async () => (await send("/api/er/status")).body,
+    dashboard: async () => (await send("/api/dashboard")).body,
+    /** PUT /api/dashboard/settings. 전적 조회가 끝나야 답한다. */
+    putSettings: payload => withJson("PUT", "/api/dashboard/settings", payload),
+    post: path => send(path, { method: "POST" }),
   };
 }
