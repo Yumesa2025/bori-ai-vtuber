@@ -17,11 +17,16 @@ import { buildUsageReport, createUsageStore, loadPriceTable } from "./usage/inde
 import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
 import { createErClient } from "@bori/er";
 import { createErData } from "./er/er-data.js";
+import { createDashboardSettings } from "./er/dashboard-settings.js";
+import { createDashboardData } from "./er/dashboard-state.js";
+import { createNarrationStore, createNarrator } from "./narration/index.js";
+import { narrationLlmFrom } from "./narration-llm.js";
+import { handleDashboardRoute } from "./http/dashboard-routes.js";
 
 /**
  * 보리 서버. 이터널리턴 메타 대시보드(apps/companion)와 스튜디오(apps/admin)가 쓰는 로컬 API다.
  * 2026-11-21에 치지직 방송·1:1 대화·대화 엔진·장기 기억을 지웠다(docs/decisions.md).
- * 대시보드 상태(/api/dashboard)와 보리 읽어 주기(narration/)는 마무리 단계에서 이 파일에 연결한다.
+ * 대시보드 상태(/api/dashboard)는 er/, 보리 읽어 주기는 narration/이 만들고 이 파일은 잇기만 한다.
  */
 const port = Number(process.env.BORI_SERVER_PORT ?? 4310);
 
@@ -67,7 +72,7 @@ const usageStore = createUsageStore(resolve(dataRoot, "usage.json"));
 usageStore.load();
 const usagePricesPath = resolve(dataRoot, "usage-prices.json");
 
-/** LLM 클라이언트. 회로 차단기와 호출 통계가 안에 있다. 업체를 부를 때마다 사용량에 센다. */
+/** LLM 클라이언트. 회로 차단기와 호출 통계가 안에 있다. 업체를 부를 때마다 사용량에 센다(모드는 클라이언트 기본값 narration). */
 const llm = createLlmClient({ onCall: call => usageStore.record({ feature: "reply", ...call }) });
 
 /**
@@ -176,7 +181,7 @@ function saveTtsConfig() {
 }
 /**
  * 대사 음성을 만들어 캐시에 넣고 id를 돌려준다. 대시보드가 /api/tts/:id로 받아 재생한다.
- * 실패하면 undefined이고 그 줄은 자막만 보인다. 보리 읽어 주기(narration/)가 마무리 단계에서 이것을 쓴다.
+ * 실패하면 undefined이고 그 줄은 자막만 보인다. 보리 읽어 주기(narration/)가 줄마다 부른다.
  */
 async function prepareAudio(text: string): Promise<string | undefined> {
   if (!ttsSettings.enabled || !ttsHasKey()) return undefined;
@@ -209,8 +214,6 @@ async function prepareAudio(text: string): Promise<string | undefined> {
 }
 
 loadTtsConfig();
-// 마무리 단계에서 읽어 주기에 넘긴다. 그 전에는 부르는 곳이 없다.
-void prepareAudio;
 
 // ── 이터널리턴 데이터 ─────────────────────────────────────────
 
@@ -230,6 +233,29 @@ const erData = createErData({
 });
 erData.load();
 console.log(`[bori-server] 이터널리턴 데이터: ${erData.connection()}${erApiKey ? "" : " (ER_API_KEY 없음)"}`);
+
+// ── 대시보드와 보리 읽어 주기 ─────────────────────────────────
+/** 대시보드 상태(연결·갱신·기준·조합·내 전적). 닉네임은 data/dashboard-settings.json에 둔다. */
+const dashboard = createDashboardData({ erData, settings: createDashboardSettings(dataRoot) });
+/**
+ * 갱신 결과를 보리가 읽는다. LLM은 위 클라이언트(회로 차단·사용량 narration)를 쓰고, 꺼짐·실패면 정해진 문장이다.
+ * 음성은 prepareAudio(사용량 narration)로 만들고, 다시 듣기 때 캐시에서 사라진 음성만 다시 만든다.
+ */
+const narrator = createNarrator({
+  llm: narrationLlmFrom(llm.complete, () => ({ settings: llmSettings, apiKey: llmApiKey })),
+  prepareAudio,
+  hasAudio: id => audioCache.has(id),
+  store: createNarrationStore(resolve(dataRoot, "narration.json")),
+});
+// 켤 때 마지막 대사(data/narration.json)를 읽어 둔다. 갱신 없이도 지난 분석을 보여 준다.
+const startupNarration = narrator.latest();
+console.log(startupNarration ? `[bori-server] 지난 보리 대사를 불러왔습니다 (${startupNarration.lines.length}줄, ${startupNarration.source})` : "[bori-server] 저장된 보리 대사가 없습니다.");
+// 갱신이 끝나고 전적까지 다시 조회하면 새 집계로 대사를 만든다. 닉네임은 사실 목록에 들어가지 않는다(narration/facts.ts).
+dashboard.onRefreshed(state => {
+  narrator.narrate({ basis: state.basis, combos: state.combos, player: state.player.summary })
+    .then(narration => console.log(`[bori-server] 보리 대사 ${narration.lines.length}줄을 만들었습니다 (${narration.source})`))
+    .catch(error => console.error("[bori-server] 보리 대사를 만들지 못했습니다:", error instanceof Error ? error.message : "알 수 없는 오류"));
+});
 
 /** 라우트를 고를 경로. 쿼리와 끝 슬래시는 뗀다. 전에는 request.url 전체를 비교해 "/api/state?x=1"이 404였다(점검 Q-4). */
 function routePathOf(url: string | undefined): string {
@@ -273,8 +299,8 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
   // HEAD는 GET 라우트로 처리한다. 본문은 Node가 HEAD 응답에서 빼고 보낸다(a1 L5).
   const method = request.method === "HEAD" ? "GET" : request.method;
   if (method === "GET" && path === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
-  if (method === "POST" && path === "/api/er/refresh") { sendJson(response, 200, { started: erData.refresh() }); return; }
-  if (method === "GET" && path === "/api/er/status") { sendJson(response, 200, erData.status()); return; }
+  // 대시보드·이터널리턴 갱신·게임 닉네임·다시 듣기(http/dashboard-routes.ts)
+  if (handleDashboardRoute(method, path, request, response, { dashboard, narrator })) return;
   if (method === "GET" && path === "/api/llm") { sendJson(response, 200, llmView()); return; }
   if (method === "PATCH" && path === "/api/llm") {
     readBody(request, response, body => {
