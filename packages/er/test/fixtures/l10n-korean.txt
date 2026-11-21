@@ -17,5 +17,16 @@ WeaponType/TwoHandSword┃양손검
 WeaponType/DualSword┃쌍검
 WeaponType/Rapier┃레이피어
 WeaponType/Spear┃창
+Item/Name/117406┃저지먼트
+Item/Name/118403┃Tac-50
+Item/Name/202529┃화령장
+Item/Name/202529_D┃화령장 [다비드]
+Item/Name/201404┃수정 티아라
+Item/Name/201502┃빛의 증표
+Item/Name/205408┃살라딘의 화살통
+Item/Name/204416┃스텔라 스텝
+Trait/Name/7000201┃취약
+Trait/Name/7000601┃아드레날린
+Trait/Name/7100401┃빛의 수호
 MasteryType/Glove/Desc┃글러브는 사거리가 짧지만┃구분자가 값에 있어도 첫 구분자만 쓴다
 이 줄은 구분자가 없어 무시한다

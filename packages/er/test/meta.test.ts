@@ -1,12 +1,9 @@
 /**
- * 메타 집계 단위 검사. 2경기 × 4명 가짜 응답으로 손계산한 값과 맞춘다.
+ * 메타 집계 단위 검사. 2경기 × 4명 가짜 응답(실제 필드 모양, 닉네임은 가짜)으로 손계산한 원래 개수와 맞춘다.
  *
- * 1001: 재키 1등(단검), 아야 2등(권총), 피오라 3등(레이피어), 재키 4등(양손검)
- * 1002: 아야 1등(권총), 재키 2등(단검), 아야 3등(돌격 소총), 리 다이린 4등(글러브)
- * 전체 참가자 8명
- * - 아야: 3픽, 순위 2·1·3 → 평균 2, 1등 1/3, 권총
- * - 재키: 3픽, 순위 1·4·2 → 평균 7/3, 1등 1/3, 단검
- * - 피오라: 1픽, 평균 3 / 리 다이린: 1픽, 평균 4
+ * 1001: 재키·단검 1등, 아야·권총 2등, 피오라·레이피어 3등, 재키·양손검 4등(MMR 증감 없음)
+ * 1002: 아야·권총 1등, 재키·단검 2등, 아야·돌격 소총 3등, 리 다이린·글러브 4등
+ * 경기 2, 참가자 8. 두 경기 모두 시즌 41·패치 7.0
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -37,23 +34,78 @@ async function setup(routes = metaRoutes()) {
   return { dict, client: fakeClient(routes) };
 }
 
-test("상위 랭커의 랭크 경기를 모아 캐릭터별로 집계한다", async () => {
+const NOW = Date.parse("2026-11-21T00:00:00.000Z");
+const collect = (client: Parameters<typeof collectMeta>[0], dict: Parameters<typeof collectMeta>[1], rankers = 2, gamesPerRanker = 2) =>
+  collectMeta(client, dict, { rankers, gamesPerRanker, now: () => NOW });
+
+test("상위 랭커의 이번 시즌 랭크 경기를 (캐릭터, 무기) 조합별 원래 개수로 모은다", async () => {
   const { dict, client } = await setup();
-  const { stats, basis } = await collectMeta(client, dict, { rankers: 2, gamesPerRanker: 2 });
+  const { combos, basis } = await collect(client, dict);
 
-  assert.deepEqual(
-    stats.map((stat) => stat.name),
-    ["아야", "재키", "피오라", "리 다이린"],
-  );
-  assert.deepEqual(stats[0], { code: 2, name: "아야", picks: 3, pickRate: 3 / 8, avgRank: 2, top1Rate: 1 / 3, mainWeapon: "권총" });
-  assert.deepEqual(stats[1], { code: 1, name: "재키", picks: 3, pickRate: 3 / 8, avgRank: 7 / 3, top1Rate: 1 / 3, mainWeapon: "단검" });
-  assert.deepEqual(stats[2], { code: 3, name: "피오라", picks: 1, pickRate: 1 / 8, avgRank: 3, top1Rate: 0, mainWeapon: "레이피어" });
-  assert.deepEqual(stats[3], { code: 10, name: "리 다이린", picks: 1, pickRate: 1 / 8, avgRank: 4, top1Rate: 0, mainWeapon: "글러브" });
+  // 참가자 많은 순, 같으면 캐릭터·무기 코드 순
+  assert.deepEqual(combos.map((c) => [c.characterCode, c.weaponCode, c.participants]), [[1, 15, 2], [2, 9, 2], [1, 16, 1], [2, 10, 1], [3, 21, 1], [10, 1, 1]]);
+  assert.deepEqual(combos[0], {
+    characterCode: 1, weaponCode: 15, participants: 2, rankSum: 3, top1: 1,
+    mmrGainSum: 65, mmrGainSamples: 2, kills: 9, assists: 8, deaths: 3, damage: 36000,
+    traits: { "7000201": 2 },
+    equipment: { "0": { "117406": 1, "118403": 1 }, "1": { "202529": 2 }, "2": { "201404": 2 }, "3": { "205408": 2 }, "4": { "204416": 2 } },
+  });
+  assert.deepEqual(basis, { seasonId: 41, seasonName: "시즌 12", patch: "7.0", games: 2, participants: 8, rankers: 2, gamesPerRanker: 2, collectedAt: "2026-11-21T00:00:00.000Z" });
+});
 
-  assert.equal(basis.seasonName, "시즌 12");
-  assert.equal(basis.sampleGames, 8);
-  assert.equal(basis.description, "최근 상위 랭커 8판 기준");
-  assert.ok(!Number.isNaN(Date.parse(basis.collectedAt)));
+test("MMR 증감이 없는 행은 MMR 표본에서 뺀다", async () => {
+  const { dict, client } = await setup();
+  const { combos } = await collect(client, dict);
+  const twoHand = combos.find((c) => c.characterCode === 1 && c.weaponCode === 16)!;
+  assert.equal(twoHand.mmrGainSamples, 0);
+  assert.equal(twoHand.mmrGainSum, 0);
+  assert.equal(twoHand.participants, 1);
+});
+
+test("지난 시즌 경기는 상세를 받지 않고, 상세에서도 다른 시즌·랭크 아닌 행은 세지 않는다", async () => {
+  const routes = metaRoutes();
+  const userGamesA = routes["/v1/user/games/uid/uid-a"] as { userGames: Array<Record<string, unknown>> };
+  // 랭커A의 최근 경기 맨 앞에 지난 시즌(40) 랭크 경기를 끼운다
+  routes["/v1/user/games/uid/uid-a"] = { ...userGamesA, userGames: [{ gameId: 990, matchingMode: 3, matchingTeamMode: 3, seasonId: 40, characterNum: 1, gameRank: 1 }, ...userGamesA.userGames] };
+  const game1002 = routes["/v1/games/1002"] as { userGames: Array<Record<string, unknown>> };
+  routes["/v1/games/1002"] = {
+    ...game1002,
+    userGames: [...game1002.userGames, { ...game1002.userGames[0], seasonId: 40 }, { ...game1002.userGames[0], matchingMode: 2 }],
+  };
+  const { dict, client } = await setup(routes);
+  const { basis } = await collect(client, dict);
+  assert.equal(client.calls.includes("/v1/games/990"), false);
+  assert.equal(basis.participants, 8);
+  assert.equal(basis.games, 2);
+});
+
+test("무기를 모르는 행은 무기 0으로 센다", async () => {
+  const routes = metaRoutes();
+  const game1002 = routes["/v1/games/1002"] as { userGames: Array<Record<string, unknown>> };
+  routes["/v1/games/1002"] = { ...game1002, userGames: game1002.userGames.map((row, i) => (i === 3 ? { ...row, bestWeapon: undefined } : row)) };
+  const { dict, client } = await setup(routes);
+  const { combos } = await collect(client, dict);
+  assert.ok(combos.some((c) => c.characterCode === 10 && c.weaponCode === 0));
+});
+
+test("패치는 경기 수 최빈값이고 같으면 큰 버전, 버전 필드가 없으면 null", async () => {
+  const withVersion = (minor: number | undefined) => {
+    const routes = metaRoutes();
+    const game1002 = routes["/v1/games/1002"] as { userGames: Array<Record<string, unknown>> };
+    routes["/v1/games/1002"] = { ...game1002, userGames: game1002.userGames.map((row) => ({ ...row, versionMinor: minor })) };
+    return routes;
+  };
+  // 7.0 한 판, 7.1 한 판 → 큰 버전
+  let { dict, client } = await setup(withVersion(1));
+  assert.equal((await collect(client, dict)).basis.patch, "7.1");
+
+  const noVersion = metaRoutes();
+  for (const id of ["1001", "1002"]) {
+    const game = noVersion[`/v1/games/${id}`] as { userGames: Array<Record<string, unknown>> };
+    noVersion[`/v1/games/${id}`] = { ...game, userGames: game.userGames.map(({ versionMajor: _major, versionMinor: _minor, ...row }) => row) };
+  }
+  ({ dict, client } = await setup(noVersion));
+  assert.equal((await collect(client, dict)).basis.patch, null);
 });
 
 test("순위 1, 2위 랭커만 쓰고 일반 경기는 고르지 않으며 같은 경기는 한 번만 받는다", async () => {
@@ -74,10 +126,13 @@ test("닉네임이 바뀌어 uid를 못 찾은 랭커와 받지 못한 경기는
   const routes = { ...metaRoutes(), "/v1/games/1002": new ErApiError(500, 500, "서버 오류") };
   const { dict, client } = await setup(routes);
   // 랭커C는 닉네임 조회 경로가 없어 404다
-  const { stats, basis } = await collectMeta(client, dict, { rankers: 3, gamesPerRanker: 2 });
+  const { combos, basis } = await collectMeta(client, dict, { rankers: 3, gamesPerRanker: 2 });
   assert.ok(client.calls.includes(nicknamePath("랭커C")));
-  assert.equal(basis.sampleGames, 4);
-  assert.deepEqual(stats[0], { code: 1, name: "재키", picks: 2, pickRate: 0.5, avgRank: 2.5, top1Rate: 0.5, mainWeapon: "단검" });
+  assert.equal(basis.games, 1);
+  assert.equal(basis.participants, 4);
+  // 랭커C는 uid를 못 찾아 랭커 수에서 빠진다
+  assert.equal(basis.rankers, 2);
+  assert.deepEqual(combos.map((c) => [c.characterCode, c.weaponCode]), [[1, 15], [1, 16], [2, 9], [3, 21]]);
 });
 
 test("진행률은 늘어나기만 하고 마지막에 done === total이다", async () => {
@@ -103,11 +158,12 @@ test("상위 랭커 목록을 받지 못하면 그 오류를 그대로 낸다", 
   await assert.rejects(collectMeta(client, dict, { rankers: 2, gamesPerRanker: 2 }), (error: unknown) => error instanceof ErApiError && error.status === 403);
 });
 
-test("기준 문구의 판 수는 천 단위 쉼표를 쓴다", async () => {
-  const many = Array.from({ length: 1234 }, (_, i) => ({ gameId: 1001, matchingMode: 3, characterNum: 1, gameRank: (i % 8) + 1, bestWeapon: 15 }));
+test("경기 수와 참가자 수를 따로 센다", async () => {
+  const many = Array.from({ length: 1234 }, (_, i) => ({ gameId: 1001, matchingMode: 3, seasonId: 41, characterNum: 1, gameRank: (i % 8) + 1, bestWeapon: 15 }));
   const routes = { ...metaRoutes(), "/v1/games/1001": { code: 200, message: "Success", userGames: many } };
   const { dict, client } = await setup(routes);
-  const { basis } = await collectMeta(client, dict, { rankers: 1, gamesPerRanker: 1 });
-  assert.equal(basis.sampleGames, 1234);
-  assert.equal(basis.description, "최근 상위 랭커 1,234판 기준");
+  const { basis, combos } = await collectMeta(client, dict, { rankers: 1, gamesPerRanker: 1 });
+  assert.equal(basis.games, 1);
+  assert.equal(basis.participants, 1234);
+  assert.equal(combos[0]?.participants, 1234);
 });

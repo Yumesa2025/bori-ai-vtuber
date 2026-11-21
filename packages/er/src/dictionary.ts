@@ -5,7 +5,19 @@
 import { characterAliases } from "./aliases.js";
 import type { ErClient } from "./client.js";
 
-export type ErDictionary = { characters: Array<{ code: number; name: string; weapons: string[] }>; weaponNames: Record<number, string>; seasonId: number; seasonName: string };
+export type ErDictionary = {
+  characters: Array<{ code: number; name: string; weapons: string[] }>;
+  weaponNames: Record<number, string>;
+  seasonId: number;
+  seasonName: string;
+  // 아래 셋은 대시보드용으로 나중에 더했다. 예전 사전 파일에는 없을 수 있다.
+  /** 장비 코드 → 한국어 이름(l10n Item/Name). 부위별 장비에 쓴다 */
+  itemNames?: Record<number, string>;
+  /** 특성 코드 → 한국어 이름(l10n Trait/Name). 코어 특성에 쓴다 */
+  traitNames?: Record<number, string>;
+  /** 현재 시즌이 끝나는 시각(ISO). 지나면 사전을 다시 받아야 한다. 모르면 null */
+  seasonEnd?: string | null;
+};
 type ErCharacter = ErDictionary["characters"][number];
 
 /** 경기 결과의 bestWeapon(숙련도 코드) → 언어 데이터 WeaponType 키. 공식 문서 4.5 숙련도 표 기준. */
@@ -18,7 +30,29 @@ const WEAPON_TYPES: Record<number, string> = {
 type DataResponse<T> = { data: T };
 type CharacterRow = { code: number; name: string };
 type MasteryRow = { code: number; weapon1?: string; weapon2?: string; weapon3?: string; weapon4?: string };
-type SeasonRow = { seasonID: number; seasonName: string; isCurrent: number | string };
+type SeasonRow = { seasonID: number; seasonName: string; seasonEnd?: string; isCurrent: number | string };
+
+/**
+ * Season API의 "2027-02-18 09:00:00". 시간대 표기가 없어 한국 시간으로 읽는다
+ * (경기 startDtm이 +0900이라 그렇게 본다. 공식 문서로는 확인하지 못했다). 못 읽으면 null.
+ */
+function seasonEndIso(value: string | undefined): string | null {
+  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})$/.exec(value?.trim() ?? "");
+  if (!match) return null;
+  const time = Date.parse(`${match[1]}T${match[2]}+09:00`);
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
+}
+
+/** l10n에서 "접두어/숫자" 키만 모은다. "202529_D" 같은 변형 키는 뺀다. */
+function namesByCode(l10n: Map<string, string>, prefix: string): Record<number, string> {
+  const names: Record<number, string> = {};
+  for (const [key, value] of l10n) {
+    if (!key.startsWith(prefix)) continue;
+    const code = key.slice(prefix.length);
+    if (/^\d+$/.test(code)) names[Number(code)] = value;
+  }
+  return names;
+}
 
 /** 언어 데이터 텍스트. 한 줄이 "키┃값"이고 값에 ┃가 또 있어도 첫 구분자만 쓴다. */
 function parseL10n(text: string): Map<string, string> {
@@ -78,8 +112,11 @@ export async function loadDictionary(client: ErClient): Promise<ErDictionary> {
       };
     }),
     weaponNames,
+    itemNames: namesByCode(l10n, "Item/Name/"),
+    traitNames: namesByCode(l10n, "Trait/Name/"),
     seasonId: current.seasonID,
     seasonName: koreanSeasonName(current.seasonName),
+    seasonEnd: seasonEndIso(current.seasonEnd),
   };
 }
 
