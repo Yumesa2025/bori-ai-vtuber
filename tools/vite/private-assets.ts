@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { cp, mkdir, readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -8,6 +8,19 @@ import { extname, isAbsolute, relative, resolve, sep } from "node:path";
  * 두 폴더 모두 재배포 금지라 저장소에는 넣지 않는다(.gitignore).
  */
 const sdkDir = "private-assets/cubism-sdk/CubismSdkForWeb-5-r.5";
+
+/** 상대 경로는 저장소 루트 기준이다. */
+export function modelDirectory(projectRoot: string): string {
+  return resolve(projectRoot, process.env.BORI_LIVE2D_MODEL_DIR || "private-assets/live2d-model");
+}
+
+export function modelManifest(projectRoot: string): string {
+  const folder = modelDirectory(projectRoot);
+  const names = existsSync(folder) ? readdirSync(folder, { withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith(".model3.json")).map(entry => entry.name) : [];
+  if (names.length !== 1) throw new Error(`Live2D 모델 폴더에는 *.model3.json 파일이 정확히 하나 있어야 합니다 (발견: ${names.length}). BORI_LIVE2D_MODEL_DIR 또는 private-assets/live2d-model/을 확인하세요.`);
+  return resolve(folder, names[0]);
+}
 
 const mimeTypes: Record<string, string> = {
   ".json": "application/json",
@@ -37,7 +50,7 @@ export function privateAssetAliases(projectRoot: string) {
 function assetRoutesFor(projectRoot: string) {
   const sdkRoot = resolve(projectRoot, sdkDir);
   return [
-    { prefix: "/private-model/maolili/", root: resolve(projectRoot, "maolili"), include: undefined },
+    { prefix: "/private-model/model/", root: modelDirectory(projectRoot), include: undefined },
     // Core는 런타임에 쓰는 스크립트와 라이선스만 내보낸다. 소스맵과 문서는 뺀다.
     { prefix: "/private-core/", root: resolve(sdkRoot, "Core"), include: ["live2dcubismcore.js", "LICENSE.md"] },
     // 셰이더는 Framework/src가 아니라 Framework 바로 아래에 있다.
@@ -47,7 +60,7 @@ function assetRoutesFor(projectRoot: string) {
 
 /**
  * dev 요청이 가리키는 파일 경로. 폴더 밖이거나 include 밖이면 null이다.
- * 접두사 비교(startsWith)는 구분자를 보지 않아 형제 폴더(maolili-x/)를 통과시키므로 relative로 본다.
+ * 접두사 비교(startsWith)는 구분자를 보지 않아 형제 폴더(sample-model-x/)를 통과시키므로 relative로 본다.
  */
 function allowedFilePath(route: ReturnType<typeof assetRoutesFor>[number], url: string): string | null {
   const filePath = resolve(route.root, url.slice(route.prefix.length));
@@ -66,7 +79,7 @@ function allowedFilePath(route: ReturnType<typeof assetRoutesFor>[number], url: 
 export function missingPrivateFolders(projectRoot: string): string[] {
   const sdkRoot = resolve(projectRoot, sdkDir);
   const required = [
-    resolve(projectRoot, "maolili"),
+    modelDirectory(projectRoot),
     sdkRoot,
     ...Object.values(privateAssetAliases(projectRoot)),
     ...assetRoutesFor(projectRoot).map(route => route.root),
@@ -81,7 +94,7 @@ export function missingAssetsMessage(projectRoot: string, missing: readonly stri
   return [
     "비공개 자산이 없어 이 화면을 빌드할 수 없습니다.",
     `없는 폴더:\n${folders}`,
-    "구매 모델(maolili/)과 Cubism SDK for Web(private-assets/cubism-sdk/)을 README '실행 전 반드시 알아둘 것'대로 놓은 뒤 다시 빌드하세요.",
+    "구매 모델(private-assets/live2d-model/)과 Cubism SDK for Web(private-assets/cubism-sdk/)을 README '실행 전 반드시 알아둘 것'대로 놓은 뒤 다시 빌드하세요.",
     "자산 없이 되는 빌드는 관리자 화면(npm run build:admin)뿐입니다.",
   ].join("\n");
 }
@@ -91,6 +104,23 @@ export function privateAssets({ projectRoot, outDir }: { projectRoot: string; ou
   let building = false;
   return {
     name: "bori-private-assets",
+    enforce: "pre" as const,
+    // SDK 원본 수정 없이 dev와 build에 같은 경로를 주입한다.
+    transform(code: string, id: string) {
+      const target = resolve(privateAssetAliases(projectRoot)["@sdk-sample"], "lappdefine.ts");
+      if (resolve(id.split("?")[0]) !== target) return null;
+      modelManifest(projectRoot);
+      const values: Record<string, string> = {
+        ResourcesPath: '"/private-model/"', ModelDir: '["model"]',
+        ShaderPath: '"/private-framework/Shaders/WebGL/"',
+      };
+      for (const [name, value] of Object.entries(values)) {
+        const pattern = new RegExp(`export\\s+const\\s+${name}\\s*(?::[^=;]+)?=\\s*[^;]+;`, "g");
+        if ([...code.matchAll(pattern)].length !== 1) throw new Error(`SDK lappdefine.ts의 ${name} 선언을 확인하세요.`);
+        code = code.replace(pattern, `export const ${name} = ${value};`);
+      }
+      return { code, map: null };
+    },
     configResolved(config: { command: string }) {
       building = config.command === "build";
     },
@@ -98,7 +128,7 @@ export function privateAssets({ projectRoot, outDir }: { projectRoot: string; ou
     buildStart() {
       if (!building) return;
       const missing = missingPrivateFolders(projectRoot);
-      if (missing.length === 0) return;
+      if (missing.length === 0) { modelManifest(projectRoot); return; }
       // 스택은 node 내부 위치뿐이라 지운다. vite가 플러그인 이름을 붙여 메시지만 찍는다.
       const error = new Error(missingAssetsMessage(projectRoot, missing));
       error.stack = "";
@@ -111,10 +141,11 @@ export function privateAssets({ projectRoot, outDir }: { projectRoot: string; ou
         const route = assetRoutes.find(candidate => url.startsWith(candidate.prefix));
         if (!route) { next(); return; }
 
-        const filePath = allowedFilePath(route, url);
+        let filePath = allowedFilePath(route, url);
         if (!filePath) { response.statusCode = 403; response.end(); return; }
 
         try {
+          if (url === "/private-model/model/model.model3.json") filePath = modelManifest(projectRoot);
           const data = await readFile(filePath);
           response.statusCode = 200;
           response.setHeader("Content-Type", mimeTypes[extname(url)] ?? "application/octet-stream");
@@ -129,6 +160,7 @@ export function privateAssets({ projectRoot, outDir }: { projectRoot: string; ou
     async closeBundle() {
       // 빌드가 실패해도 이 훅은 불린다. 자산이 없어 buildStart가 멈춘 경우 그 안내를 덮지 않게 그냥 끝낸다.
       if (assetRoutes.some(route => !existsSync(route.root))) return;
+      const manifest = await realpath(modelManifest(projectRoot));
       for (const route of assetRoutes) {
         const target = resolve(outDir, route.prefix.slice(1));
         await mkdir(target, { recursive: true });
@@ -138,7 +170,8 @@ export function privateAssets({ projectRoot, outDir }: { projectRoot: string; ou
         if (route.include) {
           for (const name of route.include) await cp(resolve(source, name), resolve(target, name));
         } else {
-          await cp(source, target, { recursive: true });
+          await cp(source, target, { recursive: true, filter: path => path !== manifest });
+          if (route.prefix === "/private-model/model/") await cp(manifest, resolve(target, "model.model3.json"));
         }
       }
     },

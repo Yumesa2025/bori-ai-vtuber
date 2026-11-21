@@ -8,11 +8,12 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { privateAssets } from "../../../tools/vite/private-assets";
+import { modelDirectory, modelManifest, privateAssetAliases, privateAssets } from "../../../tools/vite/private-assets";
 
 const SDK = "private-assets/cubism-sdk/CubismSdkForWeb-5-r.5";
 
 let root: string;
+let previousModelDir: string | undefined;
 
 function put(path: string, content = "x") {
   const full = join(root, path);
@@ -21,11 +22,13 @@ function put(path: string, content = "x") {
 }
 
 beforeEach(() => {
+  previousModelDir = process.env.BORI_LIVE2D_MODEL_DIR;
+  delete process.env.BORI_LIVE2D_MODEL_DIR;
   root = mkdtempSync(join(tmpdir(), "bori-private-assets-"));
-  put("maolili/maolili.model3.json", "model");
-  put("maolili/textures/texture_00.png", "png");
-  // 이름이 maolili로 시작하는 형제 폴더. 접두사 비교로는 빠져나갈 수 있었다.
-  put("maolili-x/secret.json", "secret");
+  put("private-assets/live2d-model/sample-model.model3.json", "model");
+  put("private-assets/live2d-model/textures/texture_00.png", "png");
+  // 이름이 sample-model로 시작하는 형제 폴더. 접두사 비교로는 빠져나갈 수 있었다.
+  put("private-assets/live2d-model-x/secret.json", "secret");
   put(`${SDK}/Core/live2dcubismcore.js`, "core");
   put(`${SDK}/Core/LICENSE.md`, "license");
   put(`${SDK}/Core/live2dcubismcore.js.map`, "map");
@@ -36,6 +39,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (previousModelDir === undefined) delete process.env.BORI_LIVE2D_MODEL_DIR;
+  else process.env.BORI_LIVE2D_MODEL_DIR = previousModelDir;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -67,8 +72,8 @@ async function get(url: string): Promise<{ status: number | "next"; body: string
 
 describe("dev 미들웨어 경로 검사", () => {
   test("비공개 폴더 안의 파일은 내준다", async () => {
-    assert.deepEqual(await get("/private-model/maolili/maolili.model3.json"), { status: 200, body: "model" });
-    assert.deepEqual(await get("/private-model/maolili/textures/texture_00.png?v=1"), { status: 200, body: "png" });
+    assert.deepEqual(await get("/private-model/model/model.model3.json"), { status: 200, body: "model" });
+    assert.deepEqual(await get("/private-model/model/textures/texture_00.png?v=1"), { status: 200, body: "png" });
     assert.deepEqual(await get("/private-framework/Shaders/WebGL/vertshadersrc.vert"), { status: 200, body: "vert" });
   });
 
@@ -78,7 +83,7 @@ describe("dev 미들웨어 경로 검사", () => {
 
   test("이름이 같은 접두사로 시작하는 형제 폴더로 빠져나가지 못한다", async () => {
     for (const url of [
-      "/private-model/maolili/../maolili-x/secret.json",
+      "/private-model/model/../live2d-model-x/secret.json",
       "/private-core/../CoreExtra/secret.js",
       "/private-framework/Shaders/WebGL/../WebGLx/secret.vert",
     ]) {
@@ -89,8 +94,8 @@ describe("dev 미들웨어 경로 검사", () => {
   });
 
   test("상위 폴더로 빠져나가지 못한다", async () => {
-    assert.equal((await get("/private-model/maolili/../../package.json")).status, 403);
-    assert.equal((await get("/private-model/maolili/..")).status, 403);
+    assert.equal((await get("/private-model/model/../../package.json")).status, 403);
+    assert.equal((await get("/private-model/model/..")).status, 403);
   });
 
   test("dev에서도 Core는 include 목록(스크립트·라이선스)만 내준다", async () => {
@@ -101,7 +106,7 @@ describe("dev 미들웨어 경로 검사", () => {
   });
 
   test("없는 파일은 404다", async () => {
-    assert.equal((await get("/private-model/maolili/missing.json")).status, 404);
+    assert.equal((await get("/private-model/model/missing.json")).status, 404);
   });
 });
 
@@ -115,8 +120,57 @@ describe("빌드 복사", () => {
       "private-core/LICENSE.md",
       "private-core/live2dcubismcore.js",
       "private-framework/Shaders/WebGL/vertshadersrc.vert",
-      "private-model/maolili/maolili.model3.json",
-      "private-model/maolili/textures/texture_00.png",
+      "private-model/model/model.model3.json",
+      "private-model/model/textures/texture_00.png",
     ]);
+  });
+});
+
+
+describe("모델 위치와 SDK 경로 주입", () => {
+  test("기본 위치와 상대·절대 환경변수를 해석한다", async () => {
+    assert.equal(modelDirectory(root), join(root, "private-assets/live2d-model"));
+    for (const location of ["custom-model", join(root, "custom-model")]) {
+      process.env.BORI_LIVE2D_MODEL_DIR = location;
+      put("custom-model/another.model3.json", "custom");
+      assert.equal(modelManifest(root), join(root, "custom-model/another.model3.json"));
+      assert.deepEqual(await get("/private-model/model/model.model3.json"), { status: 200, body: "custom" });
+      const outDir = join(root, "custom-dist");
+      await privateAssets({ projectRoot: root, outDir }).closeBundle();
+      assert.deepEqual(readdirSync(join(outDir, "private-model/model")), ["model.model3.json"]);
+    }
+  });
+
+  test("manifest가 없거나 여러 개면 빌드가 실패한다", () => {
+    mkdirSync(join(root, SDK, "Framework/src"), { recursive: true });
+    mkdirSync(join(root, SDK, "Samples/TypeScript/Demo/src"), { recursive: true });
+    const plugin = privateAssets({ projectRoot: root, outDir: join(root, "dist") });
+    plugin.configResolved({ command: "build" });
+    rmSync(modelManifest(root));
+    assert.throws(() => plugin.buildStart(), /정확히 하나.*발견: 0/);
+    put("private-assets/live2d-model/first.model3.json");
+    put("private-assets/live2d-model/second.model3.json");
+    assert.throws(() => plugin.buildStart(), /정확히 하나.*발견: 2/);
+  });
+
+  test("SDK 경로 상수만 바꾸고 다른 설정을 보존한다", () => {
+    const plugin = privateAssets({ projectRoot: root, outDir: join(root, "dist") });
+    const id = join(privateAssetAliases(root)["@sdk-sample"], "lappdefine.ts");
+    const source = `export const ResourcesPath = 'old/';
+export const ModelDir: string[] = [
+ 'sample-model'
+];
+export const ShaderPath = 'shaders/';
+export const ModelScale = 2.0;
+export const ModelDirSize: number = ModelDir.length;`;
+    const result = plugin.transform(source, id);
+    assert.ok(result);
+    assert.match(result.code, /ModelDir = \["model"\]/);
+    assert.match(result.code, /ResourcesPath = "\/private-model\/"/);
+    assert.match(result.code, /ShaderPath = "\/private-framework\/Shaders\/WebGL\/"/);
+    assert.ok(result.code.includes("export const ModelScale = 2.0;"));
+    assert.ok(result.code.includes("ModelDirSize: number = ModelDir.length"));
+    assert.equal(plugin.transform(source, join(root, "other.ts")), null);
+    assert.throws(() => plugin.transform("export const ModelScale = 2.0;", id), /ResourcesPath/);
   });
 });

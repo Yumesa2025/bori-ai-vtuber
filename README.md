@@ -40,9 +40,13 @@
 | 필요한 것 | 배치 위치 | 비고 |
 |---|---|---|
 | Cubism SDK for Web 5-r.5 | `private-assets/cubism-sdk/CubismSdkForWeb-5-r.5/` | Live2D 공식 배포본을 내려받아 압축 해제한다 |
-| 구매한 상용 Live2D 모델 | 저장소 루트의 모델 디렉터리 | `.model3.json`, `.moc3`, 텍스처, 표정 파일이 포함된 원본 구조 그대로 둔다 |
+| 구매한 상용 Live2D 모델 | `private-assets/live2d-model/` | `.model3.json`, `.moc3`, 텍스처, 표정 파일이 포함된 원본 구조 그대로 둔다 |
 
-모델 디렉터리 이름은 `tools/vite/private-assets.ts`의 `assetRoutesFor`와 Cubism SDK 샘플의 `lappdefine.ts`(`ResourcesPath`)에서 참조한다. 다른 모델을 쓰면 두 곳을 실제 이름에 맞춘다. 표정·모션 식별자와 감정 표는 `packages/live2d`에 allowlist로 들어 있다.
+모델 폴더 바로 아래에는 `*.model3.json`이 정확히 하나 있어야 한다(없거나 여러 개면 빌드 오류). 다른 위치는 명령 환경변수 `BORI_LIVE2D_MODEL_DIR`로 지정한다. 저장소 기준 상대 경로와 절대 경로 모두 지원한다. PowerShell 예: `$env:BORI_LIVE2D_MODEL_DIR = 'private-assets/live2d-model'`. Vite는 `.env`에서 이 값을 자동으로 읽지 않는다.
+
+SDK 원본 수정은 필요 없다. Vite가 `lappdefine.ts`의 `ResourcesPath`, `ModelDir`, `ShaderPath`를 dev·빌드 때 주입하고, 모델 JSON은 `/private-model/model/model.model3.json`으로 제공한다. JSON 내부의 텍스처·표정 등 상대 참조는 원본 그대로 유지한다. 자산 내용이나 내부 파일명까지 익명화하는 기능은 아니며, 비공개 자산이 들어간 `dist`는 공개하면 안 된다.
+
+`.gitignore`는 루트의 새 폴더를 기본 제외하고 `.github`, `apps`, `docs`, `packages`, `tools`만 허용한다. 이전 위치에 남은 구매 모델 전체도 이름 없이 보호한다. 새 소스 루트 폴더를 추가할 때는 허용 목록을 검토한다. 표정·모션 식별자와 감정 표는 `packages/live2d`에 allowlist로 들어 있다.
 
 이터널리턴 데이터를 받으려면 이터널리턴 Open API 키가 필요하다(`.env`의 `ER_API_KEY`). 대사 생성(LLM)과 음성(TTS) 키는 없어도 되며, 없으면 대사는 정해진 문장으로, 음성 없이 자막만 나온다.
 
@@ -106,7 +110,7 @@
 
 | 디렉터리 | 제외 이유 |
 |---|---|
-| 구매 모델 디렉터리 | 구매한 상용 Live2D 모델. 재배포 금지 |
+| `private-assets/live2d-model/` | 구매한 상용 Live2D 모델. 재배포 금지 |
 | `private-assets/cubism-sdk/` | Live2D Proprietary Software License. 재배포가 허용된 파일은 `live2dcubismcore.{d.ts,js,min.js}` 3개뿐이다 |
 | `data/` | 암호화된 API 키를 포함한 설정, 이터널리턴 집계, 사용량, 로그 |
 | `_local/` | 공개하지 않는 사전 조사 자료 |
