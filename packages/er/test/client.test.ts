@@ -166,3 +166,60 @@ test("오류 메시지에 경로 속 uid가 들어가지 않는다(로그·화�
     });
   }
 });
+
+for (const phase of ["headers", "body", "external"] as const) {
+  test(`시간 상한은 ${phase} 대기를 끊고 다음 큐를 진행한다`, { timeout: 2000 }, async () => {
+    let calls = 0;
+    let signal: AbortSignal | null | undefined;
+    const client = createErClient({ apiKey: KEY, minIntervalMs: 0, timeoutMs: 30,
+      fetch: (async (_url, init) => {
+        calls += 1;
+        if (calls > 1) return Response.json({ code: 200 });
+        signal = init?.signal;
+        if (phase === "headers") return new Promise<Response>(() => {});
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"));
+          signal?.addEventListener("abort", () => controller.error(new Error("aborted")), { once: true });
+        } }));
+      }) as typeof fetch,
+    });
+    const first = client.get(phase === "external" ? "https://example.test/private?secret=hidden" : "/v1/user/games/uid/fake-private?query=hidden");
+    const next = client.get("/next");
+    await assert.rejects(first, (error: unknown) => {
+      assert.ok(error instanceof ErApiError);
+      assert.match(error.message, /시간/);
+      assert.ok(!/hidden|fake-private|test-key-secret/.test(error.message));
+      return true;
+    });
+    assert.equal(signal?.aborted, true);
+    assert.deepEqual(await next, { code: 200 });
+  });
+}
+
+test("재시도 전에 응답 본문을 취소한다", async () => {
+  let cancelled = false;
+  let calls = 0;
+  const client = createErClient({ apiKey: KEY, minIntervalMs: 0,
+    fetch: (async () => {
+      if (calls++ === 0) return new Response(new ReadableStream({ cancel() { cancelled = true; } }), { status: 429 });
+      assert.equal(cancelled, true);
+      return Response.json({ code: 200 });
+    }) as typeof fetch,
+  });
+  await client.get("/a");
+});
+
+test("본문이 계속 도착해도 첫 전송의 시간 상한을 연장하지 않는다", async () => {
+  let chunks = 0;
+  const client = createErClient({ apiKey: KEY, minIntervalMs: 0, timeoutMs: 80,
+    fetch: (async (_input, init) => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return new Response(new ReadableStream({ start(controller) {
+        const timer = setInterval(() => { chunks += 1; controller.enqueue(new TextEncoder().encode("x")); }, 5);
+        init?.signal?.addEventListener("abort", () => { clearInterval(timer); controller.error(new Error("aborted")); }, { once: true });
+      } }));
+    }) as typeof fetch,
+  });
+  await assert.rejects(client.get("/a"), (error: unknown) => error instanceof ErApiError && /시간/.test(error.message));
+  assert.ok(chunks > 1);
+});
