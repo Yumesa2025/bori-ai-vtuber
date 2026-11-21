@@ -1,6 +1,6 @@
-﻿import { test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contextState } from './context-state.js';
+import { contextState } from '../src/live2d/context-state.js';
 test('컨텍스트 손실·복구·시간 초과 상태', () => {
   assert.equal(contextState('ready', 'lost'), 'recovering');
   assert.equal(contextState('recovering', 'timeout'), 'failed');
@@ -9,7 +9,7 @@ test('컨텍스트 손실·복구·시간 초과 상태', () => {
   assert.equal(contextState('ready', 'timeout'), 'ready');
 });
 
-import { startGuardedFrames } from './context-state.js';
+import { startGuardedFrames } from '../src/live2d/context-state.js';
 test('SDK 프레임 예약만 중단하고 취소 뒤 콜백도 그리지 않는다', () => {
   let callback: FrameRequestCallback = () => {};
   let draws = 0;

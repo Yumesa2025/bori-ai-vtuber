@@ -1,13 +1,7 @@
-﻿import { chromium, expect } from "@playwright/test";
-import { spawn, spawnSync } from "node:child_process";
+import { chromium, expect } from "@playwright/test";
+import { spawn } from "node:child_process";
 import { availablePort, projectRoot, waitForHttp } from "./harness.mjs";
 import { join } from "node:path";
-
-// 작업 경계 안 src에 둔 순수 검사를 CI smoke에도 포함한다.
-const unit = spawnSync(process.execPath, ['--import', 'tsx', '--test',
-  'apps/server/src/er/refresh-eta.test.ts', 'apps/companion/src/live2d/context-state.test.ts'],
-  { cwd: projectRoot, stdio: 'inherit' });
-if (unit.status !== 0) throw new Error('ETA/WebGL 순수 검사 실패');
 
 // dev:mock과 같은 Vite 진입점. 셸 없이 띄워 Windows에서도 자식을 확실히 정리한다.
 const port = await availablePort();

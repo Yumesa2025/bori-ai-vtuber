@@ -17,3 +17,7 @@
 - 가짜 SDK smoke에 손실 시 preventDefault·캔버스 숨김·복구 시 단일 캔버스·10초 시간 초과를 추가했다.
 - 단위 578/578, 통합 66/66, 하네스 8/8 통과. 타입 검사 8개 워크스페이스 통과, 브라우저 smoke 8/8 통과.
 - 메모리·파일은 코드 구조로 확인했다: 경기마다 상세를 버리고 경기 ID와 조합 카운트만 누적, 저장 파일도 집계만 포함한다. 실제 API 10판 수집의 최대 메모리/파일 크기 및 실제 비공개 SDK 복구는 실행하지 않았다.
+
+## PR 검토 반영: 단위 검사 위치 정리
+
+두 test 폴더의 경계가 허용되어 새 검사를 `apps/server/test/er-refresh-eta.test.ts`, `apps/companion/test/context-state.test.ts`로 옮겼다. smoke의 별도 실행은 제거했다. `npm run test:unit`이 기존 578개에서 581개로 늘었고 581개 모두 통과했다.
