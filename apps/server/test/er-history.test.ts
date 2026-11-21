@@ -89,3 +89,28 @@ describe("ER history", () => {
     assert.deepEqual(parseCollection({ format: 2, ...valid }), valid);
   });
 });
+
+test("손상된 필수 집계는 일부 행을 버리지 않고 전체를 거부한다", () => {
+  const good = collection(at(1), 30);
+  const second = { ...good.combos[0]!, characterCode: 2 };
+  const full = { ...good, basis: { ...good.basis, participants: 60 }, combos: [...good.combos, second] };
+  assert.ok(parseCollection(full));
+  for (const combos of [[good.combos[0], { ...second, rankSum: "broken" }], [{ ...second, rankSum: "broken" }], [], [good.combos[0]]]) {
+    assert.equal(parseCollection({ ...full, combos }), null);
+  }
+  for (const [key, value] of [["participants", -1], ["top1", 31], ["mmrGainSamples", 31], ["kills", 1.5], ["deaths", -1], ["traits", { "1": -1 }], ["equipment", { "0": { "1": 31 } }]] as const) {
+    assert.equal(parseCollection({ ...good, combos: [{ ...good.combos[0], [key]: value }] }), null, key);
+  }
+  for (const key of ["games", "participants", "rankers", "gamesPerRanker"]) {
+    assert.equal(parseCollection({ ...good, basis: { ...good.basis, [key]: -1 } }), null, key);
+    assert.equal(parseCollection({ ...good, basis: { ...good.basis, [key]: 1.5 } }), null, key);
+  }
+});
+
+test("유효 JSON 내부가 손상된 history는 더 오래된 정상 집계로 건너뛴다", () => {
+  const history = createErHistory({ dir, warn: quiet });
+  history.save(collection(at(1)));
+  const broken = collection(at(2));
+  writeFileSync(join(dir, historyFileName(at(2))), JSON.stringify({ ...broken, combos: [{ ...broken.combos[0], top1: 100 }] }));
+  assert.equal(history.previous(at(3))?.basis.collectedAt, at(1));
+});
