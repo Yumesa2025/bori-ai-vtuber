@@ -10,3 +10,11 @@
 6. typecheck, test:unit, test, test:harness, test:dashboard-smoke를 실행한다. 작은 한국어 커밋으로 push하고 한국어 PR을 작성한 뒤 CI를 포그라운드에서 확인한다.
 
 실제 원래 체크아웃의 data/ 및 키는 읽지 않는다. 실제 데이터 이전 검증은 병합 후 코디네이터가 맡는다.
+
+## 실행 결과
+
+- 먼저 새 검사 실행: initializeSecretStore 미구현으로 1건 실패 확인(0 통과).
+- 구현 후 Windows: typecheck 8개 워크스페이스 통과, 단위 검사 587 통과·0 실패·1 건너뜀(비Windows 0600), 실제 DPAPI 왕복 포함.
+- 하네스 8/8, Chromium 대시보드 smoke 5/5 통과. 통합 검사는 PR 본문에 최종 실행 수를 기록한다.
+- 계획 변경: 코디네이터 승인으로 api-key-slot.test.ts와 data-safety.test.ts에 임시 폴더·가짜 보호기 초기화/정리를 추가했다. 슬롯 검사의 출력 접두사 2곳만 v2로 바꾸고 기존 검사 성질은 유지했다.
+- 원래 data/는 열지 않았다. 실제 사용자 데이터 이전은 코디네이터가 병합 후 백업을 만든 뒤 확인한다.
