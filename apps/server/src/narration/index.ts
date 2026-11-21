@@ -42,7 +42,9 @@ export type NarratorDeps = {
   timeoutMs?: number;
   /** 줄마다 음성 합성 기다림 상한. 넘으면 그 줄은 자막만 보여 준다. 기본 20초 */
   audioTimeoutMs?: number;
-  /** 대사 본문과 닉네임은 넘기지 않는다. 버린 줄·감상 수와 이유, 오류 메시지만 */
+  /** 지시에 싣는 감상 예시를 고르는 난수(0 이상 1 미만). 기본 Math.random. 검사에서 시드를 고정한다 */
+  random?: () => number;
+  /** 대사 본문과 닉네임은 넘기지 않는다. 버린 줄·감상 수와 이유(copied·repeated 포함), 오류 메시지만 */
   log?: (message: string) => void;
 };
 
@@ -128,7 +130,7 @@ export function createNarrator(deps: NarratorDeps): Narrator {
     const llm = facts.length > 0 ? deps.llm : null;
     if (!llm) return null;
     const maxLineLength = deps.maxLineLength?.() ?? DEFAULT_MAX_LINE_LENGTH;
-    const written = await within(writeLines(llm, facts, { timeoutMs }), timeoutMs + Math.min(LLM_GRACE_MS, timeoutMs));
+    const written = await within(writeLines(llm, facts, { timeoutMs, ...(deps.random ? { random: deps.random } : {}) }), timeoutMs + Math.min(LLM_GRACE_MS, timeoutMs));
     if (written === TIMED_OUT) { log("LLM이 시간 상한 안에 답하지 않아 정해진 문장을 씁니다."); return null; }
     if (!written.ok) { log(`LLM 대사를 쓰지 못해 정해진 문장을 씁니다: ${written.reason}`); return null; }
     const { kept, dropped, commentDropped } = composeLines(written.lines, facts, { names: names(input), maxLineLength });

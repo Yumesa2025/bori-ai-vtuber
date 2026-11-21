@@ -5,21 +5,28 @@
  * 줄 문장은 서버가 "사실의 정해진 문장(renderFact) + 통과한 감상"으로 만든다. 수치·이름은 서버 문장에만 있다.
  * - 없는 factId, 이미 고른 factId, 최대 줄 수를 넘는 줄은 버린다.
  * - 감상이 comment.ts 규칙을 어기거나 합친 줄이 글자 상한을 넘으면 감상만 버린다.
+ * - 과제 A(2026-11-22): 규칙을 통과한 감상이라도 예시 묶음을 그대로 베꼈으면(copied),
+ *   같은 대사에서 이미 붙인 감상과 같으면(repeated, 두 번째부터) 감상만 버린다. 공백·문장부호만 다른 것도 같다고 본다.
+ * - 과제 A: comment가 비었거나 버려지면 예비 감상(backup)을 같은 검사로 본다. 버린 감상은 둘 다 이유를 센다.
  */
 import type { NarrationLine } from "@bori/shared";
 import { boriEmotionNames } from "@bori/live2d";
 import { checkComment, type CommentReason } from "./comment.js";
+import { commentKey, isCopiedExample } from "./examples.js";
 import type { NarrationFact } from "./facts.js";
 import type { NameDictionary } from "./names.js";
 import { renderFact } from "./template.js";
 
-/** LLM 구조화 출력의 한 줄 */
-export type RawLine = { factId: string; emotion: string; comment: string };
+/** LLM 구조화 출력의 한 줄. backup은 comment가 버려질 때 대신 보는 예비 감상이다(과제 A) */
+export type RawLine = { factId: string; emotion: string; comment: string; backup?: string };
 
 /** 만든 줄. 3줄 채우기가 어떤 사실을 이미 말했는지 알 수 있게 factId를 남긴다. */
 export type ComposedLine = NarrationLine & { factId: string };
 
 export type LineDropReason = "fact" | "duplicate" | "count";
+
+/** 감상만 버린 이유. 안전 규칙(comment.ts) 이유에 예시 베낌·되풀이를 더한다 */
+export type CommentDropReason = CommentReason | "copied" | "repeated";
 
 export type ComposeOptions = {
   /** 사전의 캐릭터·무기·장비·특성 이름 */
@@ -41,12 +48,27 @@ export function composeLines(
   lines: readonly RawLine[],
   facts: readonly NarrationFact[],
   options: ComposeOptions,
-): { kept: ComposedLine[]; dropped: LineDropReason[]; commentDropped: CommentReason[] } {
+): { kept: ComposedLine[]; dropped: LineDropReason[]; commentDropped: CommentDropReason[] } {
   const factById = new Map(facts.map(fact => [fact.id, fact]));
   const maxLineLength = options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH;
   const kept: ComposedLine[] = [];
   const dropped: LineDropReason[] = [];
-  const commentDropped: CommentReason[] = [];
+  const commentDropped: CommentDropReason[] = [];
+  /** 이번 대사에 붙인 감상의 열쇠(commentKey) */
+  const attached = new Set<string>();
+
+  /** 붙인 줄 문장, 버린 이유, 빈 감상이면 null. 안전 규칙을 먼저 보고, 베낌·되풀이는 규칙을 통과한 감상에만 본다 */
+  const attachComment = (sentence: string, candidate: string): string | { reason: CommentDropReason } | null => {
+    const comment = checkComment(candidate, options.names);
+    if (!comment.ok) return comment.reason === "empty" ? null : { reason: comment.reason };
+    const key = commentKey(comment.text);
+    if (isCopiedExample(comment.text)) return { reason: "copied" };
+    if (attached.has(key)) return { reason: "repeated" };
+    const joined = `${sentence} ${comment.text}`;
+    if ([...joined].length > maxLineLength) return { reason: "length" };
+    attached.add(key);
+    return joined;
+  };
 
   for (const line of lines) {
     const fact = factById.get(line.factId);
@@ -56,13 +78,11 @@ export function composeLines(
 
     const sentence = renderFact(fact);
     let text = sentence;
-    const comment = checkComment(line.comment, options.names);
-    if (comment.ok) {
-      const joined = `${sentence} ${comment.text}`;
-      if ([...joined].length <= maxLineLength) text = joined;
-      else commentDropped.push("length");
-    } else if (comment.reason !== "empty") {
-      commentDropped.push(comment.reason);
+    for (const candidate of [line.comment, line.backup ?? ""]) {
+      const result = attachComment(sentence, candidate);
+      if (result === null) continue;
+      if (typeof result === "string") { text = result; break; }
+      commentDropped.push(result.reason);
     }
     kept.push({ text, emotion: emotionSet.has(line.emotion) ? line.emotion : FALLBACK_EMOTION, factId: fact.id });
   }
