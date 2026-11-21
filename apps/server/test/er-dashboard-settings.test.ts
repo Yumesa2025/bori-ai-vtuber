@@ -33,6 +33,17 @@ describe("대시보드 설정", () => {
     assert.deepEqual(parseDashboardSettings({ nickname: null }), { nickname: null });
   });
 
+  test("제어문자·NUL·방향 바꿈 문자·개행·탭을 지운 뒤 앞뒤 공백을 자른다", () => {
+    assert.deepEqual(parseDashboardSettings({ nickname: " 가짜\u202E닉\u0000\n\t " }), { nickname: "가짜닉" });
+    assert.deepEqual(parseDashboardSettings({ nickname: "가짜\u2066닉\uFEFF" }), { nickname: "가짜닉" });
+    // 지우고 나면 빈 문자열이면 닉네임 없음
+    assert.deepEqual(parseDashboardSettings({ nickname: "\u202E\u0000\r\n" }), { nickname: null });
+  });
+
+  test("32자 상한은 정리한 뒤의 글자 수로 센다", () => {
+    assert.deepEqual(parseDashboardSettings({ nickname: `${"가".repeat(32)}\u202E\u0000` }), { nickname: "가".repeat(32) });
+  });
+
   test("문자열·null이 아니거나 32자를 넘으면 오류", () => {
     for (const value of [null, "가짜닉", { nickname: 3 }, { nickname: "가".repeat(33) }, {}]) {
       assert.throws(() => parseDashboardSettings(value), DashboardSettingsError);

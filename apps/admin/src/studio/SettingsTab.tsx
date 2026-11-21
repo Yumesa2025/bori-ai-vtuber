@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DashboardState, LlmProvider, LlmSettings, LlmStatus, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
+import type { LlmProvider, LlmSettings, LlmStatus, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
 import { buildPatch, clearSaved, pickDrafts, readError, savedSummary, shownText, type DraftValue, type Drafts, type FieldSpec } from '../form';
 import { isSubmitEnter } from '../keys';
 import { createPoller, SETTINGS_POLL_MS, STATUS_POLL_MS } from '../poll';
-import { connectionBadge, erSummary, llmConnection, nicknameBody, type ErDataView } from './status-view';
+import { connectionBadge, erSummary, llmConnection, NICKNAME_MAX, nicknameBody, type ErDataView } from './status-view';
 import { getJson, isServerUp, JSON_HEADERS, MUTATION_TIMEOUT_MS, postAction, readJson, request } from './api';
 
 // 업체 표시 이름. 알 수 없는 값은 원문 그대로 보여 준다.
@@ -73,13 +73,13 @@ export default function SettingsTab() {
   const pollers = useRef<{ status: ReturnType<typeof createPoller>; settings: ReturnType<typeof createPoller> } | null>(null);
   // 자주 바뀌는 것(LLM 회로·이터널리턴 갱신 진행률)만 짧은 간격으로 받는다. 서버 끊김은 /api/llm 응답으로 본다.
   async function refreshStatus() {
-    const [llmResponse, nextDashboard] = await Promise.all([request('/api/llm'), getJson<DashboardState>('/api/dashboard')]);
+    // 가벼운 상태 경로(연결·갱신·기준만). 자동 갱신 판정은 대시보드 화면이 여는 /api/dashboard에만 있다.
+    const [llmResponse, nextStatus] = await Promise.all([request('/api/llm'), getJson<ErDataView>('/api/dashboard/status')]);
     if (!isServerUp(llmResponse)) { setServerOnline(false); return; }
     setServerOnline(true);
     const nextLlm = llmResponse.ok ? await readJson<LlmView>(llmResponse) : null;
     if (nextLlm) setLlm(nextLlm);
-    // 대시보드 상태 중 연결·갱신·기준만 쓴다. 조합 표와 대사는 대시보드 탭이 그린다.
-    if (nextDashboard) setEr({ connection: nextDashboard.connection, refresh: nextDashboard.refresh, basis: nextDashboard.basis });
+    if (nextStatus) setEr({ connection: nextStatus.connection, refresh: nextStatus.refresh, basis: nextStatus.basis });
   }
   // 사용량·음성 설정·닉네임은 드물게 받는다. 이 화면에서 저장하면 저장 응답으로 바로 맞춘다.
   async function refreshSettings() {
@@ -183,7 +183,7 @@ export default function SettingsTab() {
       </article>
       <article className="panel"><h2>게임 닉네임</h2><p>대시보드 "내 전적" 칸에 쓸 이터널리턴 닉네임입니다. 이 컴퓨터의 데이터 폴더에만 저장하고, 로그와 보리 대사에는 넣지 않습니다.</p>
         <p className="hint">지금 저장된 닉네임: {nickname ?? '없음'}</p>
-        <div className="chat-input-row"><input value={nicknameInput} onChange={event => setNicknameInput(event.target.value)} onKeyDown={event => { if (isSubmitEnter(event)) void saveNickname(nicknameInput); }} aria-label="게임 닉네임" placeholder="게임 닉네임" maxLength={40} /><button onClick={() => void saveNickname(nicknameInput)} disabled={!serverOnline || !nicknameInput.trim()}>저장</button>{nickname && <button onClick={() => void saveNickname('')} disabled={!serverOnline}>지우기</button>}</div>
+        <div className="chat-input-row"><input value={nicknameInput} onChange={event => setNicknameInput(event.target.value)} onKeyDown={event => { if (isSubmitEnter(event)) void saveNickname(nicknameInput); }} aria-label="게임 닉네임" placeholder="게임 닉네임" maxLength={NICKNAME_MAX} /><button onClick={() => void saveNickname(nicknameInput)} disabled={!serverOnline || !nicknameInput.trim()}>저장</button>{nickname && <button onClick={() => void saveNickname('')} disabled={!serverOnline}>지우기</button>}</div>
       </article>
     </section>
     {llm && <section className="panel"><h2>외부 LLM</h2><p>메타 분석을 갱신하면 보리가 읽을 대사를 LLM이 수치 목록만 근거로 씁니다. 꺼져 있거나 실패하면 정해진 문장으로 읽습니다. 대화 기능은 없습니다.</p>

@@ -1,7 +1,7 @@
 /**
  * 이터널리턴 Open API 클라이언트.
  * 개인 키는 초당 1회 제한이라 모든 요청을 큐 하나로 직렬화하고 호출 사이를 minIntervalMs 이상 띄운다.
- * 오류 메시지에는 키와 쿼리 문자열(닉네임)을 넣지 않는다.
+ * 오류 메시지에는 키와 쿼리 문자열(닉네임), 경로 속 uid를 넣지 않는다.
  */
 
 export type ErClientOptions = { apiKey: string; baseUrl?: string; minIntervalMs?: number; fetch?: typeof fetch; now?: () => number };
@@ -30,6 +30,9 @@ const RETRY_STATUSES = new Set([429, 403]);
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** 오류 메시지용 경로. 쿼리(닉네임)를 빼고, /uid/ 뒤 계정 식별자를 가린다(오류는 로그·화면 lastError에 남는다). */
+const errorLabel = (path: string) => path.split("?")[0]!.replace(/\/uid\/[^/]+/g, "/uid/…");
+
 export function createErClient(options: ErClientOptions): ErClient {
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   const minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
@@ -49,8 +52,8 @@ export function createErClient(options: ErClientOptions): ErClient {
   async function send(path: string): Promise<unknown> {
     const external = /^https?:\/\//i.test(path);
     const url = external ? path : `${baseUrl}${path}`;
-    // 오류 메시지용. 쿼리(닉네임)와 외부 주소의 경로를 남기지 않는다.
-    const label = external ? "언어 데이터 파일" : path.split("?")[0]!;
+    // 오류 메시지용. 쿼리(닉네임)·uid와 외부 주소의 경로를 남기지 않는다.
+    const label = external ? "언어 데이터 파일" : errorLabel(path);
     const headers: Record<string, string> = external ? {} : { "x-api-key": options.apiKey, accept: "application/json" };
 
     for (let attempt = 0; ; attempt += 1) {
