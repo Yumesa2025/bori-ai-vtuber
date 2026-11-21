@@ -1,5 +1,5 @@
 import type { ErComboStat } from "@bori/shared";
-import { changeText, comboKey, comboLabel, previousRank, selectMovers } from "../dashboard";
+import { comboKey, comboLabel, moverChangeText, previousRank, selectMovers } from "../dashboard";
 import { formatRank } from "../format";
 
 type Props = { combos: readonly ErComboStat[]; onSelect: (combo: ErComboStat) => void };
@@ -19,7 +19,7 @@ export function Movers({ combos, onSelect }: Props) {
               <button type="button" className="mover" onClick={() => onSelect(combo)}>
                 <span className="mover-name">{comboLabel(combo)}</span>
                 <span className="mover-rank">{formatRank(previousRank(combo))}위 → <strong>{formatRank(combo.avgRank)}위</strong></span>
-                <span className={`trend trend-${tone}`}>{tone === "up" ? "▲" : "▼"} {changeText("avgRank", combo.change)?.replace(/^[+-]/, "")}</span>
+                <span className={`trend trend-${tone}`} role="img" aria-label={`평균 순위 ${moverChangeText(combo)} ${tone === "up" ? "좋아짐" : "나빠짐"}`}>{tone === "up" ? "▲" : "▼"} {moverChangeText(combo)}</span>
               </button>
             </li>
           ))}
