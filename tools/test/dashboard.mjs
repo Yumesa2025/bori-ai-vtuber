@@ -94,7 +94,7 @@ export async function run({ bori, mock, report, dataDir }) {
   const audioIds = lines.map(line => line.audioId);
   const audioStatuses = await Promise.all(audioIds.map(async id => {
     if (!id) return { status: 0, type: "" };
-    const response = await fetch(`${bori.baseUrl}/api/tts/${encodeURIComponent(id)}`);
+    const response = await fetch(`${bori.baseUrl}/api/tts/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(25_000) });
     await response.arrayBuffer();
     return { status: response.status, type: response.headers.get("content-type") ?? "" };
   }));

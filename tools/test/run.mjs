@@ -28,10 +28,12 @@ import * as security from "./security.mjs";
 import * as secrets from "./secrets.mjs";
 import * as durability from "./durability.mjs";
 import * as usage from "./usage.mjs";
-import * as dashboard from "./dashboard.mjs";
 
 const mockPort = await availablePort(Number(process.env.MOCK_PORT ?? 0));
 const boriPort = await availablePort(Number(process.env.BORI_TEST_PORT ?? 0));
+// dashboard.mjs의 데이터 준비 코드는 그대로 두고 가짜 ER도 실행별 빈 포트를 쓴다.
+process.env.BORI_TEST_ER_PORT = String(await availablePort(Number(process.env.BORI_TEST_ER_PORT ?? 0)));
+const dashboard = await import("./dashboard.mjs");
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
