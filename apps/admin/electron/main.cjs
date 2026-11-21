@@ -56,7 +56,7 @@ function createWindow() {
   window.webContents.on("console-message", (event) => log(`[renderer:${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`));
   window.webContents.on("render-process-gone", (_event, details) => log(`[bori-admin] renderer gone: ${details.reason}`));
 
-  // 스튜디오 화면 밖으로 이동하거나 새 창을 열지 않는다. 외부 웹 링크(치지직 로그인 포함)는 기본 브라우저로 넘긴다.
+  // 스튜디오 화면 밖으로 이동하거나 새 창을 열지 않는다. 외부 웹 링크는 기본 브라우저로 넘긴다.
   window.webContents.on("will-navigate", (event, navigationUrl) => {
     if (isSameOrigin(navigationUrl, url)) return;
     event.preventDefault();

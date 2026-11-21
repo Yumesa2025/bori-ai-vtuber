@@ -10,7 +10,7 @@
  * 포트를 바꾸려면 MOCK_PORT와 BORI_TEST_PORT를 준다.
  * 비정상 종료하면 종료 코드와 그때 돌던 시나리오를 남긴다. 그 줄도 없이 끝났다면
  * 이 프로세스가 밖에서 강제 종료된 것이다(Windows의 taskkill /F는 종료 코드 1을 남긴다).
- * 방송 화면과 Live2D 모델은 검사 대상이 아니다. 서버 동작만 본다.
+ * 대시보드 화면과 Live2D 모델은 검사 대상이 아니다. 서버 동작만 본다.
  */
 import { join } from "node:path";
 import {
@@ -23,28 +23,17 @@ import {
   toolsTestDir,
   waitForHttp,
 } from "./harness.mjs";
-import * as latency from "./latency.mjs";
-import * as behavior from "./behavior.mjs";
-import * as isolation from "./isolation.mjs";
 import * as security from "./security.mjs";
-import * as companion from "./companion.mjs";
-import * as usage from "./usage.mjs";
-import * as stability from "./stability.mjs";
-import * as concurrency from "./concurrency.mjs";
 import * as secrets from "./secrets.mjs";
-import * as privacy from "./privacy.mjs";
 import * as durability from "./durability.mjs";
-import * as safety from "./safety.mjs";
-import * as obsPages from "./obs-pages.mjs";
-import * as operations from "./operations.mjs";
-import * as show from "./show.mjs";
+import * as usage from "./usage.mjs";
 
 const mockPort = Number(process.env.MOCK_PORT ?? 4390);
 const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 
-const allScenarios = { latency, behavior, isolation, security, companion, usage, stability, concurrency, secrets, privacy, durability, safety, obsPages, operations, show };
+const allScenarios = { security, secrets, durability, usage };
 const only = process.argv.slice(2);
 const unknown = only.filter(name => !Object.hasOwn(allScenarios, name));
 if (unknown.length > 0) {
@@ -81,11 +70,11 @@ try {
     console.log(`\n── ${scenario.meta.name} ${"─".repeat(Math.max(0, 50 - scenario.meta.name.length))}`);
     stage = `${scenario.meta.name} 준비`;
 
-    // 서버가 설정과 기억을 파일에 쓰므로 시나리오마다 새 디렉터리를 준다.
+    // 서버가 설정과 사용량을 파일에 쓰므로 시나리오마다 새 디렉터리를 준다.
     const data = await prepareDataDir();
     await mock.setTiming(scenario.meta.timing);
     await mock.reset();
-    // 시나리오가 가짜 외부 서비스(OBS·치지직·ER)를 더 띄우고 서버 환경 변수를 더할 수 있다. prepare가 없는 시나리오는 그대로다.
+    // 시나리오가 서버를 띄우기 전에 데이터 파일을 깔거나 가짜 외부 서비스(ER)를 띄우고 서버 환경 변수를 더할 수 있다. prepare가 없는 시나리오는 그대로다.
     const prepared = scenario.prepare ? await scenario.prepare({ dataDir: data.path }) : null;
 
     const boriServer = startScript("apps/server/src/index.ts", {

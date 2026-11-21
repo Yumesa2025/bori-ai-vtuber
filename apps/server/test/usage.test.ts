@@ -1,5 +1,5 @@
 /**
- * API 사용량 단위 검사. 날짜별 누계·보관 기간·원자적 쓰기, 비용 추정, 단가 파일, 어댑터 감싸기를 본다.
+ * API 사용량 단위 검사. 날짜별 누계·보관 기간·원자적 쓰기, 비용 추정, 단가 파일을 본다.
  * 임시 디렉터리에만 쓰고 네트워크를 쓰지 않는다.
  */
 import assert from "node:assert/strict";
@@ -7,16 +7,12 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
-import type { LlmAdapter, LlmRequest } from "@bori/llm";
-import type { EmbeddingProvider } from "@bori/memory";
 import {
   buildUsageReport,
   createUsageStore,
   DEFAULT_PRICES_AS_OF,
   loadPriceTable,
   localDateKey,
-  trackAdapter,
-  trackEmbedding,
   USAGE_FILE_VERSION,
   type UsageEvent,
 } from "../src/usage/index.js";
@@ -34,7 +30,7 @@ const at = (year: number, month: number, day: number, hour = 12) => new Date(yea
 const silent = () => {};
 const noPrices = { prices: new Map(), fileLoaded: false, fileError: null };
 
-const reply = (extra: Partial<UsageEvent> = {}): UsageEvent => ({ feature: "reply", mode: "broadcast", model: "gpt-4o-mini", ok: true, usage: { inputTokens: 100, outputTokens: 20 }, ...extra });
+const reply = (extra: Partial<UsageEvent> = {}): UsageEvent => ({ feature: "reply", mode: "narration", model: "gpt-4o-mini", ok: true, usage: { inputTokens: 100, outputTokens: 20 }, ...extra });
 
 describe("사용량 저장소", () => {
   test("같은 날·기능·모드·모델은 한 줄로 더하고 실패는 토큰을 세지 않는다", () => {
@@ -45,18 +41,27 @@ describe("사용량 저장소", () => {
     store.record(reply());
     store.record(reply({ ok: false, usage: undefined }));
     store.record(reply({ usage: undefined }));
-    store.record(reply({ mode: "companion" }));
+    store.record(reply({ model: "gpt-4o" }));
 
     const today = store.days()["2026-10-12"];
     assert.equal(today.length, 2);
-    assert.deepEqual(today[0], { feature: "reply", mode: "broadcast", model: "gpt-4o-mini", calls: 4, failures: 1, inputTokens: 200, outputTokens: 40, callsWithoutTokens: 1, characters: 0 });
-    assert.equal(today[1].mode, "companion");
+    assert.deepEqual(today[0], { feature: "reply", mode: "narration", model: "gpt-4o-mini", calls: 4, failures: 1, inputTokens: 200, outputTokens: 40, callsWithoutTokens: 1, characters: 0 });
+    assert.equal(today[1].model, "gpt-4o");
+  });
+
+  test("예전 방송·1:1 줄(broadcast·companion)은 버리지 않고 읽는다(R5)", () => {
+    const filePath = join(tempDir(), "usage.json");
+    const legacy = (mode: string, feature: string) => ({ feature, mode, model: "gpt-4o-mini", calls: 2, failures: 0, inputTokens: 10, outputTokens: 5, callsWithoutTokens: 0, characters: 0 });
+    writeFileSync(filePath, JSON.stringify({ version: 1, days: { "2026-10-12": [legacy("broadcast", "reply"), legacy("companion", "summary"), legacy("narration", "reply")] } }), "utf8");
+    const store = createUsageStore(filePath, { now: () => at(2026, 10, 12), log: silent });
+    store.load();
+    assert.deepEqual(store.days()["2026-10-12"].map(row => `${row.feature}:${row.mode}`), ["reply:broadcast", "summary:companion", "reply:narration"]);
   });
 
   test("모드가 없는 호출은 none으로, 음성은 글자 수로 센다", () => {
     const store = createUsageStore(join(tempDir(), "usage.json"), { now: () => at(2026, 10, 12), log: silent });
     store.record({ feature: "embedding", mode: null, model: "text-embedding-3-small", ok: true });
-    store.record({ feature: "tts", mode: "companion", model: "tts-1", ok: true, characters: 12 });
+    store.record({ feature: "tts", mode: "narration", model: "tts-1", ok: true, characters: 12 });
     const today = store.days()["2026-10-12"];
     assert.equal(today[0].mode, "none");
     assert.equal(today[0].callsWithoutTokens, 1);
@@ -154,6 +159,8 @@ describe("비용 추정", () => {
     // 500k 입력 × 2 + 100k 출력 × 10 = 1 + 1
     assert.ok(Math.abs((report.last31Days.byFeature.summary.estimatedCostUsd ?? 0) - 2) < 1e-9);
     assert.equal(report.last31Days.byMode.companion.calls, 2);
+    // 새 모드도 합계 칸이 있다. 이 기간에는 호출이 없다.
+    assert.equal(report.last31Days.byMode.narration.calls, 0);
     assert.equal(report.last31Days.totals.costComplete, true);
     assert.equal(report.prices.defaultAsOf, DEFAULT_PRICES_AS_OF);
     assert.match(report.prices.note, /추정치/);
@@ -234,46 +241,6 @@ describe("단가 파일", () => {
       assert.equal(table.fileLoaded, false, label);
       assert.ok(table.fileError, label);
       assert.equal(table.prices.get("gpt-4o-mini")?.source, "default", label);
-    }
-  });
-});
-
-describe("어댑터·임베딩 감싸기", () => {
-  const request = { mode: "companion", content: "비밀 내용", overrideSystemPrompt: "요약" } as LlmRequest;
-
-  test("요청의 모드로 기능별 호출을 세고 내용은 넘기지 않는다", async () => {
-    const events: UsageEvent[] = [];
-    const adapter: LlmAdapter = { name: "fake", isConfigured: () => true, complete: async () => ({ raw: "{}", latencyMs: 1, usage: { inputTokens: 5, outputTokens: 2 } }) };
-    const tracked = trackAdapter(adapter, "gpt-4o-mini", "digest", event => events.push(event));
-    await tracked.complete(request);
-    assert.deepEqual(events, [{ feature: "digest", mode: "companion", model: "gpt-4o-mini", ok: true, usage: { inputTokens: 5, outputTokens: 2 } }]);
-    assert.ok(!JSON.stringify(events).includes("비밀 내용"));
-  });
-
-  test("실패는 기록하고 예외를 그대로 던진다", async () => {
-    const events: UsageEvent[] = [];
-    const adapter: LlmAdapter = { name: "fake", isConfigured: () => true, complete: async () => { throw new Error("업체 오류"); } };
-    await assert.rejects(trackAdapter(adapter, "m", "summary", event => events.push(event)).complete({ ...request, mode: "broadcast" }), /업체 오류/);
-    assert.deepEqual(events, [{ feature: "summary", mode: "broadcast", model: "m", ok: false }]);
-  });
-
-  test("임베딩은 모드 없이 횟수만 센다", async () => {
-    const events: UsageEvent[] = [];
-    const provider: EmbeddingProvider = { name: "fake", isConfigured: () => true, embed: async texts => texts.map(() => [1]) };
-    const vectors = await trackEmbedding(provider, "text-embedding-3-small", event => events.push(event)).embed(["a", "b"]);
-    assert.deepEqual(vectors, [[1], [1]]);
-    assert.deepEqual(events, [{ feature: "embedding", mode: null, model: "text-embedding-3-small", ok: true }]);
-  });
-
-  test("기록이 던져도 결과는 그대로 돌려준다", async () => {
-    const adapter: LlmAdapter = { name: "fake", isConfigured: () => true, complete: async () => ({ raw: "{\"ok\":1}", latencyMs: 1 }) };
-    const originalError = console.error;
-    console.error = () => {};
-    try {
-      const result = await trackAdapter(adapter, "m", "summary", () => { throw new Error("기록 실패"); }).complete(request);
-      assert.equal(result.raw, "{\"ok\":1}");
-    } finally {
-      console.error = originalError;
     }
   });
 });

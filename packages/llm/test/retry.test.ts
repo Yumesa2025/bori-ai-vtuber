@@ -6,24 +6,18 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import type { LlmSettings } from "@bori/shared";
 import { createLlmClient } from "../src/index.js";
+import { createAnthropicAdapter } from "../src/anthropic.js";
 import { createOpenAiAdapter } from "../src/openai.js";
 import { RateLimitError, retryAfterMsOf, sendWithRateLimitRetry } from "../src/retry.js";
-import type { LlmRequest } from "../src/types.js";
+import { DEFAULT_MAX_OUTPUT_TOKENS, type LlmRequest } from "../src/types.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 
 const request: LlmRequest = {
-  mode: "broadcast",
-  content: "안녕",
-  recentTurns: [],
-  memories: [],
-  sessionSummary: "",
-  macroPrompts: [],
-  broadcastStatus: [],
-  allowedEmotions: ["calm", "happy"],
-  allowedMotions: [{ name: "kuqi", description: "운다" }],
-  maxReplyLength: 120,
+  overrideSystemPrompt: "시스템 지시",
+  overrideUserPrompt: "사용자 내용",
+  overrideSchema: { type: "object", properties: { lines: { type: "array", items: { type: "string" } } }, required: ["lines"], additionalProperties: false },
   timeoutMs: 2000,
 };
 
@@ -35,14 +29,11 @@ const settings: LlmSettings = {
   timeoutMs: 2000,
   failureThreshold: 2,
   cooldownSeconds: 60,
-  rollingSummaryEnabled: false,
-  rollingSummaryTurns: 10,
-  macroEnabled: false,
 };
 
 const completion = (content: object) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
 const rateLimited = (retryAfter?: string) => new Response(JSON.stringify({ error: { message: "Rate limit" } }), { status: 429, headers: retryAfter === undefined ? {} : { "Retry-After": retryAfter } });
-const okReply = { reply: "네, 반가워요.", emotion: { primary: "happy", intensity: 0.5, durationSeconds: 6 }, actions: [] };
+const okReply = { lines: ["네, 반가워요."] };
 
 /** 응답을 차례로 돌려주는 가짜 fetch. 받은 요청 본문을 남긴다. */
 function scriptFetch(responses: (() => Response)[]) {
@@ -99,26 +90,44 @@ describe("429 한 번 다시 보내기", () => {
   test("어댑터는 재시도가 성공하면 답을 돌려준다", async () => {
     scriptFetch([() => rateLimited("0"), () => completion(okReply)]);
     const result = await createOpenAiAdapter({ apiKey: "fake-key", model: "test" }).complete(request);
-    assert.equal(JSON.parse(result.raw).reply, "네, 반가워요.");
+    assert.deepEqual(JSON.parse(result.raw).lines, ["네, 반가워요."]);
   });
 });
 
-describe("OpenAI 요청 본문(F8)", () => {
-  test("최대 출력 토큰과 enum 스키마를 보낸다", async () => {
-    const bodies = scriptFetch([() => completion(okReply)]);
+const parseLines = (raw: string) => {
+  const value = JSON.parse(raw) as { lines?: unknown };
+  return Array.isArray(value.lines) ? { ok: true as const, value: value.lines } : { ok: false as const, reason: "lines가 없습니다." };
+};
+
+describe("요청 본문", () => {
+  test("OpenAI: 부르는 쪽의 프롬프트·스키마를 그대로 보내고 출력 상한 기본값은 1024다", async () => {
+    const bodies = scriptFetch([() => completion(okReply), () => completion(okReply)]);
     await createOpenAiAdapter({ apiKey: "fake-key", model: "test" }).complete(request);
-    assert.equal(bodies[0].max_completion_tokens, 512);
-    const schema = (bodies[0].response_format as { json_schema: { schema: { properties: { emotion: { properties: { primary: { enum: string[] } } } } } } }).json_schema.schema;
-    assert.deepEqual(schema.properties.emotion.properties.primary.enum, ["calm", "happy"]);
+    await createOpenAiAdapter({ apiKey: "fake-key", model: "test" }).complete({ ...request, maxOutputTokens: 300 });
+    assert.deepEqual(bodies[0].messages, [{ role: "system", content: "시스템 지시" }, { role: "user", content: "사용자 내용" }]);
+    assert.deepEqual((bodies[0].response_format as { json_schema: { strict: boolean; schema: object } }).json_schema.schema, request.overrideSchema);
+    assert.equal((bodies[0].response_format as { json_schema: { strict: boolean } }).json_schema.strict, true);
+    assert.equal(bodies[0].max_completion_tokens, DEFAULT_MAX_OUTPUT_TOKENS);
+    assert.equal(bodies[1].max_completion_tokens, 300);
+  });
+
+  test("Anthropic: system 칸과 도구 입력 스키마로 보낸다", async () => {
+    const bodies = scriptFetch([() => new Response(JSON.stringify({ content: [{ type: "tool_use", name: "bori_response", input: okReply }] }), { status: 200 })]);
+    const result = await createAnthropicAdapter({ apiKey: "fake-key", model: "test" }).complete({ ...request, maxOutputTokens: 200 });
+    assert.equal(bodies[0].system, "시스템 지시");
+    assert.deepEqual(bodies[0].messages, [{ role: "user", content: "사용자 내용" }]);
+    assert.deepEqual((bodies[0].tools as Array<{ input_schema: object }>)[0].input_schema, request.overrideSchema);
+    assert.equal(bodies[0].max_tokens, 200);
+    assert.deepEqual(JSON.parse(result.raw), okReply);
   });
 });
 
-describe("회로 차단기", () => {
+describe("회로 차단기(실제 어댑터)", () => {
   test("429는 연속 실패로 세지 않아 회로가 열리지 않는다", async () => {
     const client = createLlmClient();
     scriptFetch(Array.from({ length: 4 }, () => () => rateLimited("30")));
     for (let i = 0; i < 4; i += 1) {
-      const outcome = await client.respond(settings, "fake-key", request);
+      const outcome = await client.complete(settings, "fake-key", request, parseLines);
       assert.equal(outcome.ok, false);
     }
     const status = client.status(settings, "fake-key");
@@ -128,25 +137,11 @@ describe("회로 차단기", () => {
     assert.match(status.lastError ?? "", /429/);
   });
 
-  test("감정·모션 보정은 실패로 세지 않는다", async () => {
-    const client = createLlmClient();
-    const wrong = { ...okReply, emotion: { primary: "concerned", intensity: 0.5, durationSeconds: 6 }, actions: [{ name: "dance", layer: "face", priority: 3 }] };
-    scriptFetch(Array.from({ length: 3 }, () => () => completion(wrong)));
-    for (let i = 0; i < 3; i += 1) {
-      const outcome = await client.respond(settings, "fake-key", request);
-      assert.equal(outcome.ok, true);
-      if (outcome.ok) assert.equal(outcome.response.emotion.primary, "calm");
-    }
-    const status = client.status(settings, "fake-key");
-    assert.equal(status.circuitOpen, false);
-    assert.equal(status.validationFailureCount, 0);
-  });
-
-  test("500은 전처럼 연속 실패로 세어 회로를 연다", async () => {
+  test("500은 연속 실패로 세어 회로를 연다", async () => {
     const client = createLlmClient();
     scriptFetch([() => new Response("{}", { status: 500 }), () => new Response("{}", { status: 500 })]);
-    await client.respond(settings, "fake-key", request);
-    await client.respond(settings, "fake-key", request);
+    await client.complete(settings, "fake-key", request, parseLines);
+    await client.complete(settings, "fake-key", request, parseLines);
     assert.equal(client.status(settings, "fake-key").circuitOpen, true);
   });
 });

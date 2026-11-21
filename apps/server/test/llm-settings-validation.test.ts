@@ -5,7 +5,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { LlmSettings } from "@bori/shared";
-import { validateLlmSettingsPatch, type LlmSettingsPatch } from "../src/http/settings.js";
+import { LEGACY_LLM_SETTING_KEYS, validateLlmSettingsPatch, withoutLegacyLlmKeys, type LlmSettingsPatch } from "../src/http/settings.js";
 
 /** 서버 기본값과 같은 전체 설정. 관리자 화면은 한 항목씩 보내지만 전체도 받아야 한다. */
 const full: LlmSettings = {
@@ -16,9 +16,6 @@ const full: LlmSettings = {
   timeoutMs: 8000,
   failureThreshold: 3,
   cooldownSeconds: 60,
-  rollingSummaryEnabled: true,
-  rollingSummaryTurns: 10,
-  macroEnabled: true,
 };
 
 describe("외부 LLM 설정", () => {
@@ -55,11 +52,6 @@ describe("외부 LLM 설정", () => {
       [{ cooldownSeconds: 0 }, true],
       [{ cooldownSeconds: 3600 }, true],
       [{ cooldownSeconds: -1 }, false],
-      // 4 미만은 거부하지 않는다. 라우트가 기존처럼 4로 올린다.
-      [{ rollingSummaryTurns: 2 }, true],
-      [{ rollingSummaryTurns: 0 }, true],
-      [{ rollingSummaryTurns: -1 }, false],
-      [{ rollingSummaryTurns: 1001 }, false],
       [{ apiKey: "" }, true],
       [{ apiKey: "k".repeat(512) }, true],
       [{ apiKey: "k".repeat(513) }, false],
@@ -76,8 +68,10 @@ describe("외부 LLM 설정", () => {
       { enabled: 1 },
       { timeoutMs: "8000" },
       { timeoutMs: Number.NaN },
-      { macroEnabled: null },
-      { rollingSummaryEnabled: "no" },
+      // 1:1 대화를 쓰던 때의 칸(누적 요약·매크로)은 2026-11-21 지웠다. PATCH로는 받지 않는다.
+      { macroEnabled: true },
+      { rollingSummaryEnabled: false },
+      { rollingSummaryTurns: 10 },
       { provider: 1 },
       { apiKey: 1234 },
       { apiKey: null },
@@ -104,5 +98,18 @@ describe("외부 LLM 설정", () => {
     const result = validateLlmSettingsPatch({ apiKey: secret, unknownKey: true });
     assert.equal(result.ok, false);
     if (!result.ok) assert.ok(!result.error.includes(secret));
+  });
+});
+
+describe("예전 LLM 설정 파일의 지운 칸", () => {
+  test("누적 요약·매크로 칸 세 개를 지운 칸으로 안다", () => {
+    assert.deepEqual([...LEGACY_LLM_SETTING_KEYS].sort(), ["macroEnabled", "rollingSummaryEnabled", "rollingSummaryTurns"]);
+  });
+
+  test("읽은 설정에서 지운 칸만 조용히 빼고 나머지는 그대로 둔다", () => {
+    const saved = { enabled: true, model: "gpt-4o-mini", rollingSummaryEnabled: true, rollingSummaryTurns: 4, macroEnabled: false, unknownKey: 1 };
+    assert.deepEqual(withoutLegacyLlmKeys(saved), { enabled: true, model: "gpt-4o-mini", unknownKey: 1 });
+    // 원본 객체는 바꾸지 않는다.
+    assert.equal(saved.rollingSummaryTurns, 4);
   });
 });

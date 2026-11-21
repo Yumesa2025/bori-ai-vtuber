@@ -5,9 +5,8 @@
  * 키 허용 목록·타입·범위를 먼저 검사하고, 하나라도 틀리면 아무것도 병합하지 않는다.
  * 범위는 관리자 화면 입력값과 기본값, 통합 검사가 쓰는 값을 모두 받도록 정했다.
  */
-import type { LlmSettings, QueueSettings } from "@bori/shared";
+import type { LlmSettings } from "@bori/shared";
 import { FISH_VOICE_ID, openAiVoices, supportedProviders, type TtsProvider, type TtsSettings } from "@bori/llm";
-import type { MemorySettings } from "@bori/memory";
 import { normalizeApiKey } from "../secret-store.js";
 
 type FieldRule =
@@ -87,51 +86,6 @@ export function pickValidSettings<T>(input: Record<string, unknown>, validate: (
   return { patch: patch as Partial<T>, rejected };
 }
 
-// ── 채팅 큐 ──────────────────────────────────────────────────
-
-const queueRules: { readonly [K in keyof QueueSettings]: FieldRule } = {
-  responseDelayMinSeconds: { kind: "number", min: 0, max: 120 },
-  responseDelayMaxSeconds: { kind: "number", min: 0, max: 120 },
-  maxQueueSize: { kind: "number", min: 1, max: 1000, integer: true },
-  visibleChatLimit: { kind: "number", min: 1, max: 50, integer: true },
-  duplicateWindowMinutes: { kind: "number", min: 0, max: 1440 },
-  sameReplyCooldownMinutes: { kind: "number", min: 0, max: 1440 },
-  monologueEnabled: { kind: "boolean" },
-  monologueMinSeconds: { kind: "number", min: 1, max: 3600 },
-  monologueMaxSeconds: { kind: "number", min: 1, max: 3600 },
-};
-
-/** 최솟값이 최댓값보다 크면 거부한다. 한쪽만 보내도 현재 값과 합쳐서 본다. */
-export function validateQueueSettingsPatch(input: unknown, current: QueueSettings): PatchResult<QueueSettings> {
-  const result = checkFields<QueueSettings>(input, queueRules);
-  if (!result.ok) return result;
-
-  const merged = { ...current, ...result.patch };
-  if (merged.responseDelayMinSeconds > merged.responseDelayMaxSeconds) {
-    return { ok: false, error: "responseDelayMinSeconds는 responseDelayMaxSeconds보다 클 수 없습니다." };
-  }
-  if (merged.monologueMinSeconds > merged.monologueMaxSeconds) {
-    return { ok: false, error: "monologueMinSeconds는 monologueMaxSeconds보다 클 수 없습니다." };
-  }
-  return result;
-}
-
-// ── 장기 기억 ────────────────────────────────────────────────
-
-const memoryRules: { readonly [K in keyof MemorySettings]: FieldRule } = {
-  enabled: { kind: "boolean" },
-  maxMemories: { kind: "number", min: 1, max: 20, integer: true },
-  minSimilarity: { kind: "number", min: 0, max: 1 },
-  retentionDays: { kind: "number", min: 1, max: 3650, integer: true },
-  embeddingModel: { kind: "string", pattern: MODEL_NAME, description: "모델 이름(영숫자와 . _ : -, 100자 이하)" },
-  // 0은 LLM 기억 정리를 끈다.
-  privateDigestEveryMessages: { kind: "number", min: 0, max: 50, integer: true },
-};
-
-export function validateMemorySettingsPatch(input: unknown): PatchResult<MemorySettings> {
-  return checkFields<MemorySettings>(input, memoryRules);
-}
-
 // ── 음성 합성 ────────────────────────────────────────────────
 
 export const ttsProviders: readonly TtsProvider[] = ["openai", "elevenlabs", "fish"];
@@ -183,13 +137,10 @@ export type LlmSettingsPatch = Partial<LlmSettings> & { apiKey?: string };
  * | enabled               | true 또는 false                                                        |
  * | provider              | 어댑터가 있는 업체(supportedProviders: openai, anthropic)              |
  * | model                 | 모델 이름(영숫자와 . _ : -, 1~100자)                                   |
- * | maxReplyLength        | 20~1000 정수(관리자 화면 하한 20)                                      |
+ * | maxReplyLength        | 20~1000 정수                                                           |
  * | timeoutMs             | 1000~120000 정수                                                       |
  * | failureThreshold      | 1~100 정수                                                             |
  * | cooldownSeconds       | 0~3600                                                                 |
- * | rollingSummaryEnabled | true 또는 false                                                        |
- * | rollingSummaryTurns   | 0~1000 정수. 4 미만은 거부하지 않고 라우트가 4로 올린다(기존 동작)     |
- * | macroEnabled          | true 또는 false                                                        |
  * | apiKey                | 512자 이하 문자열. 공백·개행은 지우고, 보이는 ASCII 밖 문자는 거부한다 |
  */
 const llmRules: { readonly [K in keyof LlmSettingsPatch]-?: FieldRule } = {
@@ -200,11 +151,20 @@ const llmRules: { readonly [K in keyof LlmSettingsPatch]-?: FieldRule } = {
   timeoutMs: { kind: "number", min: 1000, max: 120_000, integer: true },
   failureThreshold: { kind: "number", min: 1, max: 100, integer: true },
   cooldownSeconds: { kind: "number", min: 0, max: 3600 },
-  rollingSummaryEnabled: { kind: "boolean" },
-  rollingSummaryTurns: { kind: "number", min: 0, max: 1000, integer: true },
-  macroEnabled: { kind: "boolean" },
   apiKey: apiKeyRule,
 };
+
+/**
+ * 1:1 대화를 쓰던 때(2026-11-21 이전) LLM 설정에 있던 칸. 누적 요약과 키워드 매크로는 대화와 함께 지웠다.
+ * 예전 llm-config.json에 이 칸이 남아 있어도 잘못된 값으로 보지 않는다(원본 백업·경고 없이 무시).
+ * 다음 저장 때 파일에서 빠진다.
+ */
+export const LEGACY_LLM_SETTING_KEYS: readonly string[] = ["rollingSummaryEnabled", "rollingSummaryTurns", "macroEnabled"];
+
+/** 읽은 LLM 설정에서 지운 칸만 뺀 복사본. 모르는 다른 칸은 그대로 둬서 검증이 거부하게 한다. */
+export function withoutLegacyLlmKeys(saved: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(saved).filter(([key]) => !LEGACY_LLM_SETTING_KEYS.includes(key)));
+}
 
 /** TTS와 같이 모두 검사한 뒤 하나라도 틀리면 아무것도 바꾸지 않는다. */
 export function validateLlmSettingsPatch(input: unknown): PatchResult<LlmSettingsPatch> {

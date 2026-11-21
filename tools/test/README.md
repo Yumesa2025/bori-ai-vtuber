@@ -1,6 +1,6 @@
 # 통합 검사
 
-실제 보리 서버를 가짜 OpenAI API에 붙여 띄우고, HTTP로 방송을 짧게 돌려 보면서 결과를 확인한다.
+실제 보리 서버를 가짜 OpenAI API에 붙여 띄우고, HTTP로 라우트를 두드려 보면서 결과를 확인한다.
 
 ```bash
 npm run test
@@ -13,15 +13,15 @@ npm run test -- security secrets   # 시나리오 파일 이름으로 일부만
 
 순수 함수 수준의 단위 검사는 따로 `npm run test:unit`으로 돌린다(`packages/*/test/*.test.ts`와 `apps/*/test/*.test.ts`, Node 내장 `node:test` + `tsx`). 멈춘 검사가 CI를 붙잡지 않도록 검사 하나에 30초 상한(`--test-timeout`)을 둔다.
 
+2026-11-21 방송·1:1 대화를 걷어낼 때 방송·대화 시나리오(지연, 동작, 기억 격리, 안정화, 1:1, 동시성, 개인정보, 안전, OBS 페이지, 운영, 진행기, 장시간)를 지웠다. 대시보드 흐름 검사("대시보드 열기 → 자동 갱신 → 대사 → 음성 id")는 대시보드 서버 연결 단계에서 새로 넣는다(구현 중).
+
 ## 왜 이 형태인가
 
-단위 테스트가 아니다. 여기서 확인하려는 것 대부분이 **여러 부품이 시간 위에서 맞물리는 방식**이라 함수 하나를 떼어 놓고는 볼 수 없다. 답변 대기와 생성이 겹치는지, 세션을 다시 시작했을 때 이전 타이머가 새 답변을 건드리지 않는지, 매크로가 몇 턴 뒤에 떨어지는지 같은 것들이다.
-
-그래서 서버를 실제로 띄우고 API로 조작한다. 세 가지 전제를 지킨다.
+서버를 실제로 띄우고 API로 조작한다. 보안 경계(Origin·Host·본문), 키 저장, 파일 손상 대응처럼 프로세스·파일·HTTP가 함께 맞물리는 것은 함수 하나를 떼어 놓고는 볼 수 없다. 세 가지 전제를 지킨다.
 
 - **비용이 들지 않는다.** `BORI_OPENAI_BASE_URL`로 가짜 API를 가리키므로 실제 키도 요금도 필요 없다.
 - **실제 데이터를 건드리지 않는다.** `BORI_DATA_DIR`로 임시 디렉터리를 주고 끝나면 지운다. `data/`는 열지 않는다.
-- **결과가 반복된다.** 가짜 API의 응답 지연이 고정값이므로 기대 시간을 미리 계산할 수 있다.
+- **결과가 반복된다.** 가짜 API의 응답 지연이 고정값이다.
 
 ## 구성
 
@@ -29,45 +29,22 @@ npm run test -- security secrets   # 시나리오 파일 이름으로 일부만
 |---|---|
 | `run.mjs` | 실행기. 서버를 띄우고 시나리오를 돌린 뒤 정리한다. 인자로 시나리오 파일 이름을 주면 그것만 돈다 |
 | `harness.mjs` | 프로세스 기동, 포트 대기, HTTP 클라이언트, 결과 보고. 띄운 서버가 루트 `.env`를 읽지 않게 `BORI_ENV_FILE=""`을 기본으로 준다 |
-| `mock-openai.mjs` | 가짜 API 서버. 답변·임베딩·음성 세 경로와 검사용 엔드포인트 |
-| `latency.mjs` | 체감 지연 시나리오 |
-| `behavior.mjs` | 동작 시나리오 |
-| `isolation.mjs` | 기억 격리 시나리오. 시청자 A의 기억이 B 채팅의 LLM 요청에 들어가지 않는지, 기동 시 기억 파일 마이그레이션 |
-| `stability.mjs` | 방송 안정화 시나리오. 생성 중 종료·종료 직후 재시작·빠른 시작/종료 반복, 임베딩 멈춤, LLM 500·타임아웃·깨진 JSON과 회로 복구, TTS 실패 복구, 큐 상한 |
-| `security.mjs` | 요청 경계. 허용 밖 Origin·루프백 아닌 Host·깨진 경로 인코딩·JSON 아닌 본문·64KB 초과, 방송 화면 Origin의 1:1 API 접근, 설정 검증 |
-| `companion.mjs` | 1:1 API 계약(생성·목록·전송·기록·삭제와 오류 코드)과 방송과의 격리(상태·요청·요약·기억) |
-| `usage.mjs` | 모드별 사용량 기록, 사용량에 대화 내용·닉네임이 없는지, 재시작 뒤 유지, LLM 설정 검증 |
-| `concurrency.mjs` | 방송 채팅 50건과 1:1 메시지 50건을 섞어 보내도 맥락이 섞이지 않는지, 한쪽 회로가 열려도 다른 쪽이 동작하는지 |
+| `mock-openai.mjs` | 가짜 API 서버. 답변·임베딩·음성 경로와 검사용 엔드포인트 |
+| `security.mjs` | 요청 경계. 허용 밖 Origin·루프백 아닌 Host·깨진 경로 인코딩·JSON 아닌 본문·64KB 초과, 음성 설정 검증 |
 | `secrets.mjs` | API 키 저장. 환경변수·`.env` 키는 `data/`에 쓰지 않고, 화면에서 넣은 키만 암호화해 저장하는지 |
-| `privacy.mjs` | 1:1 기록 모두 지우기, 개인 기억만 지우기, 시작 시 오래된 백업·로그만 정리하는지 |
-| `durability.mjs` | 깨진 기억·설정 파일, 풀지 못한 암호문 키, 파일 쓰기 실패에도 데이터를 잃지 않고 서버가 사는지 |
-| `safety.mjs` | 위기 신호 안내, 방송 프롬프트 주입 방어, 시청자 개인정보 |
-| `obs-pages.mjs` | 서버가 빌드한 OBS 페이지를 `/obs/` 아래로 내주는지, 서버 자신의 Origin으로 모듈 스크립트를 받는지, 경로 탈출을 막는지(실행 인자 이름은 `obsPages`) |
-| `operations.mjs` | 방송 운영 시나리오. 방송 중 재시작·두 번 종료·생성 중 종료의 기억 저장, 큐 만료(60초)·시청자별 상한·중복·버려진 채팅 집계·거절 코드, lastError 수명, 빈·깨진 음성 거절과 음성 길이에 맞춘 말풍선, 방송 음성 상한, 음성 캐시 크기, 목소리 목록 캐시, 쿼리·끝 슬래시·HEAD 경로 |
-| `soak.mjs` | 장시간 운영 검사. 기본 실행에 넣지 않는다(아래 참고) |
-| `fixtures/` | 시나리오가 쓰는 설정·기억·매크로 고정 자료. `memories.json`은 마이그레이션 경로를 타도록 일부러 예전(v1) 형식이다 |
+| `durability.mjs` | 깨진·잘린 설정 파일, 풀지 못한 암호문 키, 설정 파일 쓰기 실패에도 데이터를 잃지 않고 서버가 사는지 |
+| `usage.mjs` | 예전 방송·1:1 사용량 줄을 버리지 않고 읽는지, 사용량 응답에 숫자와 이름만 있는지, 재시작 뒤 유지, LLM 설정 검증 |
+| `fixtures/` | 시나리오가 쓰는 설정 고정 자료와 가짜 이터널리턴 API(`fake-er.mjs`) |
 
-시나리오는 `meta`와 `run`을 내보내는 모듈이다. `meta.timing`으로 가짜 API의 응답 지연을 정하고, `run({ bori, mock, report, dataDir })`에서 검사한다. 실행기가 시나리오마다 서버를 새로 띄우고 임시 데이터 디렉터리를 새로 만든다.
+시나리오는 `meta`와 `run`을 내보내는 모듈이다. `meta.timing`으로 가짜 API의 응답 지연을 정하고, `run({ bori, mock, report, dataDir, prepared })`에서 검사한다. 서버를 띄우기 전에 할 일(데이터 파일 깔기, 가짜 외부 서비스 띄우기)은 `prepare({ dataDir })`로 둔다. 실행기가 시나리오마다 서버를 새로 띄우고 임시 데이터 디렉터리를 새로 만든다.
 
 ```js
-export const meta = { name: "지연", timing: { llm: 2000, tts: 1500, embed: 300 } };
-export async function run({ bori, mock, report }) {
-  await bori.chat("아디나 카운터가 뭔가요");
-  const { ms } = await bori.waitForReply();
-  report.check("대기와 생성이 겹친다", ms >= 5500 && ms <= 7200, `${ms}ms`);
+export const meta = { name: "보안 경계", timing: { llm: 300, tts: 200, embed: 100 } };
+export async function run({ bori, report }) {
+  const response = await fetch(`${bori.baseUrl}/api/llm`, { headers: { Origin: "https://evil.example" } });
+  report.check("허용 밖 Origin의 GET은 403이다", response.status === 403);
 }
 ```
-
-## 지연을 어떻게 재는가
-
-가짜 API의 지연을 임베딩 0.3초 + LLM 2초 + TTS 1.5초 = **3.8초**로 고정한다. 여기에 답변 대기를 6초로 두면 두 구조의 기대값이 갈린다.
-
-| 구조 | 기대값 | 실측 |
-|---|---|---|
-| 대기가 끝난 뒤 생성 (예전) | 9.8초 | — |
-| 대기와 생성을 나란히 (지금) | 6.0초 | 6016ms |
-
-대기를 1초로 줄이면 이번에는 생성이 지배한다. 기대값 3.8초, 실측 3834ms. 두 조건 모두 `대기 + 생성`이 아니라 `max(대기, 생성)`을 가리킨다.
 
 ## 포트
 
@@ -75,22 +52,10 @@ export async function run({ bori, mock, report }) {
 
 ## 검사하지 않는 것
 
-- **방송 화면과 Live2D.** 브라우저와 구매 모델이 있어야 하므로 서버 동작만 본다. 화면 쪽은 [docs/verification-log.md](../../docs/verification-log.md)의 수동 검증 기록을 따른다.
-- **실제 LLM 응답 품질.** 가짜 API는 고정 문장을 돌려준다. 프롬프트에 무엇이 들어갔는지는 확인하지만 모델이 잘 답하는지는 보지 않는다.
-- **실제 API의 지연.** 고정값이라 재현이 되는 것이지 실제 OpenAI 응답 시간과는 다르다. 구조가 `max`인지 `합`인지를 가리는 용도다.
+- **대시보드 화면과 Live2D.** 브라우저와 구매한 상용 Live2D 모델이 있어야 하므로 서버 동작만 본다. 화면 쪽은 [docs/verification-log.md](../../docs/verification-log.md)의 수동 검증 기록을 따른다.
+- **실제 LLM 응답 품질.** 가짜 API는 고정 문장을 돌려준다.
+- **실제 API의 지연.** 고정값이라 재현이 되는 것이지 실제 업체 응답 시간과는 다르다.
 
 ## 실패 주입
 
-`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고르므로 방송 답변(`[답변할 채팅]`)과 1:1 답변(`[답변할 메시지]`), 누적 요약을 따로 실패시킬 수 있다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다. 음성(`tts`)에는 `empty`(200·0바이트), `garbage`(200·mp3 아님), `long`(`ms` 길이의 mp3)도 있다. `GET /v1/voices`는 ElevenLabs 목소리 목록을 흉내 내고 받은 횟수를 `/__calls`에 `voices`로 남긴다(실행기가 `BORI_ELEVENLABS_BASE_URL`을 가짜 API로 준다).
-
-## 장시간 검사
-
-```bash
-npm run test:soak                    # 기본 2분
-npm run test:soak -- --minutes 30    # 30분
-npm run test:soak -- --minutes 30 --out soak.json
-```
-
-가짜 API에 붙인 서버로 방송을 켜 두고 방송 채팅(기본 약 8초 간격)과 1:1 메시지(20초 간격)를 보내며, 1분마다 서버 RSS·heap(`GET /api/diagnostics`), 큐 길이, 방송·1:1 응답 지연 p50/p95, 오류 수, 데이터 파일 크기를 출력한다. 끝에 처음과 끝, 분당 기울기, 증가 추세 판정을 요약한다. 오류가 있거나 답을 못 받은 채팅이 10%를 넘으면 종료 코드 1이다. 포트는 `MOCK_PORT`(기본 4522), `BORI_TEST_PORT`(기본 4523).
-
-가짜 API 기준이다. 실제 LLM·TTS의 지연과 오류, 방송 화면·Live2D의 장시간 동작은 이 검사로 알 수 없다.
+`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고른다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다. 음성(`tts`)에는 `empty`(200·0바이트), `garbage`(200·mp3 아님), `long`(`ms` 길이의 mp3)도 있다. `GET /v1/voices`는 ElevenLabs 목소리 목록을 흉내 내고 받은 횟수를 `/__calls`에 `voices`로 남긴다(실행기가 `BORI_ELEVENLABS_BASE_URL`을 가짜 API로 준다).

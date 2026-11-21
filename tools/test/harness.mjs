@@ -2,7 +2,7 @@
  * 통합 검사 공용 유틸.
  *
  * 실제 보리 서버를 가짜 API에 붙여 띄우고, HTTP로 조작하면서 결과를 확인한다.
- * 단위 테스트가 아니라 방송 한 판을 짧게 돌려 보는 쪽에 가깝다.
+ * 단위 테스트가 아니라 서버 하나를 실제로 띄워 라우트를 두드려 보는 쪽에 가깝다.
  */
 import { spawn } from "node:child_process";
 import { cp, mkdtemp, rm } from "node:fs/promises";
@@ -62,8 +62,7 @@ export function startScript(scriptPath, { env = {}, label = "", loadTypeScript =
     child = spawn(process.execPath, args, {
       cwd: projectRoot,
       // 서버는 루트 .env를 읽는다. 검사가 실제 키·연동 설정을 읽지 않도록 기본으로 끄고, 필요한 시나리오만 env로 켠다.
-      // 코너 자동 진행은 끈다. 검사가 단계를 직접 넘기고, 오래 걸리는 검사 중에 코너가 바뀌면 안 된다.
-      env: { ...process.env, BORI_ENV_FILE: "", BORI_SHOW_AUTO_ADVANCE: "0", ...env },
+      env: { ...process.env, BORI_ENV_FILE: "", ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout.on("data", collect);
@@ -131,10 +130,10 @@ export async function waitForHttp(url, { timeoutMs = 25_000, intervalMs = 150, d
 
 /**
  * 고정 자료를 임시 디렉터리로 복사해 돌려준다.
- * 서버가 기억과 설정을 파일에 쓰므로, 검사마다 새 디렉터리를 써야 결과가 반복 가능하다.
+ * 서버가 설정과 사용량을 파일에 쓰므로, 검사마다 새 디렉터리를 써야 결과가 반복 가능하다.
  * 실제 data/는 어떤 경우에도 건드리지 않는다.
  */
-export async function prepareDataDir(fixtures = ["llm-config.json", "tts-config.json", "macros.json", "memories.json"]) {
+export async function prepareDataDir(fixtures = ["llm-config.json", "tts-config.json"]) {
   const dir = await mkdtemp(join(tmpdir(), "bori-test-"));
   for (const name of fixtures) {
     await cp(join(toolsTestDir, "fixtures", name), join(dir, name));
@@ -159,26 +158,10 @@ export function createMockClient(baseUrl) {
     /** 지정 횟수만큼 실패를 주입한다. mode는 500·delay·badjson, match가 있으면 그 문자열이 든 요청만. */
     inject: ({ target, mode, count = 1, ms = 0, match = "" }) => call(`/__inject?target=${target}&mode=${mode}&count=${count}&ms=${ms}&match=${encodeURIComponent(match)}`),
     clearInjections: () => call("/__inject?clear=1"),
-    /** 방송 종료 요약 응답을 정한다. 인자 없이 부르면 기본값으로 되돌린다. */
-    setBroadcastSummary: summary => call(`/__summary${summary ? `?json=${encodeURIComponent(JSON.stringify(summary))}` : ""}`),
-    /** 답변 생성 호출만 고른다. 누적 요약 호출이 섞이므로 그냥 마지막을 보면 안 된다. */
-    async answerCalls() {
+    /** LLM 호출만 고른다. */
+    async llmCalls() {
       const all = await call("/__calls");
-      return all.filter(entry => (entry.kind === "llm" || entry.kind === "llm-failed") && entry.user.includes("[답변할 채팅]"));
-    },
-    async summaryCalls() {
-      const all = await call("/__calls");
-      return all.filter(entry => entry.kind === "llm" && entry.system.includes("진행 중인 방송의 흐름"));
-    },
-    /** 1:1 누적 요약 호출. 방송 요약과 지시문이 다르다. */
-    async companionSummaryCalls() {
-      const all = await call("/__calls");
-      return all.filter(entry => entry.kind === "llm" && entry.system.includes("1:1 대화의 흐름"));
-    },
-    /** 1:1 개인 기억 정리 호출. */
-    async digestCalls() {
-      const all = await call("/__calls");
-      return all.filter(entry => entry.kind === "llm" && entry.system.includes("오래 기억할 내용"));
+      return all.filter(entry => entry.kind === "llm" || entry.kind === "llm-failed");
     },
   };
 }
@@ -196,65 +179,12 @@ export function createBoriClient(baseUrl) {
     body: JSON.stringify(payload),
   });
 
-  const client = {
+  return {
     baseUrl,
     get: path => send(path),
-    state: async () => (await send("/api/state")).body,
     llm: async () => (await send("/api/llm")).body,
-    patchSettings: next => withJson("PATCH", "/api/settings", next),
     patchLlm: next => withJson("PATCH", "/api/llm", next),
-    /** 닉네임을 주면 서버가 그 시청자의 내부 ID(local:닉네임)로 받는다. 없으면 익명 채팅이다. */
-    chat: (content, nickname) => withJson("POST", "/api/chat", { content, ...(nickname ? { nickname } : {}) }),
-    memory: async () => (await send("/api/memory")).body,
-    startSession: () => send("/api/session/start", { method: "POST" }),
-    endSession: () => send("/api/session/end", { method: "POST" }),
-    reloadMacros: () => send("/api/macros/reload", { method: "POST" }),
-
-    /** 답변이 화면 상태에 올라올 때까지 기다리고 걸린 시간을 함께 돌려준다. */
-    async waitForReply(timeoutMs = 25_000) {
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < timeoutMs) {
-        const state = await client.state();
-        if (state?.currentResponse) {
-          return { ms: Date.now() - startedAt, response: state.currentResponse, audioId: state.currentAudioId };
-        }
-        await sleep(25);
-      }
-      return { ms: -1, response: null, audioId: undefined };
-    },
-
-    /** 말풍선이 내려갈 때까지 기다린다. 다음 측정이 이전 답변에 걸리지 않게 한다. */
-    async waitForIdle(timeoutMs = 25_000) {
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < timeoutMs) {
-        const state = await client.state();
-        if (!state?.currentResponse) return true;
-        await sleep(40);
-      }
-      return false;
-    },
-
-    /** 채팅 한 건을 보내고 답변이 나온 뒤 말풍선이 내려갈 때까지 기다린다. */
-    async askAndSettle(content) {
-      await client.chat(content);
-      const result = await client.waitForReply();
-      await client.waitForIdle();
-      return result;
-    },
+    tts: async () => (await send("/api/tts")).body,
+    erStatus: async () => (await send("/api/er/status")).body,
   };
-
-  return client;
 }
-
-/** 검사에서 공통으로 쓰는 큐 설정. 시나리오가 필요한 값만 덮어쓴다. */
-export const baseQueueSettings = {
-  responseDelayMinSeconds: 1,
-  responseDelayMaxSeconds: 1,
-  maxQueueSize: 100,
-  visibleChatLimit: 8,
-  duplicateWindowMinutes: 1,
-  sameReplyCooldownMinutes: 0,
-  monologueEnabled: false,
-  monologueMinSeconds: 30,
-  monologueMaxSeconds: 60,
-};

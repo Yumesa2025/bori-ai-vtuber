@@ -3,7 +3,7 @@
 > 보리의 캐릭터 설정을 사람이 읽기 위한 원본 문서다. LLM 프롬프트에 들어가는 요약은
 > `packages/character/src/index.ts`에 있으며, 설정을 바꿀 때는 이 문서를 먼저 고친다.
 >
-> 관련 문서: [페르소나 가이드라인](./persona-guidelines.md) · [대화 시나리오](./dialogue-scenarios.md)
+> 관련 문서: [페르소나 가이드라인](./persona-guidelines.md) · 대화 시나리오(삭제된 문서 `./dialogue-scenarios.md`, git 기록에 있음)
 
 ## 출처 표기
 

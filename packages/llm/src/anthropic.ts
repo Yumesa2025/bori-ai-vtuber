@@ -1,7 +1,6 @@
-import { buildSystemPrompt, buildUserPrompt, maxOutputTokensFor, responseJsonSchemaFor } from "./prompt.js";
 import { redactError, redactSecrets } from "./redact.js";
 import { RateLimitError, sendWithRateLimitRetry } from "./retry.js";
-import type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest } from "./types.js";
+import { DEFAULT_MAX_OUTPUT_TOKENS, type LlmAdapter, type LlmAdapterConfig, type LlmRawResult, type LlmRequest } from "./types.js";
 import { tokenUsageFrom } from "./usage.js";
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com/v1";
@@ -37,10 +36,10 @@ export function createAnthropicAdapter(config: LlmAdapterConfig): LlmAdapter {
           },
           body: JSON.stringify({
             model: config.model,
-            max_tokens: maxOutputTokensFor(request),
-            system: request.overrideSystemPrompt ?? buildSystemPrompt(request),
-            messages: [{ role: "user", content: request.overrideUserPrompt ?? buildUserPrompt(request) }],
-            tools: [{ name: TOOL_NAME, description: "보리의 답변과 감정, 행동", input_schema: request.overrideSchema ?? responseJsonSchemaFor(request) }],
+            max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+            system: request.overrideSystemPrompt,
+            messages: [{ role: "user", content: request.overrideUserPrompt }],
+            tools: [{ name: TOOL_NAME, description: "요청한 형식의 결과", input_schema: request.overrideSchema }],
             tool_choice: { type: "tool", name: TOOL_NAME },
           }),
           signal: controller.signal,

@@ -93,11 +93,3 @@ export async function readError(response: Response, fallback: string): Promise<s
     return fallback;
   }
 }
-
-/**
- * 장기 기억 목록에 보일 문장.
- * 1:1 private 기억은 방송 중 관리자 창을 캡처·공유하면 그대로 노출되므로 기본으로 가린다. 서버 응답은 그대로 둔다.
- */
-export function memoryTextFor(record: { scope: string; text: string }, revealPrivate: boolean): string {
-  return record.scope === "private" && !revealPrivate ? "1:1 기억 · 내용 가림" : record.text;
-}

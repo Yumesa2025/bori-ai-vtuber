@@ -1,7 +1,6 @@
-import { buildSystemPrompt, buildUserPrompt, maxOutputTokensFor, responseJsonSchemaFor } from "./prompt.js";
 import { redactError, redactSecrets } from "./redact.js";
 import { RateLimitError, sendWithRateLimitRetry } from "./retry.js";
-import type { LlmAdapter, LlmAdapterConfig, LlmRawResult, LlmRequest } from "./types.js";
+import { DEFAULT_MAX_OUTPUT_TOKENS, type LlmAdapter, type LlmAdapterConfig, type LlmRawResult, type LlmRequest } from "./types.js";
 import { tokenUsageFrom } from "./usage.js";
 
 /** 프록시나 호환 엔드포인트로 돌릴 때 환경변수로 바꾼다. 설정에 baseUrl이 오면 그쪽이 이긴다. */
@@ -35,14 +34,14 @@ export function createOpenAiAdapter(config: LlmAdapterConfig): LlmAdapter {
           body: JSON.stringify({
             model: config.model,
             messages: [
-              { role: "system", content: request.overrideSystemPrompt ?? buildSystemPrompt(request) },
-              { role: "user", content: request.overrideUserPrompt ?? buildUserPrompt(request) },
+              { role: "system", content: request.overrideSystemPrompt },
+              { role: "user", content: request.overrideUserPrompt },
             ],
             response_format: {
               type: "json_schema",
-              json_schema: { name: "bori_response", strict: true, schema: request.overrideSchema ?? responseJsonSchemaFor(request) },
+              json_schema: { name: "bori_response", strict: true, schema: request.overrideSchema },
             },
-            max_completion_tokens: maxOutputTokensFor(request),
+            max_completion_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
           }),
           signal: controller.signal,
         }), startedAt + request.timeoutMs);
