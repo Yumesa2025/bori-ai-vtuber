@@ -167,3 +167,10 @@ export function createPlayback(deps: PlayerDeps & { stopSpeech(): void }): {
 - [ ] `npm run typecheck`, `npm run test:unit`, `npm test` 실제 실행·출력 확인
 - [ ] `npm --workspace apps/companion run dev:mock` 화면 캡처 1장(대사 표시)
 - [ ] push, `gh pr create --base feature/er-meta-dashboard`, CI 포그라운드 확인
+
+## 실행 기록: 계획과 다르게 한 것
+
+- 통합 검사 가짜 ER 집계는 사실이 하나(집계 기준)뿐이라, 가짜 OpenAI는 둘째가 아니라 첫 줄 감상에 숫자를 지어낸다.
+- 다시 듣기 늦은 응답은 AbortController 대신 요청 세대(`createGeneration`)로 무시한다. 언마운트 때 세대를 끝낸다.
+- 스튜디오에서 다른 탭으로 가면 자동 읽기·폴링을 미루는 것에 더해, 읽던 대사도 멈춘다.
+- 코디네이터 추가 요청(2026-11-21): 1280px 이하 한 열 배치에서 격자 행이 짓눌려 메타 표 sticky 머리가 두 번째 행 클릭을 가렸다. 행을 내용 높이로 두고 dashboard smoke에 1280×720 행 선택을 더했다.
