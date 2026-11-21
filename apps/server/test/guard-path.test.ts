@@ -16,7 +16,7 @@ before(async () => {
   const options = { allowedOrigins: allowedOriginsFrom(undefined) };
   server = createServer((request, response) => {
     if (!guardRequest(request, response, options)) return;
-    // index.ts의 /api/tts/:id, /api/memory/:id와 같은 방식으로 푼다.
+    // index.ts의 /api/tts/:id와 같은 방식으로 푼다.
     const id = decodeURIComponent((request.url ?? "").split("?")[0].slice("/api/item/".length));
     response.end(JSON.stringify({ id }));
   });
