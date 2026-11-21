@@ -65,7 +65,7 @@ console.log(`[run] mock ${mockPort} / bori ${boriPort}, Node ${process.version},
 const mockServer = startScript(join(toolsTestDir, "mock-openai.mjs"), { env: { MOCK_PORT: String(mockPort) }, label: "mock-openai" });
 
 try {
-  await waitForHttp(`${mockUrl}/__calls`, { describe: "가짜 API 서버" });
+  await waitForHttp(`${mockUrl}/__calls`, { describe: "가짜 API 서버", server: mockServer });
   const mock = createMockClient(mockUrl);
 
   for (const scenario of scenarios) {

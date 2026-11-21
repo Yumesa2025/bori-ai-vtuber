@@ -51,3 +51,23 @@ test("점유 포트에서 실행기는 즉시 실패하고 PATCH 0건", async t 
   assert.notEqual(code, 0);
   assert.equal(patches, 0);
 });
+import { startScript } from "./harness.mjs";
+import { EventEmitter } from "node:events";
+test("응답 대기 중 자식 종료도 즉시 실패한다", async t => {
+  const url = await fake(t, () => {});
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  const timer = setTimeout(() => { child.exitCode = 1; child.emit("exit"); }, 50);
+  t.after(() => clearTimeout(timer));
+  await assert.rejects(bounded(waitForHttp(url, { server: { child, env: {} }, intervalMs: 10 })), /자식 서버/);
+});
+test("실패한 자식은 준비 완료가 되지 않고 정리된다", async () => {
+  const server = startScript("tools/test/없는-스크립트.mjs");
+  try {
+    await assert.rejects(bounded(waitForHttp("http://127.0.0.1:1", { server, intervalMs: 10 })), /자식 서버/);
+  } finally {
+    await server.stop();
+  }
+  assert.notEqual(server.child.exitCode, null);
+});

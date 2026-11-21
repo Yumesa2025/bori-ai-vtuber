@@ -55,7 +55,7 @@ const scripts = new Map();
  * TypeScript는 tsx 로더로 읽는다. npx를 거치지 않으므로 자식이 하나만 생기고 종료가 확실하다.
  */
 export function startScript(scriptPath, { env = {}, label = "", loadTypeScript = false } = {}) {
-  if (label === "bori-server") env = { ...env, BORI_TEST_INSTANCE_ID: randomUUID() };
+  if (env.BORI_SERVER_PORT) env = { ...env, BORI_TEST_INSTANCE_ID: randomUUID() };
   let spawnError = null;
   const args = loadTypeScript ? ["--import", "tsx", scriptPath] : [scriptPath];
   const lines = [];
@@ -99,7 +99,10 @@ export function startScript(scriptPath, { env = {}, label = "", loadTypeScript =
       spawnChild();
     },
   };
-  if (label) scripts.set(label, handle);
+  if (label) {
+    scripts.delete(label);
+    scripts.set(label, handle);
+  }
   return handle;
 }
 
@@ -134,8 +137,7 @@ export async function availablePort(port = 0) {
 export async function waitForHttp(url, { timeoutMs = 25_000, intervalMs = 150, describe = url, instanceId, server } = {}) {
   // 재시작 시나리오에도 소유권 검사를 적용한다.
   if (!server && new URL(url).pathname === "/api/health") {
-    const candidate = scripts.get("bori-server");
-    if (candidate?.env.BORI_SERVER_PORT === new URL(url).port) server = candidate;
+    server = [...scripts.values()].reverse().find(candidate => candidate.env.BORI_SERVER_PORT === new URL(url).port);
   }
   instanceId ??= server?.env.BORI_TEST_INSTANCE_ID;
   const startedAt = Date.now();
@@ -143,12 +145,20 @@ export async function waitForHttp(url, { timeoutMs = 25_000, intervalMs = 150, d
   while (Date.now() - startedAt < timeoutMs) {
     if (server && (server.error || server.child.exitCode !== null || server.child.signalCode !== null)) throw new Error(`${describe} 자식 서버 종료 또는 실행 실패`);
     let response, text;
+    const stopped = new AbortController();
+    const abort = () => stopped.abort();
+    const child = server?.child;
+    child?.once("exit", abort);
+    child?.once("error", abort);
     try {
-      response = await fetch(url, { signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+      response = await fetch(url, { signal: AbortSignal.any([stopped.signal, AbortSignal.timeout(Math.max(1, deadline - Date.now()))]) });
       text = await response.text();
     } catch {
       await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
       continue;
+    } finally {
+      child?.removeListener("exit", abort);
+      child?.removeListener("error", abort);
     }
     if (response.ok) {
       if (instanceId && JSON.parse(text).instanceId !== instanceId) throw new Error(`${describe} instance 소유권 불일치`);
