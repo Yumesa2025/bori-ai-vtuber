@@ -26,7 +26,8 @@ describe("대사 차례 재생", () => {
   test("줄마다 자막 → 표정 → 말하기 순서이고 끝나면 자막을 내린다", async () => {
     const { deps, events } = recorder();
     const result = await playNarration(lines, deps, { audio: true, signal: { cancelled: false } });
-    assert.equal(result, "done");
+    // 셋째 줄은 음성을 켰는데 음성 id가 없다(서버 TTS 실패) → 자막만 보였다고 알린다
+    assert.equal(result, "audioFailed");
     assert.deepEqual(events, [
       "line:0", "react:greeting", "speak:첫 줄:audio",
       "line:1", "react:gaming", "speak:둘째 줄:audio",
@@ -48,10 +49,17 @@ describe("대사 차례 재생", () => {
     assert.deepEqual(events.filter(event => event.startsWith("speak:")), ["speak:첫 줄:audio", "speak:둘째 줄:text", "speak:셋째 줄:text"]);
   });
 
-  test("음성 파일 하나가 실패해도 다음 줄은 음성으로 시도한다", async () => {
+  test("모든 줄을 음성으로 읽었으면 done", async () => {
+    const { deps } = recorder();
+    const voiced = lines.map((line, index) => ({ ...line, audioId: `a${index}` }));
+    assert.equal(await playNarration(voiced, deps, { audio: true, signal: { cancelled: false } }), "done");
+    assert.equal(await playNarration(lines, deps, { audio: false, signal: { cancelled: false } }), "done", "음성을 끄면 id가 없어도 실패가 아니다");
+  });
+
+  test("음성 파일 하나가 실패해도 다음 줄은 음성으로 시도하고, 끝나면 audioFailed로 알린다", async () => {
     const { deps, events } = recorder(["audioFailed"]);
     const result = await playNarration(lines, deps, { audio: true, signal: { cancelled: false } });
-    assert.equal(result, "done");
+    assert.equal(result, "audioFailed");
     assert.equal(events.filter(event => event.startsWith("speak:"))[1], "speak:둘째 줄:audio");
   });
 

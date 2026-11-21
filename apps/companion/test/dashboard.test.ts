@@ -5,7 +5,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DashboardState, ErComboStat } from "@bori/shared";
-import { comboKey, comboLabel, connectionBadge, defaultDirection, pollIntervalMs, refreshView, shouldAutoPlay, sortCombos, trendOf } from "../src/dashboard";
+import { comboKey, comboLabel, connectionBadge, defaultDirection, headerNotices, isNewCombo, moverChangeText, pickPlaces, playerMessage, pollIntervalMs, refreshView, shouldAutoPlay, sortCombos, trendOf } from "../src/dashboard";
 import { createMockStore } from "../dev/mock-store";
 
 const ready = () => createMockStore("ready").dashboard().body as DashboardState;
@@ -20,15 +20,36 @@ describe("메타 표 정렬", () => {
   test("고른 열로 정렬하고 원본을 바꾸지 않는다", () => {
     const list = combos();
     const before = list.map(comboKey);
-    const sorted = sortCombos(list, "avgRank", "asc");
+    // 표본 적은 조합은 뒤로 가므로 표본이 충분한 앞부분만 순서를 본다
+    const enough = (sorted: ErComboStat[]) => sorted.filter(entry => !entry.lowSample);
+    const sorted = enough(sortCombos(list, "avgRank", "asc"));
     for (let i = 1; i < sorted.length; i += 1) assert.ok(sorted[i - 1].avgRank <= sorted[i].avgRank);
     assert.deepEqual(list.map(comboKey), before);
-    const desc = sortCombos(list, "pickRate", "desc");
+    const desc = enough(sortCombos(list, "pickRate", "desc"));
     for (let i = 1; i < desc.length; i += 1) assert.ok(desc[i - 1].pickRate >= desc[i].pickRate);
   });
 
-  test("MMR 표본이 없는 조합은 방향과 상관없이 맨 뒤다", () => {
-    const list = combos().map((entry, index) => (index === 0 ? { ...entry, avgMmrGain: null } : entry));
+  test("표본 적은 조합은 방향과 상관없이 표본이 충분한 조합 뒤에 둔다(극단값이 맨 위로 오지 않게)", () => {
+    const list = combos();
+    for (const [key, direction] of [["avgRank", "asc"], ["top1Rate", "desc"], ["avgRank", "desc"], ["pickRate", "asc"]] as const) {
+      const sorted = sortCombos(list, key, direction);
+      const firstLow = sorted.findIndex(entry => entry.lowSample);
+      assert.ok(firstLow > 0, `${key} ${direction}`);
+      assert.ok(sorted.slice(firstLow).every(entry => entry.lowSample), `${key} ${direction}`);
+    }
+  });
+
+  test("# 열은 정렬과 상관없는 픽률 순번이다", () => {
+    const list = combos();
+    const places = pickPlaces(list);
+    assert.equal(places.get(comboKey(list[0])), 1);
+    assert.equal(places.get(comboKey(list[2])), 3);
+    const sorted = sortCombos(list, "participants", "asc");
+    assert.notEqual(places.get(comboKey(sorted[0])), 1);
+  });
+
+  test("MMR 표본이 없는 조합은 방향과 상관없이 (표본 충분·적음 묶음 안에서) 맨 뒤다", () => {
+    const list = combos().filter(entry => !entry.lowSample).map((entry, index) => (index === 0 ? { ...entry, avgMmrGain: null } : entry));
     assert.equal(sortCombos(list, "avgMmrGain", "desc").at(-1)?.avgMmrGain, null);
     assert.equal(sortCombos(list, "avgMmrGain", "asc").at(-1)?.avgMmrGain, null);
   });
@@ -90,7 +111,9 @@ describe("상태 배지와 갱신 버튼", () => {
   test("지난 갱신이 실패했으면 오류를 보이고 다시 누를 수 있다", () => {
     const view = refreshView(state({ refresh: { lastError: "이터널리턴 API가 응답하지 않았습니다." } }));
     assert.equal(view.disabled, false);
-    assert.equal(view.notice, "지난 갱신 실패: 이터널리턴 API가 응답하지 않았습니다.");
+    // 서버 원문은 그대로 보이지 않고 자세히 보기(title)에만 둔다(점검 V2 21번)
+    assert.equal(view.notice, "지난 갱신이 실패했어요. 지난 데이터를 그대로 보여 드려요.");
+    assert.equal(view.noticeDetail, "이터널리턴 API가 응답하지 않았습니다.");
   });
 
   test("자동으로 시작한 갱신은 그렇다고 알린다", () => {
@@ -105,6 +128,11 @@ describe("폴링과 자동 읽기", () => {
     assert.equal(pollIntervalMs(null), 30_000);
   });
 
+  test("탭이 숨겨져 있으면 폴링을 늦춘다", () => {
+    assert.equal(pollIntervalMs({ ...ready(), refresh: { ...ready().refresh, running: true } }, true), 10_000);
+    assert.equal(pollIntervalMs(ready(), true), 120_000);
+  });
+
   test("이 브라우저에서 아직 읽지 않은 대사만 한 번 자동으로 읽는다", () => {
     const narration = ready().narration;
     assert.ok(narration);
@@ -112,5 +140,53 @@ describe("폴링과 자동 읽기", () => {
     assert.equal(shouldAutoPlay(narration, narration.id), false);
     assert.equal(shouldAutoPlay(null, null), false);
     assert.equal(shouldAutoPlay({ ...narration, lines: [] }, null), false);
+  });
+
+  test("숨긴 탭에서는 자동으로 읽지 않고(읽음으로 저장하지 않고) 보일 때까지 미룬다", () => {
+    const narration = ready().narration!;
+    assert.equal(shouldAutoPlay(narration, null, false), false);
+    assert.equal(shouldAutoPlay(narration, null, true), true);
+  });
+});
+
+describe("새로 태그", () => {
+  test("직전 갱신이 있고 그때 없던(비교 없는) 조합만 '새로'다", () => {
+    const state = ready();
+    const fresh = state.combos.find(entry => entry.change === null && !entry.lowSample)!;
+    assert.equal(isNewCombo(fresh, state.basis), true);
+    assert.equal(isNewCombo(state.combos.find(entry => entry.change !== null)!, state.basis), false);
+    assert.equal(isNewCombo({ ...fresh, lowSample: true }, state.basis), false);
+  });
+
+  test("직전 갱신이 없으면(첫 수집) 어느 행에도 붙이지 않는다", () => {
+    const first = createMockStore("first-collect").dashboard().body as DashboardState;
+    assert.equal(first.basis?.previousCollectedAt, null);
+    assert.ok(first.combos.every(entry => !isNewCombo(entry, first.basis)));
+    assert.equal(isNewCombo(first.combos[0], null), false);
+  });
+});
+
+describe("오르고 내린 조합의 변화량", () => {
+  test("변화량은 화면에 보이는 두 순위의 차다(3.84 → 3.96은 3.8위 → 4.0위, 0.2)", () => {
+    const base = ready().combos[0];
+    const entry = { ...base, avgRank: 3.96, change: { avgRank: 0.12, top1Rate: 0, pickRate: 0, avgMmrGain: 0 } };
+    assert.equal(moverChangeText(entry), "0.2");
+  });
+});
+
+describe("위 띠 안내", () => {
+  test("받기 오류·버튼 안내·상태 안내를 모두 보이고 같은 문구는 한 번만", () => {
+    assert.deepEqual(headerNotices({ load: "서버 오류", action: null, view: "키 없음" }), ["서버 오류", "키 없음"]);
+    assert.deepEqual(headerNotices({ load: null, action: "같음", view: "같음" }), ["같음"]);
+    assert.deepEqual(headerNotices({ load: null, action: null, view: null }), []);
+  });
+});
+
+describe("내 전적 안내", () => {
+  test("키가 없어 전적을 못 받은 경우는 '메타 분석은 그대로'라고 말하지 않는다", () => {
+    assert.match(playerMessage("error", false), /키/);
+    assert.doesNotMatch(playerMessage("error", false), /메타 분석은 그대로/);
+    assert.match(playerMessage("error", true), /메타 분석은 그대로/);
+    assert.match(playerMessage("unset", true), /닉네임/);
   });
 });
