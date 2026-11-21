@@ -8,3 +8,14 @@
 
 ## 확인
 SDK는 ModelDir의 폴더명과 manifest 기본 이름을 동일하게 조합한다. 따라서 일반 manifest 별칭을 서빙하면 SDK 관리 코드를 수정할 필요가 없다. 서버는 이미 `/private-model/` 전체를 companion dist에 연결하므로 변경하지 않는다.
+
+## 실행 결과
+- 먼저 변경한 경로 검사: 7건 중 5건 실패, 구현 후 전용 검사 10/10 통과.
+- `npm run typecheck`: 8개 워크스페이스 통과.
+- `npm run test:unit`: 첫 실행 570 통과 / 1 실패(변경 밖 ER 스트리밍 시간 제한 검사의 `chunks > 1`), 재실행 571 통과 / 0 실패.
+- `npm test`: 66 통과 / 0 실패.
+- `npm run test:harness`: 8 통과 / 0 실패.
+- `npm run test:dashboard-smoke`: 5 통과 / 0 실패, 실행기가 dev 서버를 정리했다.
+- 추적 파일 상품명 검색: 0건. `git check-ignore`로 일반 루트 모델 폴더와 private-assets 제외, apps 소스 허용을 확인했다.
+- 계획 차이: 서버와 companion Vite 설정은 기존 플러그인 연결 및 정적 경로를 그대로 쓸 수 있어 수정하지 않았다. SDK 텍스트만 읽었고 원래 체크아웃은 수정하지 않았다.
+- 남은 확인: 병합 후 원래 체크아웃에서 모델 이동, 실제 비공개 자산 빌드와 렌더링 확인. JSON 내부 참조·파일명 자체는 익명화하지 않는다.
