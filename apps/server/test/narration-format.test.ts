@@ -34,4 +34,13 @@ describe("화면과 대사의 숫자 모양", () => {
     assert.equal(narration.formatMmr(null), screen.formatMmr(null));
     for (const count of [0, 7, 12, 999, 1000, 7200, 12345, 1234567]) assert.equal(narration.formatCount(count), screen.formatCount(count));
   });
+
+  test("수가 아닌 값도 두 쪽이 같은 모양('—')이다", () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      for (const name of ["formatPercent", "formatRank", "formatCount", "formatDecimal", "formatMmr", "formatPointChange", "formatRankChange"] as const) {
+        assert.equal(narration[name](bad), screen[name](bad), `${name}(${bad})`);
+        assert.equal(narration[name](bad), "—", `${name}(${bad})`);
+      }
+    }
+  });
 });
