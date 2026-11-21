@@ -20,7 +20,7 @@
 공통 규칙(모든 작업):
 
 - 주석·커밋 메시지는 한국어. 커밋 끝에 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
-- `maolili/`, `private-assets/`, `_local/`, `data/`는 커밋하지 않는다. `git add -f` 금지
+- `sample-model/`, `private-assets/`, `_local/`, `data/`는 커밋하지 않는다. `git add -f` 금지
 - 테스트는 실제 `data/`에 쓰지 않는다(임시 폴더)
 - 각 작업 끝에 `npm run typecheck`, `npm run test:unit`이 통과해야 한다. `npm test`(통합)는 T2 끝부터 통과해야 한다
 - main 병합은 사용자 승인 뒤 코디네이터가 한다. 워커는 브랜치를 push하고 PR을 연다

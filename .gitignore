@@ -23,7 +23,13 @@ data/
 # 비공개 자산 — 재배포 금지
 # 구매한 상용 Live2D 모델 디렉터리와 Cubism SDK for Web
 # (Live2D Proprietary Software License)
-maolili/
+# 이전 루트 구매 모델도 보호: 새 루트 폴더는 검토 후 허용한다.
+/*/
+!/.github/
+!/apps/
+!/docs/
+!/packages/
+!/tools/
 private-assets/
 
 # 예전 OBS 송출 화면 캡처. 구매 모델이 렌더링된 이미지라 도구를 지운 뒤에도 패턴을 남긴다

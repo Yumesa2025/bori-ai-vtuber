@@ -8,11 +8,12 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { privateAssets } from "../../../tools/vite/private-assets";
+import { modelDirectory, modelManifest, privateAssetAliases, privateAssets } from "../../../tools/vite/private-assets";
 
 const SDK = "private-assets/cubism-sdk/CubismSdkForWeb-5-r.5";
 
 let root: string;
+let previousModelDir: string | undefined;
 
 function put(path: string, content = "x") {
   const full = join(root, path);
@@ -21,6 +22,8 @@ function put(path: string, content = "x") {
 }
 
 beforeEach(() => {
+  previousModelDir = process.env.BORI_LIVE2D_MODEL_DIR;
+  delete process.env.BORI_LIVE2D_MODEL_DIR;
   root = mkdtempSync(join(tmpdir(), "bori-private-assets-"));
   put("private-assets/live2d-model/sample-model.model3.json", "model");
   put("private-assets/live2d-model/textures/texture_00.png", "png");
@@ -36,6 +39,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (previousModelDir === undefined) delete process.env.BORI_LIVE2D_MODEL_DIR;
+  else process.env.BORI_LIVE2D_MODEL_DIR = previousModelDir;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -78,7 +83,7 @@ describe("dev 미들웨어 경로 검사", () => {
 
   test("이름이 같은 접두사로 시작하는 형제 폴더로 빠져나가지 못한다", async () => {
     for (const url of [
-      "/private-model/model/../sample-model-x/secret.json",
+      "/private-model/model/../live2d-model-x/secret.json",
       "/private-core/../CoreExtra/secret.js",
       "/private-framework/Shaders/WebGL/../WebGLx/secret.vert",
     ]) {
@@ -118,5 +123,54 @@ describe("빌드 복사", () => {
       "private-model/model/model.model3.json",
       "private-model/model/textures/texture_00.png",
     ]);
+  });
+});
+
+
+describe("모델 위치와 SDK 경로 주입", () => {
+  test("기본 위치와 상대·절대 환경변수를 해석한다", async () => {
+    assert.equal(modelDirectory(root), join(root, "private-assets/live2d-model"));
+    for (const location of ["custom-model", join(root, "custom-model")]) {
+      process.env.BORI_LIVE2D_MODEL_DIR = location;
+      put("custom-model/another.model3.json", "custom");
+      assert.equal(modelManifest(root), join(root, "custom-model/another.model3.json"));
+      assert.deepEqual(await get("/private-model/model/model.model3.json"), { status: 200, body: "custom" });
+      const outDir = join(root, "custom-dist");
+      await privateAssets({ projectRoot: root, outDir }).closeBundle();
+      assert.deepEqual(readdirSync(join(outDir, "private-model/model")), ["model.model3.json"]);
+    }
+  });
+
+  test("manifest가 없거나 여러 개면 빌드가 실패한다", () => {
+    mkdirSync(join(root, SDK, "Framework/src"), { recursive: true });
+    mkdirSync(join(root, SDK, "Samples/TypeScript/Demo/src"), { recursive: true });
+    const plugin = privateAssets({ projectRoot: root, outDir: join(root, "dist") });
+    plugin.configResolved({ command: "build" });
+    rmSync(modelManifest(root));
+    assert.throws(() => plugin.buildStart(), /정확히 하나.*발견: 0/);
+    put("private-assets/live2d-model/first.model3.json");
+    put("private-assets/live2d-model/second.model3.json");
+    assert.throws(() => plugin.buildStart(), /정확히 하나.*발견: 2/);
+  });
+
+  test("SDK 경로 상수만 바꾸고 다른 설정을 보존한다", () => {
+    const plugin = privateAssets({ projectRoot: root, outDir: join(root, "dist") });
+    const id = join(privateAssetAliases(root)["@sdk-sample"], "lappdefine.ts");
+    const source = `export const ResourcesPath = 'old/';
+export const ModelDir: string[] = [
+ 'sample-model'
+];
+export const ShaderPath = 'shaders/';
+export const ModelScale = 2.0;
+export const ModelDirSize: number = ModelDir.length;`;
+    const result = plugin.transform(source, id);
+    assert.ok(result);
+    assert.match(result.code, /ModelDir = \["model"\]/);
+    assert.match(result.code, /ResourcesPath = "\/private-model\/"/);
+    assert.match(result.code, /ShaderPath = "\/private-framework\/Shaders\/WebGL\/"/);
+    assert.ok(result.code.includes("export const ModelScale = 2.0;"));
+    assert.ok(result.code.includes("ModelDirSize: number = ModelDir.length"));
+    assert.equal(plugin.transform(source, join(root, "other.ts")), null);
+    assert.throws(() => plugin.transform("export const ModelScale = 2.0;", id), /ResourcesPath/);
   });
 });
