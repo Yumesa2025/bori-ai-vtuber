@@ -34,6 +34,7 @@ function fakeDashboard() {
   let refreshResult = true;
   const dashboard: DashboardData = {
     state: () => { calls.push("state"); return STATE; },
+    status: () => { calls.push("status"); return { connection: STATE.connection, refresh: STATE.refresh, basis: STATE.basis }; },
     maybeAutoRefresh: () => { calls.push("maybeAutoRefresh"); return false; },
     refresh: () => { calls.push("refresh"); return refreshResult; },
     settings: () => ({ ...current }),
