@@ -22,42 +22,6 @@ export type BoriExpressionName = (typeof boriExpressionNames)[number];
 export type BoriMotionGroupName = (typeof boriMotionGroupNames)[number];
 
 /**
- * 화면 표시용 한국어 이름. 파일 이름은 모델이 정한 중국어 병음이라 그대로 두고
- * 관리자·로그에 보여줄 이름만 여기에서 관리한다.
- */
-export const boriExpressionLabels: Record<BoriExpressionName, string> = {
-  xingxingyan: "반짝이는 눈",
-  kuqi: "울음",
-  shangxin: "슬픔",
-  shengqi: "화남",
-  shoushi: "게임패드",
-  wuyu: "어이없음",
-  chidai: "멍함",
-  changfa: "긴 머리",
-};
-
-export const boriMotionLabels: Record<BoriMotionGroupName, string> = {
-  xingxingyan: "반짝이는 눈",
-  kuqi: "울음",
-  shengqi: "화남",
-  shoushi: "게임패드",
-};
-
-/**
- * LLM에게 넘길 모션 설명.
- * 모션 이름이 중국어 병음이라 이름만으로는 무슨 동작인지 알 수 없다.
- * 어떤 상황에 쓰는지까지 적어야 모델이 제대로 고른다.
- * 쓰지 않는 상황도 함께 적는다. 쓰는 상황만 적었을 때 게임패드가 게임과 무관한 답 30회 중 26회에,
- * 반짝눈이 사과·모름·위기 답에 19회 나왔다(점검 A6-17). [초안 · 검토 필요] 쓰지 않는 상황 문장
- */
-export const boriMotionDescriptions: Record<BoriMotionGroupName, string> = {
-  xingxingyan: "눈이 별처럼 반짝이는 밝은 표현. 기쁨, 설렘, 신남, 칭찬을 받았을 때, 반가운 인사에 쓴다. 사과, 모른다는 답, 거절, 위로, 걱정에는 쓰지 않는다.",
-  kuqi: "눈물을 흘리며 우는 표현. 슬픔, 서운함, 안타까움, 위로를 건넬 때 쓴다. 궁금함이나 담담한 답에는 쓰지 않는다.",
-  shengqi: "머리에서 김이 나며 화내는 표현. 삐침, 발끈, 장난스러운 투정에만 쓴다. 걱정하거나 주의를 줄 때, 상대의 질문에 답할 때는 쓰지 않는다.",
-  shoushi: "게임패드를 들고 조작하는 표현. 게임 이야기를 할 때만 쓴다. 게임과 관계없는 이야기에는 쓰지 않는다.",
-};
-
-/**
  * 모션이 실제로 보이려면 짝이 되는 표정이 함께 켜져 있어야 한다.
  * 표정 파일이 효과를 활성화하고(예: shengqi는 Param66), 모션 파일이 그 효과의
  * 애니메이션 파라미터(Param68)를 돌리는 구조라, 표정 없이 모션만 실행하면 화면에 아무 변화가 없다.
@@ -66,8 +30,8 @@ export const boriMotionDescriptions: Record<BoriMotionGroupName, string> = {
 export const motionPairedExpression = (motion: BoriMotionGroupName): BoriExpressionName => motion;
 
 /**
- * 서버 CharacterResponse.emotion.primary → 모델 표정·모션 매핑.
- * 감정 이름은 방송 로직이 정하고, 파일 이름은 여기에서만 안다.
+ * 감정 이름 → 모델 표정·모션 매핑.
+ * 감정 이름은 보리 대사 한 줄(NarrationLine.emotion)이 고르고, 파일 이름은 여기에서만 안다.
  * 모션이 있는 감정은 표정도 같은 이름으로 둔다. 그래야 모션이 화면에 나타난다.
  */
 export const boriEmotionMap: Record<string, { expression?: BoriExpressionName; motion?: BoriMotionGroupName }> = {
@@ -129,7 +93,7 @@ export function resolveExpression(emotionPrimary: string): BoriExpressionName | 
 type ActionLike = { name: string; priority: number; layer: string };
 
 /**
- * 응답의 actions에서 실행할 몸 모션 하나를 고른다.
+ * actions에서 실행할 몸 모션 하나를 고른다. 대시보드의 대사 줄에는 actions가 없어(apps/companion/src/live2d/reaction.ts) 감정 매핑의 모션을 쓴다.
  * allowlist 밖의 이름은 버리고, 우선순위가 가장 높은 것만 남긴다.
  * actions가 비어 있으면 감정 매핑의 모션을 폴백으로 쓴다.
  */

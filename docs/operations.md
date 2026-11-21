@@ -3,7 +3,6 @@
 이터널리턴 메타 대시보드를 실제로 돌릴 때 필요한 설정과 조정 지점을 정리한 문서다. 설치와 기본 실행 명령은 [README](../README.md)를 참고한다.
 
 > 2026-11-21 방송·1:1 대화를 지우면서 OBS 송출, 채팅 화면, 장기 기억, 응답 라우팅 절을 지웠다(ADR-028). 예전 내용은 git 기록에 있다.
-> 대시보드 상태(`/api/dashboard`), 자동 갱신, 보리 읽어 주기, 닉네임 저장 라우트는 서버 연결이 구현 중이라 아래에 아직 적지 않았다.
 
 ## 1. 포트와 주소
 
@@ -121,8 +120,21 @@ npm run dev:server
 | 표본 | 상위 랭커 `BORI_ER_RANKERS`(기본 100)명 × 랭커마다 최근 랭크 경기 `BORI_ER_GAMES_PER_RANKER`(기본 3)판 |
 | 걸리는 시간 | 개인 키는 초당 1회라 기본 규모는 몇 분(설계 추정 최대 약 9분) |
 | 수동 갱신 | 스튜디오 설정 탭 "데이터 갱신" 또는 `POST /api/er/refresh` → `{ started }` |
-| 상태 | `GET /api/er/status` → 기준·갱신 중 여부·진행률·마지막 오류 |
-| 파일 | `data/er-dictionary.json`(사전), `data/er-meta.json`(최신 집계), `data/er-history/`(갱신마다, 최근 10개) |
+| 자동 갱신 | 대시보드가 `GET /api/dashboard`를 부를 때 서버가 판정한다. 데이터가 없거나, 마지막 수집이 24시간 넘게 지났거나, 시즌이 바뀌었으면 시작한다. 하루에 한 번만 판정한다 |
+| 상태 | `GET /api/dashboard`(또는 가벼운 `GET /api/dashboard/status`)의 `connection`(ready·stale·missing·refreshing)과 `refresh`(갱신할 수 있는지·진행 중 여부·진행률·마지막 오류·자동 시작 여부) |
+| 파일 | `data/er-dictionary.json`(사전), `data/er-meta.json`(최신 집계), `data/er-history/`(갱신마다, 최근 10개), `data/dashboard-settings.json`(게임 닉네임), `data/narration.json`(마지막 보리 대사) |
+
+### 대시보드 라우트
+
+| 메서드 | 경로 | 내용 |
+|---|---|---|
+| GET | `/api/dashboard` | 대시보드 상태(`DashboardState`). 필요하면 자동 갱신을 시작한다 |
+| GET | `/api/dashboard/status` | 연결·갱신·기준만. 자동 갱신 판정과 조합 계산을 하지 않는다(스튜디오 설정 탭이 3초마다 묻는다) |
+| POST | `/api/er/refresh` | 갱신 시작. `{ started }`. 이미 갱신 중이거나 `ER_API_KEY`가 없으면 false |
+| GET / PUT | `/api/dashboard/settings` | `{ nickname }`. PUT하면 제어문자·방향 바꿈 문자·개행을 지우고 정리한 뒤(32자까지, 넘으면 400) 저장하고 전적을 다시 조회한다 |
+| POST | `/api/narration/replay` | 다시 듣기. 마지막 대사를 `{ narration }`으로 돌려준다(없으면 404) |
+
+갱신이 끝나면 서버가 사실 목록을 만들어 보리 대사를 쓰고 음성을 준비한다. LLM 키가 없거나 실패하면 정해진 문장으로, TTS가 실패한 줄은 자막만 나온다. 게임 닉네임은 화면에만 보이고 로그·LLM 사실 목록에는 넣지 않는다.
 
 갱신은 이번 시즌 랭크 경기만 센다. 갱신에 실패하면 지난 파일을 그대로 쓰고 마지막 오류만 남긴다. 경기 하나·랭커 하나의 실패는 건너뛰고 계속한다. 확인용으로 짧게 돌릴 때는 `BORI_DATA_DIR`를 임시 폴더로 하고 랭커 수와 경기 수를 작게 준다.
 

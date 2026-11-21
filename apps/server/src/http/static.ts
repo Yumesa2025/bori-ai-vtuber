@@ -55,6 +55,18 @@ export function resolveStaticPath(url: string, prefix: string, root: string): st
   return filePath;
 }
 
+/**
+ * 정적 응답에 붙이는 보안 헤더.
+ * 스튜디오(/studio/)는 API 키를 다루므로 다른 웹사이트가 투명 iframe으로 덮어 버튼을 누르게 하지 못하게 한다(클릭재킹).
+ * frame-ancestors는 meta CSP로는 효과가 없어 응답 헤더로 준다. 이 헤더 CSP는 frame-ancestors만 담아 화면의 meta CSP를 넓히지 않는다.
+ * 스튜디오가 /companion/을 iframe으로 띄우는 것은 같은 출처라 'self'로 그대로 된다. X-Frame-Options는 frame-ancestors를 모르는 브라우저용이다.
+ */
+export const staticSecurityHeaders: Readonly<Record<string, string>> = {
+  "Content-Security-Policy": "frame-ancestors 'self'",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-Content-Type-Options": "nosniff",
+};
+
 function sendError(response: ServerResponse, status: number, error: string) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify({ error }));
@@ -79,6 +91,8 @@ export function serveStatic(request: IncomingMessage, response: ServerResponse, 
   const route = routes.find(candidate => url.startsWith(candidate.prefix));
   if (!route) return false;
 
+  // 200·404·503 모두에 붙인다.
+  for (const [name, value] of Object.entries(staticSecurityHeaders)) response.setHeader(name, value);
   if (!existsSync(route.root)) { sendError(response, 503, `화면을 먼저 빌드하세요: ${route.build}`); return true; }
 
   const filePath = route.stripPrefix
