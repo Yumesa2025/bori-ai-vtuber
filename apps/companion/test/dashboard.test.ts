@@ -59,7 +59,7 @@ describe("지난번 대비", () => {
 });
 
 describe("상태 배지와 갱신 버튼", () => {
-  const state = (patch: Partial<DashboardState> & { refresh?: Partial<DashboardState["refresh"]> }): DashboardState => {
+  const state = (patch: Omit<Partial<DashboardState>, "refresh"> & { refresh?: Partial<DashboardState["refresh"]> }): DashboardState => {
     const base = ready();
     return { ...base, ...patch, refresh: { ...base.refresh, ...patch.refresh } };
   };
