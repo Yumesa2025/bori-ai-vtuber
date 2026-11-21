@@ -85,6 +85,28 @@ describe("점검 보고서 우회 예문", () => {
     }
   });
 
+  test("Z1: 보리 말맛 감상(예전에 과하게 버리던 예문 포함)은 붙고, 줄의 숫자는 그대로다", () => {
+    for (const comment of [
+      "요즘 정말 자주 보여요.", "다들 좋아하나 봐요.", "이번에도 자주 보이네요.", "판도가 흥미로워요.",
+      "위협적인 기세예요.", "분위기가 좋아 보여요.", "점점 자주 보여요.", "제법 많이 모였네요.", "다시 올라오길 바라요.", "새 얼굴이 반가워요!",
+    ]) {
+      const [kept] = compose("f1", comment).kept;
+      assert.equal(kept.text, `${renderFact(byId.get("f1")!)} ${comment}`, comment);
+      assert.deepEqual(numbersOf(kept.text), numbersOf(renderFact(byId.get("f1")!)), comment);
+    }
+  });
+
+  test("Z1: 감상에서 사실을 되풀이하면(측정에서 실제로 나온 감상) 버린다", () => {
+    for (const comment of [
+      "현재 픽률 1위라 꽤 인기 있어요.", "픽률이 꽤 높은 것 같아요.", "두 번째로 좋은 성과를 보이고 있네요.", "순위도 좋고 안정적이네요.",
+      "재키 쌍검이 인기있어요.", "꽤 인기 있는 캐릭터네요.", "새로운 조합이 반가워요!", "주캐릭터가 잘 나가네요!", "아야 권총의 순위가 조금 하락했어요.",
+    ]) {
+      const result = compose("f1", comment);
+      assert.deepEqual(result.kept.map(line => line.text), [renderFact(byId.get("f1")!)], comment);
+      assert.equal(result.commentDropped.length, 1, comment);
+    }
+  });
+
   test("V1 6번: 전적이 일반 대전이면 내 전적 사실이 '이번 시즌'·랭크 판수처럼 말하지 않는다", () => {
     // @bori/er lookupPlayer는 이번 시즌 랭크 전적이 없으면 일반 대전 전적을 seasonName "일반 대전"으로 돌려준다.
     const normal = buildFacts({ basis: fixtureBasis, combos: fixtureCombos, player: { ...fixturePlayer, seasonName: "일반 대전" } });
