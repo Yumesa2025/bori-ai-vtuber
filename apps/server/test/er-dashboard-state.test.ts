@@ -113,7 +113,7 @@ describe("대시보드 상태", () => {
     await refreshed(erData);
     const state = dashboard.state();
     assert.deepEqual(state.basis, {
-      seasonId: 41, seasonName: "시즌 12", patch: "7.0", games: 2, participants: 8, rankers: 2, gamesPerRanker: 2,
+      seasonId: 41, seasonName: "시즌 12", patch: "12.7", games: 2, participants: 8, rankers: 2, gamesPerRanker: 2,
       collectedAt: "2026-11-21T00:00:00.000Z", previousCollectedAt: null, patchChanged: false,
     });
     assert.deepEqual(state.combos.map((c) => `${c.characterName}·${c.weaponName}`), ["재키·단검", "아야·권총", "아야·돌격 소총", "피오라·레이피어", "재키·양손검", "리 다이린·글러브"]);

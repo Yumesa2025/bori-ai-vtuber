@@ -50,7 +50,7 @@ test("상위 랭커의 이번 시즌 랭크 경기를 (캐릭터, 무기) 조합
     traits: { "7000201": 2 },
     equipment: { "0": { "117406": 1, "118403": 1 }, "1": { "202529": 2 }, "2": { "201404": 2 }, "3": { "205408": 2 }, "4": { "204416": 2 } },
   });
-  assert.deepEqual(basis, { seasonId: 41, seasonName: "시즌 12", patch: "7.0", games: 2, participants: 8, rankers: 2, gamesPerRanker: 2, collectedAt: "2026-11-21T00:00:00.000Z" });
+  assert.deepEqual(basis, { seasonId: 41, seasonName: "시즌 12", patch: "12.7", games: 2, participants: 8, rankers: 2, gamesPerRanker: 2, collectedAt: "2026-11-21T00:00:00.000Z" });
 });
 
 test("MMR 증감이 없는 행은 MMR 표본에서 뺀다", async () => {
@@ -88,21 +88,24 @@ test("무기를 모르는 행은 무기 0으로 센다", async () => {
   assert.ok(combos.some((c) => c.characterCode === 10 && c.weaponCode === 0));
 });
 
-test("패치는 경기 수 최빈값이고 같으면 큰 버전, 버전 필드가 없으면 null", async () => {
-  const withVersion = (minor: number | undefined) => {
+test("패치는 versionSeason.versionMajor의 경기 수 최빈값이고 같으면 큰 버전, 버전 필드가 없으면 null", async () => {
+  const withVersion = (fields: Record<string, number>) => {
     const routes = metaRoutes();
     const game1002 = routes["/v1/games/1002"] as { userGames: Array<Record<string, unknown>> };
-    routes["/v1/games/1002"] = { ...game1002, userGames: game1002.userGames.map((row) => ({ ...row, versionMinor: minor })) };
+    routes["/v1/games/1002"] = { ...game1002, userGames: game1002.userGames.map((row) => ({ ...row, ...fields })) };
     return routes;
   };
-  // 7.0 한 판, 7.1 한 판 → 큰 버전
-  let { dict, client } = await setup(withVersion(1));
-  assert.equal((await collect(client, dict)).basis.patch, "7.1");
+  // 12.7 한 판, 12.8 한 판 → 큰 버전
+  let { dict, client } = await setup(withVersion({ versionMajor: 8 }));
+  assert.equal((await collect(client, dict)).basis.patch, "12.8");
+  // versionMinor(핫픽스)는 패치 구분에 쓰지 않는다
+  ({ dict, client } = await setup(withVersion({ versionMinor: 1 })));
+  assert.equal((await collect(client, dict)).basis.patch, "12.7");
 
   const noVersion = metaRoutes();
   for (const id of ["1001", "1002"]) {
     const game = noVersion[`/v1/games/${id}`] as { userGames: Array<Record<string, unknown>> };
-    noVersion[`/v1/games/${id}`] = { ...game, userGames: game.userGames.map(({ versionMajor: _major, versionMinor: _minor, ...row }) => row) };
+    noVersion[`/v1/games/${id}`] = { ...game, userGames: game.userGames.map(({ versionSeason: _season, versionMajor: _major, versionMinor: _minor, ...row }) => row) };
   }
   ({ dict, client } = await setup(noVersion));
   assert.equal((await collect(client, dict)).basis.patch, null);
