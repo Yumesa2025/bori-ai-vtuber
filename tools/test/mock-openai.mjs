@@ -19,8 +19,8 @@
  *                              tts에는 mode=empty(200·0바이트), garbage(200·mp3 아님), long(ms 길이의 mp3)도 있다.
  *   GET /v1/voices             ElevenLabs 목소리 목록 흉내. 받은 횟수를 calls에 voices로 남긴다
  *
- * 보리 대사(스키마에 lines가 있는 요청)는 사실 목록(fN: …)을 줄마다 그대로 읊고, 끝에 숫자를 지어낸 줄 하나를 붙인다.
- * 서버의 숫자 검사가 그 줄을 버리는지 NARRATION_FABRICATED_MARK로 확인한다.
+ * 보리 대사(스키마에 lines가 있는 요청)는 사실 목록(fN: …) 앞 4개를 줄마다 하나씩 고르고({ factId, emotion, comment }) 짧은 감상을 붙인다.
+ * 첫 줄 감상은 숫자를 지어낸다(가짜 ER 집계는 사실이 하나뿐일 수 있다). 서버가 그 감상만 버리고 서버 문장을 남기는지 NARRATION_FABRICATED_MARK로 확인한다.
  *
  * 답변 생성 응답에는 고정 토큰 사용량(usage)을 붙인다. 사용량 집계를 확인할 때 쓴다.
  */
@@ -58,12 +58,14 @@ const sendJson = (response, status, body) => {
 const MOCK_USAGE = { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 };
 
 /**
- * 보리 대사 응답에서 숫자를 지어낸 줄의 표식. 이 줄은 사실 목록에 없는 숫자(987.6)를 말한다.
+ * 보리 대사 응답에서 숫자를 지어낸 감상의 표식. 이 감상은 사실 목록에 없는 숫자(987.6)를 말한다.
  * 이 파일은 불러오면 서버가 뜨므로 dashboard.mjs는 import하지 않고 같은 값을 따로 둔다.
  */
 const NARRATION_FABRICATED_MARK = "지어낸 수치";
-/** 사실 문장을 읊는 줄 수 상한. 지어낸 줄까지 5줄 안에 들어가게 한다. */
-const NARRATION_ECHO_LIMIT = 4;
+/** 규칙에 맞는 감상. dashboard.mjs가 같은 값으로 붙었는지 본다. */
+const NARRATION_GOOD_COMMENT = "좋아 보여요.";
+/** 고르는 사실 수. 서버의 3~5줄 안에 들어가게 한다. */
+const NARRATION_PICK_LIMIT = 4;
 
 /** user 프롬프트의 "[사실 목록]" 아래 "f1: 문장" 줄들. */
 function narrationFacts(user) {
@@ -80,9 +82,12 @@ function replyFor(schema, user = "") {
   const properties = schema?.properties ?? {};
   if ("lines" in properties) {
     const facts = narrationFacts(user);
-    const echoed = facts.slice(0, NARRATION_ECHO_LIMIT).map(fact => ({ text: fact.text, emotion: "calm", factIds: [fact.id] }));
-    const fabricated = { text: `${NARRATION_FABRICATED_MARK} 987.6이 보여요`, emotion: "happy", factIds: facts.slice(0, 1).map(fact => fact.id) };
-    return JSON.stringify({ lines: [...echoed, fabricated] });
+    const lines = facts.slice(0, NARRATION_PICK_LIMIT).map((fact, index) => ({
+      factId: fact.id,
+      emotion: index === 0 ? "happy" : "calm",
+      comment: index === 0 ? `${NARRATION_FABRICATED_MARK} 987.6이 보여요` : NARRATION_GOOD_COMMENT,
+    }));
+    return JSON.stringify({ lines });
   }
   return JSON.stringify({
     reply: "가짜 답변입니다. 잘 들리시나요.",
