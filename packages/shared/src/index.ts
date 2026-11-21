@@ -194,7 +194,7 @@ export type DashboardPlayerStatus = "unset" | "loading" | "ready" | "not-found" 
 export type DashboardState = {
   connection: ErConnection;
   /** available: 갱신할 수 있는지(ER_API_KEY가 있는지). false면 화면은 "키 없음"을 보이고 갱신 버튼을 끈다 */
-  refresh: { available: boolean; running: boolean; progress: number | null; lastError: string | null; autoStarted: boolean };
+  refresh: { etaSeconds?: number | null; available: boolean; running: boolean; progress: number | null; lastError: string | null; autoStarted: boolean };
   basis: ErMetaBasisV2 | null;
   /** 픽률 순 */
   combos: ErComboStat[];

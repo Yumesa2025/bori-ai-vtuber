@@ -130,7 +130,7 @@ export type RefreshView = {
 };
 
 export function refreshView(state: DashboardState): RefreshView {
-  const { available, running, progress, lastError, autoStarted } = state.refresh;
+  const { available, running, progress, lastError, autoStarted, etaSeconds } = state.refresh;
   if (!available) {
     return { buttonLabel: "갱신", disabled: true, progress: null, progressText: null, notice: "이터널리턴 API 키(ER_API_KEY)가 없어 데이터를 받을 수 없어요. .env에 키를 넣고 서버를 다시 켜 주세요." };
   }
@@ -140,7 +140,7 @@ export function refreshView(state: DashboardState): RefreshView {
       buttonLabel: "갱신 중",
       disabled: true,
       progress,
-      progressText: progress === null ? "갱신 준비 중" : `${prefix} ${Math.round(progress * 100)}%`,
+      progressText: progress === null ? "갱신 준비 중" : `${prefix} ${Math.round(progress * 100)}%${etaSeconds != null ? ` · 약 ${Math.max(1, Math.ceil(etaSeconds / 60))}분 남음` : ""}`,
       notice: null,
     };
   }

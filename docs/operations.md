@@ -117,8 +117,8 @@ npm run dev:server
 | 항목 | 값 |
 |---|---|
 | 키 | `.env`의 `ER_API_KEY`(화면 입력 없음). 없으면 갱신과 내 전적 조회를 하지 않는다 |
-| 표본 | 상위 랭커 `BORI_ER_RANKERS`(기본 100)명 × 랭커마다 최근 랭크 경기 `BORI_ER_GAMES_PER_RANKER`(기본 3)판 |
-| 걸리는 시간 | 개인 키는 초당 1회라 기본 규모는 몇 분(설계 추정 최대 약 9분) |
+| 표본 | 상위 랭커 `BORI_ER_RANKERS`(기본 100)명 × 랭커마다 최근 랭크 경기 `BORI_ER_GAMES_PER_RANKER`(기본 10)판 |
+| 걸리는 시간 | 개인 키는 초당 1회라 기본 규모는 몇 분(설계 추정 최대 약 22분) |
 | 수동 갱신 | 스튜디오 설정 탭 "데이터 갱신" 또는 `POST /api/er/refresh` → `{ started }` |
 | 자동 갱신 | 대시보드가 `GET /api/dashboard`를 부를 때 서버가 판정한다. 데이터가 없거나, 마지막 수집이 24시간 넘게 지났거나, 시즌이 바뀌었으면 시작한다. 하루에 한 번만 판정한다 |
 | 상태 | `GET /api/dashboard`(또는 가벼운 `GET /api/dashboard/status`)의 `connection`(ready·stale·missing·refreshing)과 `refresh`(갱신할 수 있는지·진행 중 여부·진행률·마지막 오류·자동 시작 여부) |
