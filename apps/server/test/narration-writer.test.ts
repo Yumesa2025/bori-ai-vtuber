@@ -7,10 +7,10 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { boriName, boriPersonaLines, boriScopeLines } from "@bori/character";
 import { boriEmotionNames } from "@bori/live2d";
-import { MAX_COMMENT_LENGTH } from "../src/narration/comment.js";
+import { checkComment, MAX_COMMENT_LENGTH } from "../src/narration/comment.js";
 import { buildFacts } from "../src/narration/facts.js";
-import { narrationSchema, narrationSystemPrompt, narrationUserPrompt, writeLines, type NarrationLlm, type NarrationLlmRequest } from "../src/narration/writer.js";
-import { FAKE_NICKNAME, fixtureBasis, fixtureCombos, fixturePlayer } from "./narration-fixtures.js";
+import { BAD_COMMENT_EXAMPLES, FACT_KIND_LABELS, GOOD_COMMENT_EXAMPLES, narrationSchema, narrationSystemPrompt, narrationUserPrompt, writeLines, type NarrationLlm, type NarrationLlmRequest } from "../src/narration/writer.js";
+import { FAKE_NICKNAME, fixtureBasis, fixtureCombos, fixtureNames, fixturePlayer } from "./narration-fixtures.js";
 
 const facts = buildFacts({ basis: fixtureBasis, combos: fixtureCombos, player: fixturePlayer });
 const factIds = facts.map(fact => fact.id);
@@ -81,6 +81,38 @@ describe("대사 쓰기", () => {
     for (const name of boriEmotionNames) assert.ok(prompt.includes(`- ${name}:`), name);
     // 예전 자유 문장 형식의 말은 남지 않는다
     assert.ok(!prompt.includes("factIds"));
+  });
+
+  test("Z1: 줄마다 감상을 쓰게 하고, 감상이 서버 문장 바로 뒤에 붙으니 사실을 되풀이하지 말라고 알린다", () => {
+    const prompt = narrationSystemPrompt();
+    for (const phrase of ["바로 뒤에 붙", "되풀이하지 않는다", "줄마다 comment를 쓴다", "'캐릭터'·'조합'", "[좋은 감상]", "[버려지는 감상]", "그대로 베끼지", "같은 감상을 두 번", "[종류]", "좋아진 사실에 아쉬움"]) {
+      assert.ok(prompt.includes(phrase), phrase);
+    }
+  });
+
+  test("Z1: 사실 줄 끝에 종류를 붙이고, 모든 종류에 좋은 감상 예시가 있다", () => {
+    const user = narrationUserPrompt(facts);
+    for (const fact of facts) assert.ok(user.includes(`${fact.id}: ${fact.text} [종류: ${FACT_KIND_LABELS[fact.kind]}]`), fact.id);
+    const kinds = Object.keys(FACT_KIND_LABELS);
+    assert.deepEqual(GOOD_COMMENT_EXAMPLES.map(example => example.kind).sort(), [...kinds].sort());
+    const prompt = narrationSystemPrompt();
+    for (const example of GOOD_COMMENT_EXAMPLES) assert.ok(prompt.includes(`- ${FACT_KIND_LABELS[example.kind]}:`), example.kind);
+  });
+
+  test("Z1: 지시에 싣는 좋은 감상 예시는 모두 검사를 통과하고, 버려지는 예시는 모두 버려진다", () => {
+    const prompt = narrationSystemPrompt();
+    const good = GOOD_COMMENT_EXAMPLES.flatMap(example => example.comments);
+    assert.ok(good.length >= 10);
+    assert.ok(good.includes("요즘 정말 자주 보여요."));
+    for (const comment of good) {
+      assert.ok(prompt.includes(`'${comment}'`), comment);
+      assert.deepEqual(checkComment(comment, fixtureNames), { ok: true, text: comment }, comment);
+    }
+    assert.ok(BAD_COMMENT_EXAMPLES.length >= 5);
+    for (const { comment, why } of BAD_COMMENT_EXAMPLES) {
+      assert.ok(prompt.includes(`'${comment}'`) && prompt.includes(why), comment);
+      assert.equal(checkComment(comment, fixtureNames).ok, false, comment);
+    }
   });
 
   test("문자열 JSON과 이미 푼 객체를 둘 다 받는다", async () => {
