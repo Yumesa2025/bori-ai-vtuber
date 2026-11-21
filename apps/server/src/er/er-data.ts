@@ -1,10 +1,9 @@
 import { resolve } from "node:path";
 import { collectMeta, loadDictionary, lookupPlayer, officialSeasonNumber, type ErClient, type ErDictionary, type ErMetaCollection, type ErPlayerLookup } from "@bori/er";
-import type { ErCharacterStat, ErMetaBasis, ErConnection, ErPlayerReport } from "@bori/shared";
+import type { ErConnection } from "@bori/shared";
 import { createConfigFile } from "../config-file.js";
 import { STALE_AFTER_MS } from "./auto-refresh.js";
 import { COLLECTION_FORMAT, createErHistory, parseCollection } from "./history.js";
-import { toCharacterStats, toLegacyBasis, toPlayerReport } from "./legacy.js";
 
 /**
  * 이터널리턴 데이터(캐릭터 사전·조합 집계)를 data/ 아래 파일로 두고 읽는다.
@@ -16,10 +15,8 @@ import { toCharacterStats, toLegacyBasis, toPlayerReport } from "./legacy.js";
  * - 오류 메시지에는 키가 없다(@bori/er 클라이언트가 키·쿼리를 빼고 만든다).
  */
 
-/** 예전 방송 경로용 상태(스튜디오 ER 패널). */
-export type ErStatus = { basis: ErMetaBasis | null; refreshing: boolean; progress: number | null; lastError: string | null };
-
-const TOP_COUNT = 5;
+/** 갱신 진행 상태. 대시보드 상태의 refresh 칸이 쓴다. */
+export type ErStatus = { refreshing: boolean; progress: number | null; lastError: string | null };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -124,9 +121,6 @@ export function createErData(options: {
     return lookupPlayer(options.client, dictionary, nickname);
   }
 
-  /** 예전 방송 경로용 캐릭터 합계 */
-  const stats = (): ErCharacterStat[] => (meta ? toCharacterStats(meta, dictionary) : []);
-
   return {
     /** 파일에서 사전·집계·직전 집계를 읽는다. 없거나 깨졌으면 없는 것으로 둔다. */
     load() {
@@ -148,7 +142,7 @@ export function createErData(options: {
       return Number.isFinite(collectedAt) && now() - collectedAt <= STALE_AFTER_MS ? "ready" : "stale";
     },
 
-    status: (): ErStatus => ({ basis: meta ? toLegacyBasis(meta) : null, refreshing, progress, lastError }),
+    status: (): ErStatus => ({ refreshing, progress, lastError }),
 
     /** 갱신을 시작한다. 이미 도는 중이거나 키가 없으면 false. */
     refresh(): boolean {
@@ -173,16 +167,6 @@ export function createErData(options: {
     available: () => options.client !== null && dictionary !== null && !refreshing,
 
     lookupPlayerSummary,
-
-    // ── 예전 방송 경로(legacy.ts). 방송 코드를 지우면 같이 지운다 ──
-    stats,
-    basis: (): ErMetaBasis | null => (meta ? toLegacyBasis(meta) : null),
-    top5: (): ErCharacterStat[] => stats().slice(0, TOP_COUNT),
-    /** 없으면 null. 실패하면 throw. */
-    async lookupPlayer(nickname: string): Promise<ErPlayerReport | null> {
-      const found = await lookupPlayerSummary(nickname);
-      return found ? toPlayerReport(found) : null;
-    },
   };
 }
 

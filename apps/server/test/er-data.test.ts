@@ -1,7 +1,7 @@
 /**
  * 이터널리턴 데이터 저장 단위 검사.
  * 파일이 없을 때 missing, 갱신이 사전·조합 집계를 파일과 history로 쓰고 다시 읽히는지, 직전 집계, 갱신 알림,
- * 갱신 중 중복 시작·키 없음·실패·오래된 메타, 예전 형식 파일, 예전 방송 경로(legacy) 변환을 본다.
+ * 갱신 중 중복 시작·키 없음·실패·오래된 메타, 예전 형식 파일을 본다.
  * 응답은 @bori/er 검사의 가짜 클라이언트와 고정 자료를 그대로 쓴다.
  */
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -43,9 +43,10 @@ describe("이터널리턴 데이터", () => {
   test("파일이 없으면 missing이고 전적을 볼 수 없다", () => {
     const data = open();
     assert.equal(data.connection(), "missing");
-    assert.deepEqual(data.top5(), []);
-    assert.equal(data.basis(), null);
+    assert.equal(data.meta(), null);
     assert.equal(data.available(), false);
+    // 상태에는 갱신 정보만 있다. 기준은 대시보드 상태(basis)가 따로 만든다
+    assert.deepEqual(data.status(), { refreshing: false, progress: null, lastError: null });
   });
 
   test("갱신하면 사전과 메타를 파일로 쓰고 ready가 된다. 다시 읽어도 같다", async () => {
@@ -59,7 +60,7 @@ describe("이터널리턴 데이터", () => {
     assert.equal(data.status().lastError, null);
     assert.equal(data.status().progress, null);
     assert.equal(data.connection(), "ready");
-    assert.deepEqual(data.top5().map(stat => stat.name), ["아야", "재키", "피오라", "리 다이린"]);
+    assert.deepEqual(new Set(data.meta()?.combos.map(combo => combo.characterCode)), new Set([1, 2, 3, 10]));
     assert.equal(data.available(), true);
     assert.ok(existsSync(join(dir, "er-dictionary.json")) && existsSync(join(dir, "er-meta.json")));
     assert.equal(readdirSync(join(dir, "er-history")).length, 1);
@@ -69,7 +70,6 @@ describe("이터널리턴 데이터", () => {
 
     const reloaded = open(null as never);
     assert.deepEqual(reloaded.meta(), data.meta());
-    assert.deepEqual(reloaded.top5(), data.top5());
     assert.equal(reloaded.dictionary()?.seasonName, "시즌 12");
   });
 
@@ -86,7 +86,6 @@ describe("이터널리턴 데이터", () => {
     const data = createErData({ dataDir: dir, client: null, rankers: 2, gamesPerRanker: 2 });
     data.load();
     assert.equal(data.meta(), null);
-    assert.equal(data.basis(), null);
     assert.equal(data.connection(), "missing");
   });
 
@@ -108,7 +107,7 @@ describe("이터널리턴 데이터", () => {
     failing.refresh();
     await waitFor(() => !failing.status().refreshing, "실패한 갱신");
     assert.match(failing.status().lastError ?? "", /rank\/top/);
-    assert.equal(failing.top5().length, 4);
+    assert.equal(failing.meta()?.basis.participants, 8);
   });
 
   test("24시간 넘은 메타는 stale이다", async () => {
@@ -162,7 +161,7 @@ describe("이터널리턴 데이터", () => {
     assert.equal(calls, 1);
   });
 
-  test("전적 요약은 사전이 있어야 조회하고, 예전 방송 경로는 가린 닉네임 보고서를 받는다", async () => {
+  test("전적 요약은 사전이 있어야 조회한다", async () => {
     const data = open();
     await assert.rejects(data.lookupPlayerSummary("가짜플레이어"), /쓸 수 없습니다/);
     data.refresh();
@@ -170,9 +169,7 @@ describe("이터널리턴 데이터", () => {
     const summary = await data.lookupPlayerSummary("가짜플레이어");
     assert.equal(summary?.nickname, "가짜플레이어");
     assert.equal(summary?.mainCharacters[0]?.code, 2);
-    const report = await data.lookupPlayer("가짜플레이어");
-    assert.equal(report?.maskedNickname, "가짜플**");
-    assert.deepEqual(report?.recentRanks.slice(0, 3), [3, 1, 5]);
+    assert.deepEqual(summary?.recent.slice(0, 3).map(game => game.rank), [3, 1, 5]);
     assert.equal(await data.lookupPlayerSummary("없는닉"), null);
   });
 
