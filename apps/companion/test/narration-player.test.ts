@@ -4,7 +4,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { NarrationLine } from "@bori/shared";
-import { createPlayback, playNarration, type PlayerDeps, type SpeechOutcome } from "../src/narration-player";
+import { createGeneration, createPlayback, playNarration, type PlayerDeps, type SpeechOutcome } from "../src/narration-player";
 
 const lines: NarrationLine[] = [
   { text: "첫 줄", emotion: "greeting", audioId: "a1" },
@@ -178,5 +178,18 @@ describe("재생 제어기", () => {
     playback.audioModeChanged();
     assert.equal(events.length, count);
     assert.ok(!events.some(event => event[1] === "A1"));
+  });
+});
+
+describe("요청 세대", () => {
+  test("C2 7: 새 요청을 시작하거나 무효로 하면 그 전 요청의 늦은 응답은 현재가 아니다", () => {
+    const generation = createGeneration();
+    const first = generation.next();
+    assert.equal(generation.isCurrent(first), true);
+    const second = generation.next();
+    assert.equal(generation.isCurrent(first), false);
+    assert.equal(generation.isCurrent(second), true);
+    generation.invalidate();
+    assert.equal(generation.isCurrent(second), false);
   });
 });

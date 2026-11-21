@@ -119,3 +119,16 @@ export function createPlayback(deps: PlayerDeps & { stopSpeech(): void }): Playb
     },
   };
 }
+
+/**
+ * 요청 세대. 다시 듣기 응답이 언마운트 뒤나 다음 요청 뒤에 늦게 와도 무시하게 한다(Codex C2 7절).
+ * next()로 받은 값이 isCurrent일 때만 응답을 반영한다. invalidate()는 지금 세대를 끝낸다(언마운트).
+ */
+export function createGeneration() {
+  let current = 0;
+  return {
+    next: () => (current += 1),
+    isCurrent: (generation: number) => generation === current,
+    invalidate: () => { current += 1; },
+  };
+}

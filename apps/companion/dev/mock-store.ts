@@ -145,14 +145,16 @@ const PLAYER: ErPlayerSummary = {
 
 type NarrationKind = "llm" | "template" | "tts-failed";
 
-/** 보리 대사 예시. 실제 서버는 사실 목록에서 만들고 검사한다. 정해진 문장은 서버 template.ts와 같은 꼴이다. */
+/**
+ * 보리 대사 예시. 실제 서버는 사실 목록에서 만든다. 줄 문장은 서버 template.ts의 정해진 문장이고,
+ * LLM 대사는 그 뒤에 수치·이름 없는 짧은 감상을 붙인 꼴이다(narration/check.ts).
+ */
 function narrationFor(id: string, createdAt: number, kind: NarrationKind = "llm"): Narration {
   const llmLines = [
-    { text: "오늘의 이터널리턴 메타 분석을 정리해 봤어요!", emotion: "greeting" },
-    { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요.", emotion: "gaming" },
-    { text: "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요. 좋아 보이는 것 같아요.", emotion: "happy" },
+    { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요. 요즘 정말 자주 보여요.", emotion: "gaming" },
+    { text: "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요. 흐름이 좋아 보여요.", emotion: "happy" },
     { text: "아야 권총은 평균 순위가 3.5위에서 4.1위로 내려갔어요.", emotion: "sad" },
-    { text: "자주 하시는 재키는 지금 메타 조합 순위 1위예요.", emotion: "excited" },
+    { text: "자주 하시는 재키는 지금 메타 조합 순위 1위예요. 앞으로가 기대돼요!", emotion: "excited" },
   ];
   const templateLines = [
     { text: "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 5.7%, 평균 순위 3.4위예요.", emotion: "gaming" },
