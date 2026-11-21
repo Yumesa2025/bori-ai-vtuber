@@ -107,37 +107,6 @@ export type UsageReport = {
   };
 };
 
-// ── 이터널리턴 집계(packages/er이 쓴다) ──────────────────
-
-/** 이터널리턴 캐릭터 하나의 집계값. 픽률·평균 순위는 표본 기준이다. */
-export type ErCharacterStat = {
-  code: number;
-  name: string;          // 한국어 이름
-  picks: number;         // 표본 안에서 고른 횟수
-  pickRate: number;      // 0~1
-  avgRank: number;       // 평균 순위(1이 1등)
-  top1Rate: number;      // 0~1
-  mainWeapon: string;    // 가장 많이 쓴 무기 한국어 이름, 모르면 ""
-};
-
-/** 메타 집계의 기준. 화면과 보리 대사에 그대로 밝힌다. */
-export type ErMetaBasis = {
-  seasonName: string;    // 예: "시즌 12"(게임 표기. API는 Season21)
-  sampleGames: number;   // 집계에 쓴 캐릭터-경기 수
-  collectedAt: string;   // ISO 시각
-  description: string;   // 예: "최근 7일 상위 랭커 7,200판 기준"
-};
-
-export type ErPlayerReport = {
-  maskedNickname: string;   // 예: "보리팬**"
-  seasonName: string;
-  games: number;
-  avgRank: number;
-  top1Rate: number;
-  recentRanks: number[];    // 최근 경기 순위, 최신이 앞, 최대 10개
-  mainCharacters: Array<{ name: string; games: number; avgRank: number }>; // 최대 3개
-};
-
 /** 이터널리턴 데이터 상태. 화면 배지와 자동 갱신 판단에 쓴다. */
 export type ErConnection = "ready" | "stale" | "missing" | "refreshing";
 

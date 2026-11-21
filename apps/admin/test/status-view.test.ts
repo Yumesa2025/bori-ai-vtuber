@@ -4,7 +4,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { connectionBadge, erSummary, llmConnection, nicknameBody, ttsConnection, type ErDataView } from "../src/studio/status-view";
+import { connectionBadge, erSummary, llmConnection, NICKNAME_MAX, nicknameBody, ttsConnection, type ErDataView } from "../src/studio/status-view";
 
 describe("연결 표시", () => {
   test("상태마다 색과 문구를 준다", () => {
@@ -95,5 +95,7 @@ describe("게임 닉네임 저장 본문", () => {
     const rejected = nicknameBody("가".repeat(33));
     assert.equal(rejected.ok, false);
     assert.ok(!rejected.ok && rejected.error.includes("32자"));
+    // 입력칸 maxLength도 이 값이다(서버 상한 32와 같다)
+    assert.equal(NICKNAME_MAX, 32);
   });
 });

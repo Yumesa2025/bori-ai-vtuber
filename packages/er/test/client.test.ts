@@ -144,3 +144,25 @@ test("절대 주소(언어 데이터 파일)는 키 없이 받아 본문 문자�
   assert.equal(calls[0]!.url, "https://cdn.example.com/l10n/ko.txt");
   assert.equal(calls[0]!.headers["x-api-key"], undefined);
 });
+
+test("오류 메시지에 경로 속 uid가 들어가지 않는다(로그·화면 lastError에 남는다)", async () => {
+  const failing = (async () => { throw new Error("offline"); }) as typeof fetch;
+  const cases: Array<ReturnType<typeof createErClient>> = [
+    createErClient({ apiKey: KEY, minIntervalMs: 0, fetch: fakeFetch([{ status: 500, body: { code: 500 } }, { status: 500, body: { code: 500 } }], []) }),
+    createErClient({ apiKey: KEY, minIntervalMs: 0, fetch: failing }),
+  ];
+  for (const client of cases) {
+    await assert.rejects(client.get("/v2/user/stats/uid/fake-uid-123/41/3"), (error: unknown) => {
+      assert.ok(error instanceof ErApiError);
+      assert.ok(!error.message.includes("fake-uid-123"), error.message);
+      assert.ok(error.message.includes("/v2/user/stats/uid/…/41/3"), error.message);
+      return true;
+    });
+    await assert.rejects(client.get("/v1/user/games/uid/fake-uid-123?next=5"), (error: unknown) => {
+      assert.ok(error instanceof ErApiError);
+      assert.ok(!error.message.includes("fake-uid-123"), error.message);
+      assert.ok(error.message.includes("/v1/user/games/uid/…"), error.message);
+      return true;
+    });
+  }
+});

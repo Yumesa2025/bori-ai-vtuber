@@ -34,6 +34,7 @@ function fakeDashboard() {
   let refreshResult = true;
   const dashboard: DashboardData = {
     state: () => { calls.push("state"); return STATE; },
+    status: () => { calls.push("status"); return { connection: STATE.connection, refresh: STATE.refresh, basis: STATE.basis }; },
     maybeAutoRefresh: () => { calls.push("maybeAutoRefresh"); return false; },
     refresh: () => { calls.push("refresh"); return refreshResult; },
     settings: () => ({ ...current }),
@@ -101,6 +102,13 @@ describe("대시보드 라우트", () => {
     assert.deepEqual(reply.body, { ...STATE, narration: NARRATION });
   });
 
+  test("GET /api/dashboard/status는 연결·갱신·기준만 주고 자동 갱신을 판정하지 않는다(스튜디오 설정 탭 폴링용)", async () => {
+    const reply = await send("GET", "/api/dashboard/status");
+    assert.equal(reply.status, 200);
+    assert.deepEqual(fake.calls, ["status"]);
+    assert.deepEqual(reply.body, { connection: STATE.connection, refresh: STATE.refresh, basis: STATE.basis });
+  });
+
   test("대사가 아직 없으면 narration은 null이다", async () => {
     latest = null;
     const reply = await send("GET", "/api/dashboard");
@@ -132,6 +140,13 @@ describe("대시보드 라우트", () => {
       assert.deepEqual(reply.body, { nickname: null });
     }
     assert.deepEqual(fake.saved, [{ nickname: null }, { nickname: null }, { nickname: null }]);
+  });
+
+  test("PUT은 방향 바꿈 문자·NUL을 지우고 저장한다", async () => {
+    const reply = await putSettings({ nickname: "가짜\u202E닉\u0000" });
+    assert.equal(reply.status, 200);
+    assert.deepEqual(reply.body, { nickname: "가짜닉" });
+    assert.deepEqual(fake.saved, [{ nickname: "가짜닉" }]);
   });
 
   test("32자를 넘는 닉네임은 400이고 저장하지 않는다", async () => {
