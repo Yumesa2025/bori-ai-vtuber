@@ -66,7 +66,7 @@ export function erSummary(view: ErDataView | null): {
     title: basis ? [basis.seasonName, ...(basis.patch ? [`패치 ${basis.patch}`] : []), `경기 ${count(basis.games)}판`].join(" · ") : "데이터 없음",
     updated: basis ? `마지막 갱신 ${formatCollectedAt(basis.collectedAt)}` : "아직 갱신하지 않았습니다",
     description: basis ? `상위 랭커 ${count(basis.rankers)}명의 랭크 경기 ${count(basis.games)}판(참가자 ${count(basis.participants)}명) 기준` : "",
-    progress: refresh.running ? `갱신 중 ${Math.round((refresh.progress ?? 0) * 100)}%` : null,
+    progress: refresh.running ? `갱신 중 ${Math.round((refresh.progress ?? 0) * 100)}%${refresh.etaSeconds != null ? ` · 약 ${Math.max(1, Math.ceil(refresh.etaSeconds / 60))}분 남음` : ""}` : null,
     badge: connectionBadge(view.connection),
     canRefresh: refresh.available && !refresh.running,
     lastError: refresh.lastError,

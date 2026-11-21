@@ -229,7 +229,7 @@ const erData = createErData({
   dataDir: dataRoot,
   client: erApiKey ? createErClient({ apiKey: erApiKey, ...(process.env.BORI_ER_BASE_URL ? { baseUrl: process.env.BORI_ER_BASE_URL } : {}) }) : null,
   rankers: positiveIntEnv("BORI_ER_RANKERS", 100),
-  gamesPerRanker: positiveIntEnv("BORI_ER_GAMES_PER_RANKER", 3),
+  gamesPerRanker: positiveIntEnv("BORI_ER_GAMES_PER_RANKER", 10),
 });
 erData.load();
 console.log(`[bori-server] 이터널리턴 데이터: ${erData.connection()}${erApiKey ? "" : " (ER_API_KEY 없음)"}`);

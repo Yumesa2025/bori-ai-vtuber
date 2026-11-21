@@ -1,3 +1,4 @@
+import { contextState, startGuardedFrames, type ContextState } from "./context-state";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resumeAudio } from "./audio-unlock";
 import { playbackFailure, waitForModelReady } from "./model-status";
@@ -24,7 +25,7 @@ type BoriDelegate = {
   lookAt(x: number, y: number): void;
 };
 
-export type Live2DStatus = { state: "loading" | "ready" | "failed"; message: string };
+export type Live2DStatus = { state: ContextState; message: string };
 /** audioBlocked는 자동 재생 차단, audioFailed는 파일 없음·디코딩 실패처럼 다시 눌러도 들리지 않는 실패다. */
 export type SpeechResult = "audio" | "text" | "audioBlocked" | "audioFailed";
 
@@ -99,32 +100,75 @@ export function useBoriLive2D() {
     let release: (() => void) | undefined;
     const failedStatus: Live2DStatus = { state: "failed", message: "캐릭터 모델이 없어요. 자막과 음성은 그대로 나와요." };
 
+    let stopFrames = () => {};
+    let detach = () => {};
+    let timer: number | undefined;
+    let generation = 0;
+    let phase: ContextState = "loading";
+    const unavailable: Live2DStatus = { state: "failed", message: "캐릭터를 표시할 수 없어요. 자막과 음성은 그대로 나와요." };
     loadCore()
       .then(() => import("@sdk-sample/lappdelegate"))
       .then(async ({ LAppDelegate }) => {
-        if (signal.cancelled) return;
-        const delegate = LAppDelegate.getInstance();
-        if (!delegate.initialize()) throw new Error("Live2D 렌더러를 초기화하지 못했습니다.");
-        delegate.run();
-        delegateRef.current = delegate;
-        if (import.meta.env.DEV) (window as unknown as { __boriDelegate?: unknown }).__boriDelegate = delegate;
-        // SDK 샘플은 캔버스를 body 끝에 붙인다. 캐릭터 영역 안으로 옮겨 레이아웃을 따르게 한다.
-        const canvas = document.querySelector("body > canvas");
-        if (canvas && layerRef.current) layerRef.current.appendChild(canvas);
-        release = () => { delegateRef.current = null; LAppDelegate.releaseInstance(); };
-        // 렌더러가 떠도 모델 파일이 없으면 빈 화면이다. 모델이 실제로 준비됐는지 따로 확인한다.
-        const ready = await waitForModelReady(() => delegate.getLoadedModel()?.isInitialized() === true, { signal });
-        if (signal.cancelled) return;
-        if (!ready) console.error("[bori] Live2D 모델 파일을 불러오지 못했습니다.");
-        setStatus(ready ? { state: "ready", message: "캐릭터 준비됨" } : failedStatus);
+        const initialize = async () => {
+          if (signal.cancelled) return;
+          const current = ++generation;
+          const delegate = LAppDelegate.getInstance();
+          release = () => { delegateRef.current = null; LAppDelegate.releaseInstance(); };
+          if (!delegate.initialize()) throw new Error("Live2D 렌더러를 초기화하지 못했습니다.");
+          const canvas = document.querySelector<HTMLCanvasElement>("body > canvas");
+          if (!canvas || !layerRef.current) throw new Error("Live2D 캔버스가 없습니다.");
+          layerRef.current.appendChild(canvas);
+          const lost = (event: Event) => {
+            event.preventDefault();
+            if (phase === "recovering" || phase === "failed") return;
+            ++generation;
+            stopFrames();
+            delegateRef.current = null;
+            playingMotionRef.current = null;
+            canvas.style.visibility = "hidden";
+            phase = contextState(phase, "lost");
+            setStatus({ state: phase, message: "캐릭터 화면을 다시 불러오는 중" });
+            timer = window.setTimeout(() => {
+              phase = contextState(phase, "timeout");
+              if (phase === "failed") setStatus(unavailable);
+            }, 10_000);
+          };
+          const restored = () => {
+            if (phase !== "recovering" || signal.cancelled) return;
+            window.clearTimeout(timer);
+            phase = contextState(phase, "restored");
+            detach();
+            release?.();
+            void initialize().catch(() => { phase = "failed"; setStatus(unavailable); });
+          };
+          canvas.addEventListener("webglcontextlost", lost);
+          canvas.addEventListener("webglcontextrestored", restored);
+          detach = () => {
+            canvas.removeEventListener("webglcontextlost", lost);
+            canvas.removeEventListener("webglcontextrestored", restored);
+            canvas.remove();
+          };
+          stopFrames = startGuardedFrames(() => delegate.run());
+          delegateRef.current = delegate;
+          const ready = await waitForModelReady(() => delegate.getLoadedModel()?.isInitialized() === true, {
+            signal: { get cancelled() { return signal.cancelled || generation !== current; } },
+          });
+          if (signal.cancelled || generation !== current) return;
+          phase = ready ? "ready" : "failed";
+          if (!ready) { stopFrames(); canvas.style.visibility = "hidden"; delegateRef.current = null; }
+          setStatus(ready ? { state: "ready", message: "캐릭터 준비됨" } : unavailable);
+        };
+        await initialize();
       })
       .catch(error => {
         if (signal.cancelled) return;
+        stopFrames();
+        detach();
         console.error(error);
         setStatus(failedStatus);
       });
 
-    return () => { signal.cancelled = true; release?.(); };
+    return () => { signal.cancelled = true; window.clearTimeout(timer); stopFrames(); detach(); release?.(); };
   }, []);
 
   // 목표 시선을 프레임마다 조금씩 따라간다. 바로 지정하면 고개가 휙 돌아간다.
