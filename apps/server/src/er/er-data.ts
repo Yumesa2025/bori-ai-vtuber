@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { collectMeta, loadDictionary, lookupPlayer, officialSeasonNumber, type ErClient, type ErDictionary, type ErMetaCollection, type ErPlayerLookup } from "@bori/er";
 import type { ErConnection } from "@bori/shared";
 import { createConfigFile } from "../config-file.js";
@@ -7,7 +8,7 @@ import { COLLECTION_FORMAT, createErHistory, parseCollection } from "./history.j
 
 /**
  * 이터널리턴 데이터(캐릭터 사전·조합 집계)를 data/ 아래 파일로 두고 읽는다.
- * - 서버 시작 때 `er-dictionary.json`·`er-meta.json`이 있으면 읽는다. 없으면 missing이다.
+ * - 서버 시작 때 `er-snapshot.json`의 사전·메타 쌍을 읽는다. 없을 때만 예전 두 파일을 읽는다.
  *   조합 집계가 없는 예전 형식 `er-meta.json`(stats만)은 없는 것으로 본다. 다음 갱신 때 새 형식으로 쓴다.
  * - 갱신(refresh)이 백그라운드로 사전과 집계를 다시 받고, 집계까지 성공한 뒤에만 둘을 원자적으로 쓴다(설정 파일 공통 방식).
  *   집계를 `er-history/`에도 하나 남긴다(최근 10개). 실패하면 사전·집계 파일과 메모리 모두 지난 것 그대로다.
@@ -62,6 +63,8 @@ export function createErData(options: {
   const now = options.now ?? Date.now;
   const dictionaryFile = createConfigFile(resolve(options.dataDir, "er-dictionary.json"), "이터널리턴 사전");
   const metaFile = createConfigFile(resolve(options.dataDir, "er-meta.json"), "이터널리턴 메타");
+  const snapshotPath = resolve(options.dataDir, "er-snapshot.json");
+  const snapshotFile = createConfigFile(snapshotPath, "이터널리턴 스냅샷");
   const history = createErHistory({ dir: resolve(options.dataDir, "er-history") });
   const refreshedListeners = new Set<() => void>();
   const failedListeners = new Set<() => void>();
@@ -89,8 +92,12 @@ export function createErData(options: {
       });
       // 집계까지 성공한 뒤에만 사전과 집계를 바꾼다(설계 1.3 "실패하면 지난 파일 그대로").
       // 사전만 새 시즌으로 바뀌면 전적은 새 시즌, 메타는 지난 시즌을 보게 된다.
-      dictionaryFile.write({ ...nextDictionary, seasonLabel: SEASON_LABEL });
-      metaFile.write({ format: COLLECTION_FORMAT, ...collected, seasonLabel: SEASON_LABEL });
+      if (!parseCollection(collected)) throw new Error("이터널리턴 집계가 비어 있거나 손상되었습니다.");
+      snapshotFile.write({
+        format: 1,
+        dictionary: { ...nextDictionary, seasonLabel: SEASON_LABEL },
+        meta: { format: COLLECTION_FORMAT, ...collected },
+      });
       const shown = meta;
       dictionary = nextDictionary;
       meta = collected;
@@ -130,8 +137,19 @@ export function createErData(options: {
   return {
     /** 파일에서 사전·집계·직전 집계를 읽는다. 없거나 깨졌으면 없는 것으로 둔다. */
     load() {
-      dictionary = asDictionary(dictionaryFile.read());
-      meta = parseCollection(metaFile.read());
+      if (existsSync(snapshotPath)) {
+        const snapshot = snapshotFile.read();
+        dictionary = snapshot?.format === 1 && isRecord(snapshot.dictionary) ? asDictionary(snapshot.dictionary) : null;
+        meta = snapshot?.format === 1 ? parseCollection(snapshot.meta) : null;
+        if (!dictionary || !meta || dictionary.seasonId !== meta.basis.seasonId) {
+          dictionary = null;
+          meta = null;
+        }
+      } else {
+        dictionary = asDictionary(dictionaryFile.read());
+        meta = parseCollection(metaFile.read());
+        if (dictionary && meta && dictionary.seasonId !== meta.basis.seasonId) meta = null;
+      }
       previous = findPrevious(meta);
     },
     dictionary: () => dictionary,

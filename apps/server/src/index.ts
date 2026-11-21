@@ -300,7 +300,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
   const path = routePathOf(request.url);
   // HEAD는 GET 라우트로 처리한다. 본문은 Node가 HEAD 응답에서 빼고 보낸다(a1 L5).
   const method = request.method === "HEAD" ? "GET" : request.method;
-  if (method === "GET" && path === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server" }); return; }
+  if (method === "GET" && path === "/api/health") { sendJson(response, 200, { ok: true, service: "bori-server", ...(process.env.BORI_TEST_INSTANCE_ID ? { instanceId: process.env.BORI_TEST_INSTANCE_ID } : {}) }); return; }
   // 대시보드·이터널리턴 갱신·게임 닉네임·다시 듣기(http/dashboard-routes.ts)
   if (handleDashboardRoute(method, path, request, response, { dashboard, narrator })) return;
   if (method === "GET" && path === "/api/llm") { sendJson(response, 200, llmView()); return; }

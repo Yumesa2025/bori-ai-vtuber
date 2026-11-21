@@ -11,11 +11,10 @@ const AUTH_TAG_BYTES = 16;
 
 /**
  * 로컬 저장용 키를 만든다.
- * 이 컴퓨터의 사용자와 호스트 이름에서 파생하므로, 설정 파일만 다른 컴퓨터로 옮겨도 풀리지 않는다.
- *
- * 한계: 같은 컴퓨터에서 이 코드를 실행할 수 있으면 복호화도 가능하다.
- * 파일 유출과 실수로 인한 공유를 막는 수준이고, 로컬 권한 침해까지 막지는 못한다.
- * OS 키체인을 쓰려면 Electron safeStorage로 옮겨야 하는데, 서버는 별도 프로세스라 바로 쓸 수 없다.
+ * 사용자 이름·컴퓨터 이름과 공개된 고정 salt로 파생한다. 이 식별 정보를 알면
+ * 설정 파일을 다른 컴퓨터에서도 복호화할 수 있어 파일 유출·공유를 막지 못한다.
+ * 후속 과제: Windows DPAPI 또는 Electron safeStorage로 무작위 비밀을 보호하고
+ * 기존 enc.v1을 마이그레이션한다. 호환성을 위해 현재 키 파생 재료는 유지한다.
  */
 function deriveKey(): Buffer {
   const material = `${userInfo().username}@${hostname()}:bori-ai-vtuber`;

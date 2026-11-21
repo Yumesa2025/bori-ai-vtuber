@@ -122,7 +122,7 @@ npm run dev:server
 | 수동 갱신 | 스튜디오 설정 탭 "데이터 갱신" 또는 `POST /api/er/refresh` → `{ started }` |
 | 자동 갱신 | 대시보드가 `GET /api/dashboard`를 부를 때 서버가 판정한다. 데이터가 없거나, 마지막 수집이 24시간 넘게 지났거나, 시즌이 바뀌었으면 시작한다. 하루에 한 번만 판정한다 |
 | 상태 | `GET /api/dashboard`(또는 가벼운 `GET /api/dashboard/status`)의 `connection`(ready·stale·missing·refreshing)과 `refresh`(갱신할 수 있는지·진행 중 여부·진행률·마지막 오류·자동 시작 여부) |
-| 파일 | `data/er-dictionary.json`(사전), `data/er-meta.json`(최신 집계), `data/er-history/`(갱신마다, 최근 10개), `data/dashboard-settings.json`(게임 닉네임), `data/narration.json`(마지막 보리 대사) |
+| 파일 | `data/er-snapshot.json`(사전·최신 집계의 단일 원자 스냅샷; 파일이 없으면 예전 `er-dictionary.json`·`er-meta.json`을 읽어 이어 씀), `data/er-history/`(갱신마다, 최근 10개), `data/dashboard-settings.json`(게임 닉네임), `data/narration.json`(마지막 보리 대사) |
 
 ### 대시보드 라우트
 

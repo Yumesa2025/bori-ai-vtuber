@@ -3,8 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "description": "Eternal Return meta dashboard with Bori Live2D narration",
-  "engines": { "node": ">=22" },
-  "workspaces": ["apps/*", "packages/*"],
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:admin\" \"npm:dev:companion\"",
     "dev:server": "npm --workspace apps/server run dev",
@@ -15,18 +20,21 @@
     "build:admin": "npm --workspace apps/admin run build",
     "build:companion": "npm --workspace apps/companion run build",
     "test": "node tools/test/run.mjs",
+    "test:harness": "node --test tools/test/harness.test.mjs",
+    "test:dashboard-smoke": "node tools/test/dashboard-smoke.mjs",
     "test:unit": "node --import tsx --test --test-timeout=30000 \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
     "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:admin && npm run typecheck:live2d && npm run typecheck:llm && npm run typecheck:character && npm run typecheck:companion && npm run typecheck:er",
     "typecheck:shared": "npm --workspace packages/shared run typecheck",
     "typecheck:server": "npm --workspace apps/server run typecheck",
-    "typecheck:admin": "npm --workspace apps/admin run typecheck"
-    ,"typecheck:live2d": "npm --workspace packages/live2d run typecheck"
-    ,"typecheck:llm": "npm --workspace packages/llm run typecheck"
-    ,"typecheck:character": "npm --workspace packages/character run typecheck"
-    ,"typecheck:companion": "npm --workspace apps/companion run typecheck"
-    ,"typecheck:er": "npm --workspace packages/er run typecheck"
+    "typecheck:admin": "npm --workspace apps/admin run typecheck",
+    "typecheck:live2d": "npm --workspace packages/live2d run typecheck",
+    "typecheck:llm": "npm --workspace packages/llm run typecheck",
+    "typecheck:character": "npm --workspace packages/character run typecheck",
+    "typecheck:companion": "npm --workspace apps/companion run typecheck",
+    "typecheck:er": "npm --workspace packages/er run typecheck"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
