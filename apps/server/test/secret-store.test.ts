@@ -1,3 +1,11 @@
+import { mkdtempSync as secretTemp, rmSync as secretRemove } from "node:fs";
+import { tmpdir as secretTmpdir } from "node:os";
+import { join as secretJoin } from "node:path";
+import { after as secretAfter } from "node:test";
+import { initializeSecretStore } from "../src/secret-store.js";
+const secretDir = secretTemp(secretJoin(secretTmpdir(), "bori-key-test-"));
+await initializeSecretStore(secretDir, { name: "test", async protect(v) { return v; }, async unprotect(v) { return v; } });
+secretAfter(() => secretRemove(secretDir, { recursive: true, force: true }));
 /**
  * 비밀값 저장 단위 검사.
  * 암호문이 왕복되는지, 고치거나 잘라 낸 암호문을 키 없음("")으로 다루는지 본다.
@@ -7,7 +15,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { decryptSecret, encryptSecret, isEncrypted } from "../src/secret-store.js";
 
-const PREFIX = "enc.v1:";
+const PREFIX = "enc.v2:";
 const FAKE_KEY = "test-not-a-real-key";
 
 /** 암호문을 iv·태그·본문으로 나눈다. */

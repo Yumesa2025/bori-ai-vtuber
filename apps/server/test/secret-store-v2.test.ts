@@ -84,3 +84,15 @@ test("Windows 실제 DPAPI CurrentUser 왕복", { skip: process.platform !== "wi
   assert.notDeepEqual(protectedValue, input);
   assert.deepEqual(await windowsProtector.unprotect(protectedValue), input);
 });
+
+test("JSON 이스케이프된 v2도 마스터 키 재생성을 막는다", () => fixture(async dir => {
+  writeFileSync(join(dir, "llm-config.json"), '{"apiKey":"\\u0065nc.v2:broken"}');
+  await assert.rejects(initializeSecretStore(dir, fake));
+  assert.equal(existsSync(join(dir, "secret-master.v2")), false);
+}));
+test("설정 파일 읽기 실패는 마스터 키 생성을 막는다", () => fixture(async dir => {
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(dir, "llm-config.json"));
+  await assert.rejects(initializeSecretStore(dir, fake));
+  assert.equal(existsSync(join(dir, "secret-master.v2")), false);
+}));

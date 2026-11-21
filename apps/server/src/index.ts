@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { LlmProvider, LlmSettings } from "@bori/shared";
 import { boriExpressionNames, boriMotionGroupNames } from "@bori/live2d";
 import { createLlmClient, createVoiceListCache, defaultModels, defaultTtsModels, defaultTtsSettings, supportedProviders, synthesizeSpeech, ttsApiKey, type TtsProvider, type TtsSettings } from "@bori/llm";
-import { createApiKeySlot } from "./secret-store.js";
+import { createApiKeySlot, initializeSecretStore } from "./secret-store.js";
 import { createConfigFile } from "./config-file.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
 import { serveStatic } from "./http/static.js";
@@ -46,6 +46,8 @@ const dataRoot = process.env.BORI_DATA_DIR ? resolve(process.env.BORI_DATA_DIR) 
 // 보관 기간이 지난 백업·이전 관리자 로그를 지운다. 사용자 데이터 원본은 지우지 않는다(retention.ts).
 const purgedBackups = purgeExpiredBackups(dataRoot);
 if (purgedBackups.length > 0) console.log(`[bori-server] ${BACKUP_RETENTION_DAYS}일 지난 백업·로그 ${purgedBackups.length}건 정리`);
+try { await initializeSecretStore(dataRoot); }
+catch (error) { console.error("[bori-server]", (error as Error).message); }
 const llmConfigPath = resolve(dataRoot, "llm-config.json");
 const llmConfigFile = createConfigFile(llmConfigPath, "LLM 설정");
 

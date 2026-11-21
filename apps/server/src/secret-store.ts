@@ -1,21 +1,21 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 import { hostname, userInfo } from "node:os";
+import { execFile } from "node:child_process";
+import { chmodSync, readFileSync, renameSync } from "node:fs";
+import { join } from "node:path";
+import { backupFile, isMissingFileError, writeFileAtomically } from "./atomic-file.js";
 
 const ALGORITHM = "aes-256-gcm";
-const PREFIX = "enc.v1:";
+const PREFIX = "enc.v2:";
+const LEGACY_PREFIX = "enc.v1:";
+let masterKey: Buffer | null = null;
 /**
  * 인증 태그 길이(바이트). 풀 때도 이 길이를 강제한다.
  * 지정하지 않으면 GCM이 4바이트까지 잘린 태그를 받아 주므로, 파일을 고친 사람이 위조한 값이 통과하기 쉬워진다.
  */
 const AUTH_TAG_BYTES = 16;
 
-/**
- * 로컬 저장용 키를 만든다.
- * 사용자 이름·컴퓨터 이름과 공개된 고정 salt로 파생한다. 이 식별 정보를 알면
- * 설정 파일을 다른 컴퓨터에서도 복호화할 수 있어 파일 유출·공유를 막지 못한다.
- * 후속 과제: Windows DPAPI 또는 Electron safeStorage로 무작위 비밀을 보호하고
- * 기존 enc.v1을 마이그레이션한다. 호환성을 위해 현재 키 파생 재료는 유지한다.
- */
+/** Legacy v1 read-only derivation: preserve all inputs for compatibility. */
 function deriveKey(): Buffer {
   const material = `${userInfo().username}@${hostname()}:bori-ai-vtuber`;
   // salt를 재료에서 파생해 저장 없이 항상 같은 키가 나오게 한다.
@@ -26,7 +26,7 @@ export function encryptSecret(plain: string): string {
   if (plain.length === 0) return "";
 
   const iv = randomBytes(12);
-  const cipher = createCipheriv(ALGORITHM, deriveKey(), iv, { authTagLength: AUTH_TAG_BYTES });
+  const cipher = createCipheriv(ALGORITHM, requireMasterKey(), iv, { authTagLength: AUTH_TAG_BYTES });
   const encrypted = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
 
@@ -39,11 +39,11 @@ export function encryptSecret(plain: string): string {
  */
 export function decryptSecret(stored: string): string {
   if (stored.length === 0) return "";
-  if (!stored.startsWith(PREFIX)) return stored;
+  if (!isEncrypted(stored)) return stored;
 
   try {
     const [ivPart, tagPart, dataPart] = stored.slice(PREFIX.length).split(":");
-    const decipher = createDecipheriv(ALGORITHM, deriveKey(), Buffer.from(ivPart, "base64"), { authTagLength: AUTH_TAG_BYTES });
+    const decipher = createDecipheriv(ALGORITHM, stored.startsWith(LEGACY_PREFIX) ? deriveKey() : requireMasterKey(), Buffer.from(ivPart, "base64"), { authTagLength: AUTH_TAG_BYTES });
     decipher.setAuthTag(Buffer.from(tagPart, "base64"));
     return Buffer.concat([decipher.update(Buffer.from(dataPart, "base64")), decipher.final()]).toString("utf8");
   } catch {
@@ -52,7 +52,7 @@ export function decryptSecret(stored: string): string {
   }
 }
 
-export const isEncrypted = (stored: string): boolean => stored.startsWith(PREFIX);
+export const isEncrypted = (stored: string): boolean => stored.startsWith(PREFIX) || stored.startsWith(LEGACY_PREFIX);
 
 /** 파일에서 읽은 키의 상태. plaintext면 이전 버전이 남긴 평문이라 바로 암호문으로 다시 써야 한다. */
 export type StoredKeyState = "none" | "loaded" | "plaintext" | "unreadable";
@@ -116,3 +116,97 @@ export function createApiKeySlot(envKey: string | undefined) {
 }
 
 export type ApiKeySlot = ReturnType<typeof createApiKeySlot>;
+/** OS 보호기는 시작 시에만 호출하며 값 암호화는 메모리의 무작위 마스터 키를 쓴다. */
+export interface SecretProtector {
+  readonly name: string;
+  protect(value: Buffer): Promise<Buffer>;
+  unprotect(value: Buffer): Promise<Buffer>;
+}
+function dpapi(value: Buffer, operation: "Protect" | "Unprotect"): Promise<Buffer> {
+  // 인자는 고정이다. 비밀은 stdin으로만 전달하고 자식 오류/출력은 로그에 넘기지 않는다.
+  const script = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Security; ` +
+    `$v=[Convert]::FromBase64String([Console]::In.ReadToEnd()); ` +
+    `$r=[System.Security.Cryptography.ProtectedData]::${operation}($v,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser); ` +
+    `[Console]::Out.Write([Convert]::ToBase64String($r))`;
+  return new Promise((resolve, reject) => {
+    const child = execFile("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+      { timeout: 10_000, maxBuffer: 64 * 1024, windowsHide: true }, (error, stdout) => {
+        if (error || !/^[A-Za-z0-9+/]+={0,2}$/.test(stdout.trim())) reject(new Error("OS 비밀 보호 작업에 실패했습니다."));
+        else resolve(Buffer.from(stdout.trim(), "base64"));
+      });
+    child.stdin?.on("error", () => reject(new Error("OS 비밀 보호 입력에 실패했습니다.")));
+    child.stdin?.end(value.toString("base64"));
+  });
+}
+export const windowsProtector: SecretProtector = {
+  name: "dpapi-current-user", protect: value => dpapi(value, "Protect"), unprotect: value => dpapi(value, "Unprotect"),
+};
+// 비Windows에는 OS 암호화 보호가 없다. 파일/임시 파일의 0600 권한만으로 제한한다.
+const fileProtector: SecretProtector = {
+  name: "file-0600", async protect(value) { return value; }, async unprotect(value) { return value; },
+};
+function requireMasterKey(): Buffer {
+  if (!masterKey) throw new Error("마스터 키를 읽을 수 없어 API 키를 저장하지 않습니다.");
+  return masterKey;
+}
+/** 서버가 키 슬롯을 읽기 전에 한 번 호출한다. 실패하면 기존 파일을 보존한다. */
+export async function initializeSecretStore(dataRoot: string, protector: SecretProtector = process.platform === "win32" ? windowsProtector : fileProtector): Promise<void> {
+  masterKey = null;
+  try {
+    const configs = ["llm-config.json", "tts-config.json"].map(name => {
+      const path = join(dataRoot, name);
+      try { return { path, raw: readFileSync(path, "utf8") }; }
+      catch (error) { if (isMissingFileError(error)) return { path, raw: "" }; throw error; }
+    });
+    // JSON이 손상돼도 v2 흔적이 있으면 새 키로 덮지 않는다.
+    const hasV2 = configs.some(config => {
+      if (config.raw.includes(PREFIX)) return true;
+      try { return JSON.stringify(JSON.parse(config.raw)).includes(PREFIX); }
+      catch { return false; }
+    });
+    const path = join(dataRoot, "secret-master.v2");
+    let raw: string | null = null;
+    try { raw = readFileSync(path, "utf8"); }
+    catch (error) { if (!isMissingFileError(error)) throw error; }
+    let key: Buffer;
+    if (raw !== null) {
+      const wrapped = JSON.parse(raw);
+      if (wrapped.protection !== protector.name || typeof wrapped.data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(wrapped.data)) throw new Error();
+      key = await protector.unprotect(Buffer.from(wrapped.data, "base64"));
+      if (key.length !== 32) throw new Error();
+    } else {
+      if (hasV2) throw new Error();
+      key = randomBytes(32);
+      const wrapped = await protector.protect(key);
+      const mask = process.platform === "win32" ? null : process.umask(0o077);
+      try {
+        writeFileAtomically(path, JSON.stringify({ protection: protector.name, data: wrapped.toString("base64") }), {
+          rename(from, to) { if (process.platform !== "win32") chmodSync(from, 0o600); renameSync(from, to); },
+        });
+      } finally { if (mask !== null) process.umask(mask); }
+    }
+    masterKey = key;
+    for (const config of configs) {
+      let parsed: Record<string, unknown>;
+      try { parsed = JSON.parse(config.raw); } catch { continue; }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      let changed = false;
+      for (const field of ["apiKey", "elevenLabsApiKey"]) {
+        const stored = parsed[field];
+        if (typeof stored !== "string" || !stored.startsWith(LEGACY_PREFIX)) continue;
+        const plain = decryptSecret(stored);
+        if (!plain) continue;
+        parsed[field] = encryptSecret(plain);
+        changed = true;
+      }
+      if (changed) {
+        backupFile(config.path, "v1-backup");
+        writeFileAtomically(config.path, JSON.stringify(parsed, null, 2));
+      }
+    }
+  } catch {
+    masterKey = null;
+    // 보호기가 비밀을 담은 오류를 던져도 메시지·cause를 전파하지 않는다.
+    throw new Error("마스터 키 초기화 또는 이전에 실패했습니다. 기존 파일을 보존합니다. 백업 복구 절차를 확인하세요.");
+  }
+}

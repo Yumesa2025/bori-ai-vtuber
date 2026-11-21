@@ -1,3 +1,11 @@
+import { mkdtempSync as secretTemp, rmSync as secretRemove } from "node:fs";
+import { tmpdir as secretTmpdir } from "node:os";
+import { join as secretJoin } from "node:path";
+import { after as secretAfter } from "node:test";
+import { initializeSecretStore } from "../src/secret-store.js";
+const secretDir = secretTemp(secretJoin(secretTmpdir(), "bori-key-test-"));
+await initializeSecretStore(secretDir, { name: "test", async protect(v) { return v; }, async unprotect(v) { return v; } });
+secretAfter(() => secretRemove(secretDir, { recursive: true, force: true }));
 /**
  * 서버 데이터 파일 안전 저장 단위 검사(점검 D-1, D-3, D-5, D-6, L-4, M-10, M-19, L8).
  * 풀지 못한 키를 지우지 않는지, 키에 섞인 개행을 지우는지, 읽지 못한 사용량 파일을 덮어쓰지 않는지,
