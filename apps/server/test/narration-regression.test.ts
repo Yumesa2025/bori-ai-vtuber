@@ -58,4 +58,18 @@ describe("점검 보고서 우회 예문", () => {
       assert.deepEqual(run(text, factIds).kept.map(line => line.text), [kept]);
     });
   }
+
+  test("V1 6번: 전적이 일반 대전이면 내 전적 사실이 '이번 시즌'·랭크 판수처럼 말하지 않는다", () => {
+    // @bori/er lookupPlayer는 이번 시즌 랭크 전적이 없으면 일반 대전 전적을 seasonName "일반 대전"으로 돌려준다.
+    const normal = buildFacts({ basis: fixtureBasis, combos: fixtureCombos, player: { ...fixturePlayer, seasonName: "일반 대전" } });
+    const main = normal.find(fact => fact.kind === "main")!;
+    assert.equal(main.text, "내 주캐릭터 재키: 일반 대전에서 23판, 평균 순위 4.2위, 메타 조합 순위 2위");
+    for (const text of [main.text, main.spoken]) {
+      assert.ok(!text.includes("이번 시즌"), text);
+      assert.ok(!text.includes("랭크"), text);
+    }
+    // 시즌 토큰이 없으니 "시즌 13에서 23판"처럼 시즌 숫자를 붙여 말하면 버린다.
+    const result = checkLines([{ text: "재키는 시즌 13에서 23판 하셨어요.", emotion: "gaming", factIds: [main.id] }], normal, { names: fixtureNames });
+    assert.equal(result.kept.length, 0);
+  });
 });
