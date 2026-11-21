@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { backupFile, isMissingFileError, writeFileAtomically } from "@bori/memory";
+import { backupFile, isMissingFileError, writeFileAtomically } from "./atomic-file.js";
 
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException | null)?.code ?? "오류";
 

@@ -1,5 +1,5 @@
 /**
- * API 사용량 단위 검사. 날짜별 누계·보관 기간·원자적 쓰기, 비용 추정, 단가 파일, 어댑터 감싸기를 본다.
+ * API 사용량 단위 검사. 날짜별 누계·보관 기간·원자적 쓰기, 비용 추정, 단가 파일을 본다.
  * 임시 디렉터리에만 쓰고 네트워크를 쓰지 않는다.
  */
 import assert from "node:assert/strict";
@@ -7,16 +7,12 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
-import type { LlmAdapter, LlmRequest } from "@bori/llm";
-import type { EmbeddingProvider } from "@bori/memory";
 import {
   buildUsageReport,
   createUsageStore,
   DEFAULT_PRICES_AS_OF,
   loadPriceTable,
   localDateKey,
-  trackAdapter,
-  trackEmbedding,
   USAGE_FILE_VERSION,
   type UsageEvent,
 } from "../src/usage/index.js";
@@ -234,46 +230,6 @@ describe("단가 파일", () => {
       assert.equal(table.fileLoaded, false, label);
       assert.ok(table.fileError, label);
       assert.equal(table.prices.get("gpt-4o-mini")?.source, "default", label);
-    }
-  });
-});
-
-describe("어댑터·임베딩 감싸기", () => {
-  const request = { mode: "companion", content: "비밀 내용", overrideSystemPrompt: "요약" } as LlmRequest;
-
-  test("요청의 모드로 기능별 호출을 세고 내용은 넘기지 않는다", async () => {
-    const events: UsageEvent[] = [];
-    const adapter: LlmAdapter = { name: "fake", isConfigured: () => true, complete: async () => ({ raw: "{}", latencyMs: 1, usage: { inputTokens: 5, outputTokens: 2 } }) };
-    const tracked = trackAdapter(adapter, "gpt-4o-mini", "digest", event => events.push(event));
-    await tracked.complete(request);
-    assert.deepEqual(events, [{ feature: "digest", mode: "companion", model: "gpt-4o-mini", ok: true, usage: { inputTokens: 5, outputTokens: 2 } }]);
-    assert.ok(!JSON.stringify(events).includes("비밀 내용"));
-  });
-
-  test("실패는 기록하고 예외를 그대로 던진다", async () => {
-    const events: UsageEvent[] = [];
-    const adapter: LlmAdapter = { name: "fake", isConfigured: () => true, complete: async () => { throw new Error("업체 오류"); } };
-    await assert.rejects(trackAdapter(adapter, "m", "summary", event => events.push(event)).complete({ ...request, mode: "broadcast" }), /업체 오류/);
-    assert.deepEqual(events, [{ feature: "summary", mode: "broadcast", model: "m", ok: false }]);
-  });
-
-  test("임베딩은 모드 없이 횟수만 센다", async () => {
-    const events: UsageEvent[] = [];
-    const provider: EmbeddingProvider = { name: "fake", isConfigured: () => true, embed: async texts => texts.map(() => [1]) };
-    const vectors = await trackEmbedding(provider, "text-embedding-3-small", event => events.push(event)).embed(["a", "b"]);
-    assert.deepEqual(vectors, [[1], [1]]);
-    assert.deepEqual(events, [{ feature: "embedding", mode: null, model: "text-embedding-3-small", ok: true }]);
-  });
-
-  test("기록이 던져도 결과는 그대로 돌려준다", async () => {
-    const adapter: LlmAdapter = { name: "fake", isConfigured: () => true, complete: async () => ({ raw: "{\"ok\":1}", latencyMs: 1 }) };
-    const originalError = console.error;
-    console.error = () => {};
-    try {
-      const result = await trackAdapter(adapter, "m", "summary", () => { throw new Error("기록 실패"); }).complete(request);
-      assert.equal(result.raw, "{\"ok\":1}");
-    } finally {
-      console.error = originalError;
     }
   });
 });

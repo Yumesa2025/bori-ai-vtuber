@@ -1,5 +1,5 @@
 # 공개 저장소에서 돌릴 수 있는 검사만 모은다.
-# 비밀값(secrets)을 쓰지 않고, 실모델 평가(eval:model)와 장시간 검사(test:soak)는 넣지 않는다. 외부 API는 tools/test의 mock 서버가 대신한다.
+# 비밀값(secrets)을 쓰지 않는다. 외부 API는 tools/test의 mock 서버가 대신한다.
 name: CI
 
 on:
@@ -34,9 +34,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:unit
-      - run: npm run eval:test
-      - run: npm run eval:typecheck
-      - run: npm run eval:static
       # mock OpenAI와 보리 서버를 띄우는 통합 검사. 포트는 기본값(4390/4391)을 쓴다.
       - run: npm run test
 

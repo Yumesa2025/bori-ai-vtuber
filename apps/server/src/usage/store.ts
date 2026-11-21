@@ -2,7 +2,7 @@ import { readFileSync, renameSync } from "node:fs";
 import { basename } from "node:path";
 import type { ConversationMode } from "@bori/character";
 import type { LlmTokenUsage } from "@bori/llm";
-import { backupFile, isMissingFileError, writeFileAtomically } from "@bori/memory";
+import { backupFile, isMissingFileError, writeFileAtomically } from "../atomic-file.js";
 import type { UsageFeature, UsageMode } from "@bori/shared";
 
 /** 파일 형식 버전. 형식을 바꾸면 올리고 읽을 때 옮기는 경로를 만든다. */
