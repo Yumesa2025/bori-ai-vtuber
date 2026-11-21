@@ -142,6 +142,13 @@ describe("대시보드 라우트", () => {
     assert.deepEqual(fake.saved, [{ nickname: null }, { nickname: null }, { nickname: null }]);
   });
 
+  test("PUT은 방향 바꿈 문자·NUL을 지우고 저장한다", async () => {
+    const reply = await putSettings({ nickname: "가짜\u202E닉\u0000" });
+    assert.equal(reply.status, 200);
+    assert.deepEqual(reply.body, { nickname: "가짜닉" });
+    assert.deepEqual(fake.saved, [{ nickname: "가짜닉" }]);
+  });
+
   test("32자를 넘는 닉네임은 400이고 저장하지 않는다", async () => {
     assert.equal((await putSettings({ nickname: "가".repeat(32) })).status, 200);
     const reply = await putSettings({ nickname: "가".repeat(33) });

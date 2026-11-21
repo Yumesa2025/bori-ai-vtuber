@@ -73,8 +73,8 @@ export function erSummary(view: ErDataView | null): {
   };
 }
 
-/** 입력칸 상한. 게임 닉네임 규칙은 여기서 판단하지 않고, 찾을 수 있는지는 서버가 ER API로 본다. */
-const NICKNAME_MAX = 32;
+/** 입력칸 상한. 서버 상한(dashboard-settings.ts)과 같다. 게임 닉네임 규칙은 여기서 판단하지 않고, 찾을 수 있는지는 서버가 ER API로 본다. */
+export const NICKNAME_MAX = 32;
 
 /** PUT /api/dashboard/settings 본문. 앞뒤 공백을 떼고, 비우면 null로 저장한 닉네임을 지운다. */
 export function nicknameBody(input: string): { ok: true; body: { nickname: string | null } } | { ok: false; error: string } {
