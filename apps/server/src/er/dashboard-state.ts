@@ -81,7 +81,7 @@ export function createDashboardData(options: { erData: ErData; settings: Dashboa
     return {
       // 키가 없으면 데이터가 있어도 받을 수 없으니 missing으로 보인다(설계 6절)
       connection: erData.hasClient() ? erData.connection() : "missing",
-      refresh: { available: erData.hasClient(), running: refresh.refreshing, progress: refresh.progress, etaSeconds: refresh.refreshing && refresh.startedAt != null ? estimateRemainingSeconds(refresh.progress, now() - refresh.startedAt) : null, lastError: refresh.lastError, autoStarted },
+      refresh: { available: erData.hasClient(), running: refresh.refreshing, progress: refresh.progress, ...(refresh.refreshing ? { etaSeconds: refresh.startedAt != null ? estimateRemainingSeconds(refresh.progress, now() - refresh.startedAt) : null } : {}), lastError: refresh.lastError, autoStarted },
       basis: meta ? toBasisV2(meta.basis, erData.previousMeta()?.basis ?? null) : null,
     };
   }
