@@ -29,7 +29,7 @@ npm run test -- security secrets   # 시나리오 파일 이름으로 일부만
 |---|---|
 | `run.mjs` | 실행기. 서버를 띄우고 시나리오를 돌린 뒤 정리한다. 인자로 시나리오 파일 이름을 주면 그것만 돈다 |
 | `harness.mjs` | 프로세스 기동, 포트 대기, HTTP 클라이언트, 결과 보고. 띄운 서버가 루트 `.env`를 읽지 않게 `BORI_ENV_FILE=""`을 기본으로 준다 |
-| `mock-openai.mjs` | 가짜 API 서버. 답변·임베딩·음성 경로와 검사용 엔드포인트. 보리 대사 요청(스키마에 `lines`)에는 사실 목록을 그대로 읊는 줄과 숫자를 지어낸 줄 하나를 돌려준다 |
+| `mock-openai.mjs` | 가짜 API 서버. 답변·음성 경로와 검사용 엔드포인트. 보리 대사 요청(스키마에 `lines`)에는 사실 목록을 그대로 읊는 줄과 숫자를 지어낸 줄 하나를 돌려준다 |
 | `security.mjs` | 요청 경계. 허용 밖 Origin·루프백 아닌 Host·깨진 경로 인코딩·JSON 아닌 본문·64KB 초과, 음성 설정 검증 |
 | `secrets.mjs` | API 키 저장. 환경변수·`.env` 키는 `data/`에 쓰지 않고, 화면에서 넣은 키만 암호화해 저장하는지 |
 | `durability.mjs` | 깨진·잘린 설정 파일, 풀지 못한 암호문 키, 설정 파일 쓰기 실패에도 데이터를 잃지 않고 서버가 사는지 |
@@ -40,7 +40,7 @@ npm run test -- security secrets   # 시나리오 파일 이름으로 일부만
 시나리오는 `meta`와 `run`을 내보내는 모듈이다. `meta.timing`으로 가짜 API의 응답 지연을 정하고, `run({ bori, mock, report, dataDir, prepared })`에서 검사한다. 서버를 띄우기 전에 할 일(데이터 파일 깔기, 가짜 외부 서비스 띄우기)은 `prepare({ dataDir })`로 둔다. 실행기가 시나리오마다 서버를 새로 띄우고 임시 데이터 디렉터리를 새로 만든다.
 
 ```js
-export const meta = { name: "보안 경계", timing: { llm: 300, tts: 200, embed: 100 } };
+export const meta = { name: "보안 경계", timing: { llm: 300, tts: 200 } };
 export async function run({ bori, report }) {
   const response = await fetch(`${bori.baseUrl}/api/llm`, { headers: { Origin: "https://evil.example" } });
   report.check("허용 밖 Origin의 GET은 403이다", response.status === 403);
@@ -49,7 +49,7 @@ export async function run({ bori, report }) {
 
 ## 포트
 
-기본값은 가짜 API `4390`, 보리 서버 `4391`, 가짜 이터널리턴 API `4392`(대시보드 흐름)다. 실행 중인 개발 서버(`4310`, `4173`, `5174`)와 겹치지 않는다. 바꾸려면 `MOCK_PORT`, `BORI_TEST_PORT`, `BORI_TEST_ER_PORT`를 준다.
+기본값은 가짜 API `4390`, 보리 서버 `4391`, 가짜 이터널리턴 API `4392`(대시보드 흐름)다. 실행 중인 개발 서버(`4310`, `4175`, `4176`, `5174`)와 겹치지 않는다. 바꾸려면 `MOCK_PORT`, `BORI_TEST_PORT`, `BORI_TEST_ER_PORT`를 준다.
 
 ## 검사하지 않는 것
 
@@ -59,4 +59,4 @@ export async function run({ bori, report }) {
 
 ## 실패 주입
 
-`mock-openai.mjs`의 `GET /__inject?target=llm|tts|embed&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고른다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다. 음성(`tts`)에는 `empty`(200·0바이트), `garbage`(200·mp3 아님), `long`(`ms` 길이의 mp3)도 있다. `GET /v1/voices`는 ElevenLabs 목소리 목록을 흉내 내고 받은 횟수를 `/__calls`에 `voices`로 남긴다(실행기가 `BORI_ELEVENLABS_BASE_URL`을 가짜 API로 준다).
+`mock-openai.mjs`의 `GET /__inject?target=llm|tts&mode=500|delay|badjson&count=N&ms=&match=`는 정해진 횟수만큼만 실패시킨다. `match`를 주면 본문에 그 문자열이 든 요청만 고른다. `clear=1`이면 남은 주입을 지운다. 하네스에서는 `mock.inject({ target, mode, count, ms, match })`로 부른다. 음성(`tts`)에는 `empty`(200·0바이트), `garbage`(200·mp3 아님), `long`(`ms` 길이의 mp3)도 있다. `GET /v1/voices`는 ElevenLabs 목소리 목록을 흉내 내고 받은 횟수를 `/__calls`에 `voices`로 남긴다(실행기가 `BORI_ELEVENLABS_BASE_URL`을 가짜 API로 준다).
