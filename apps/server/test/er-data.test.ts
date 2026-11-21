@@ -9,8 +9,12 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ErApiError } from "@bori/er";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { ErApiError, createErClient } from "@bori/er";
 import { createErData } from "../src/er/er-data.js";
+import { createDashboardData } from "../src/er/dashboard-state.js";
+import { createDashboardSettings } from "../src/er/dashboard-settings.js";
 import { dictionaryRoutes, fakeClient, fixture } from "../../../packages/er/test/fake-client.js";
 import { waitFor } from "./wait.js";
 
@@ -63,7 +67,7 @@ describe("이터널리턴 데이터", () => {
     assert.equal(data.connection(), "ready");
     assert.deepEqual(new Set(data.meta()?.combos.map(combo => combo.characterCode)), new Set([1, 2, 3, 10]));
     assert.equal(data.available(), true);
-    assert.ok(existsSync(join(dir, "er-dictionary.json")) && existsSync(join(dir, "er-meta.json")));
+    assert.ok(existsSync(join(dir, "er-snapshot.json")));
     assert.equal(readdirSync(join(dir, "er-history")).length, 1);
     assert.equal(data.meta()?.basis.participants, 8);
     assert.equal(data.meta()?.basis.games, 2);
@@ -186,7 +190,7 @@ describe("이터널리턴 데이터", () => {
     await waitFor(() => !failing.status().refreshing, "실패한 갱신");
     assert.ok(failing.status().lastError);
     assert.equal(failing.dictionary()?.seasonId, 41);
-    assert.equal(JSON.parse(readFileSync(join(dir, "er-dictionary.json"), "utf8")).seasonId, 41);
+    assert.equal(JSON.parse(readFileSync(join(dir, "er-snapshot.json"), "utf8")).dictionary.seasonId, 41);
     assert.equal(failing.meta()?.basis.seasonId, 41);
   });
 
@@ -252,3 +256,90 @@ describe("이터널리턴 데이터", () => {
     assert.equal(data.dictionary(), null);
   });
 });
+
+test("단일 스냅샷 커밋 실패와 쓰다 남은 파일은 재시작 시 이전 쌍을 유지한다", async (t) => {
+  const data = open();
+  data.refresh();
+  await waitFor(() => !data.status().refreshing, "첫 갱신");
+  const before = readFileSync(join(dir, "er-snapshot.json"), "utf8");
+  const originalRename = fs.renameSync;
+  let commits = 0;
+  const mocked = t.mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+    if (String(to).endsWith("er-snapshot.json")) {
+      commits += 1;
+      // 커밋 직전 종료로 남은 파일을 재현한다. 정상 커밋 경로는 건드리지 않는다.
+      fs.copyFileSync(from, join(dir, "er-snapshot.json.interrupted.tmp"));
+      throw new Error("합성 커밋 실패");
+    }
+    originalRename(from, to);
+  });
+  syncBuiltinESMExports();
+  try {
+    data.refresh();
+    await waitFor(() => !data.status().refreshing, "커밋 실패");
+    assert.equal(commits, 1);
+    assert.match(data.status().lastError ?? "", /합성 커밋 실패/);
+    assert.equal(readFileSync(join(dir, "er-snapshot.json"), "utf8"), before);
+    const restarted = open();
+    assert.deepEqual(restarted.dictionary(), data.dictionary());
+    assert.deepEqual(restarted.meta(), data.meta());
+  } finally { mocked.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("이전 두 파일을 읽고 다음 갱신은 단일 스냅샷으로 이행한다", async () => {
+  const data = open();
+  data.refresh();
+  await waitFor(() => !data.status().refreshing, "첫 갱신");
+  writeFileSync(join(dir, "er-dictionary.json"), JSON.stringify({ ...data.dictionary(), seasonLabel: "official" }));
+  writeFileSync(join(dir, "er-meta.json"), JSON.stringify(data.meta()));
+  rmSync(join(dir, "er-snapshot.json"));
+  writeFileSync(join(dir, "er-snapshot.json.interrupted.tmp"), "unfinished");
+  const legacy = open();
+  assert.deepEqual(legacy.meta(), data.meta());
+  legacy.refresh();
+  await waitFor(() => !legacy.status().refreshing, "이행");
+  assert.ok(existsSync(join(dir, "er-snapshot.json")));
+  // 새 파일이 손상되어도 예전 파일로 조용히 되돌아가지 않는다.
+  const snapshot = JSON.parse(readFileSync(join(dir, "er-snapshot.json"), "utf8"));
+  snapshot.meta.combos[0].rankSum = "broken";
+  writeFileSync(join(dir, "er-snapshot.json"), JSON.stringify(snapshot));
+  assert.equal(open().connection(), "missing");
+  assert.equal(open().meta(), null);
+  const missing = open();
+  const dashboard = createDashboardData({ erData: missing, settings: createDashboardSettings(dir) });
+  assert.equal(dashboard.maybeAutoRefresh(), true);
+  await waitFor(() => !missing.status().refreshing, "손상 복구");
+  assert.equal(missing.connection(), "ready");
+});
+
+for (const existing of [false, true]) {
+  test(`본문 시간 초과 후 갱신과 전적 loading 해제 (기존 데이터 ${existing})`, async () => {
+    if (existing) {
+      const seed = open();
+      seed.refresh();
+      await waitFor(() => !seed.status().refreshing, "초기 자료");
+    }
+    const client = createErClient({ apiKey: "fake-key", minIntervalMs: 0, timeoutMs: 30,
+      fetch: (async (_input, init) => new Response(new ReadableStream({ start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"));
+        init?.signal?.addEventListener("abort", () => controller.error(new Error("aborted")), { once: true });
+      } }))) as typeof fetch,
+    });
+    const erData = createErData({ dataDir: dir, client, rankers: 1, gamesPerRanker: 1 });
+    erData.load();
+    const dashboard = createDashboardData({ erData, settings: createDashboardSettings(dir) });
+    assert.equal(dashboard.refresh(), true);
+    await dashboard.setSettings({ nickname: "가짜플레이어" });
+    assert.equal(dashboard.state().player.status, "loading");
+    await waitFor(() => !dashboard.state().refresh.running && dashboard.state().player.status === "error", "시간 초과 정리");
+    assert.match(dashboard.state().refresh.lastError ?? "", /시간/);
+    if (existing) {
+      const pending = dashboard.setSettings({ nickname: "가짜플레이어2" });
+      assert.equal(dashboard.state().player.status, "loading");
+      await pending;
+      assert.equal(dashboard.state().player.status, "error");
+    }
+    assert.equal(dashboard.refresh(), true);
+    await waitFor(() => !erData.status().refreshing, "다음 갱신 종료");
+  });
+}

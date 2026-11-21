@@ -35,7 +35,7 @@ function asTally(value: unknown): ErComboTally | null {
   if (!isRecord(value)) return null;
   const numbers = ["characterCode", "weaponCode", "participants", "rankSum", "top1", "mmrGainSum", "mmrGainSamples", "kills", "assists", "deaths", "damage"] as const;
   if (!numbers.every((key) => isNumber(value[key]))) return null;
-  if (!numbers.filter(key => key !== "mmrGainSum").every(key => isCount(value[key]))) return null;
+  if (!numbers.filter(key => key !== "mmrGainSum" && key !== "damage").every(key => isCount(value[key])) || (value.damage as number) < 0) return null;
   const participants = value.participants as number;
   if (participants === 0 || (value.top1 as number) > participants || (value.mmrGainSamples as number) > participants || (value.rankSum as number) < participants) return null;
   const traits = asCounts(value.traits, participants);
