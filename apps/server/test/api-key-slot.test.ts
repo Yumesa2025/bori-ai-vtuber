@@ -1,3 +1,11 @@
+import { mkdtempSync as secretTemp, rmSync as secretRemove } from "node:fs";
+import { tmpdir as secretTmpdir } from "node:os";
+import { join as secretJoin } from "node:path";
+import { after as secretAfter } from "node:test";
+import { initializeSecretStore } from "../src/secret-store.js";
+const secretDir = secretTemp(secretJoin(secretTmpdir(), "bori-key-test-"));
+await initializeSecretStore(secretDir, { name: "test", async protect(v) { return v; }, async unprotect(v) { return v; } });
+secretAfter(() => secretRemove(secretDir, { recursive: true, force: true }));
 /**
  * API 키 출처 단위 검사.
  * 환경변수 키는 파일에 쓸 값으로 나오지 않는지, 화면에서 넣은 키와 저장된 키가 환경변수보다 우선하는지 본다.
@@ -30,7 +38,7 @@ describe("API 키 출처", () => {
     slot.set(` ${SCREEN_KEY} `);
     assert.equal(slot.current(), SCREEN_KEY);
     const stored = slot.stored();
-    assert.ok(stored?.startsWith("enc.v1:"));
+    assert.ok(stored?.startsWith("enc.v2:"));
     assert.equal(decryptSecret(stored ?? ""), SCREEN_KEY);
   });
 
@@ -54,7 +62,7 @@ describe("API 키 출처", () => {
     assert.equal(slot.load(SCREEN_KEY), "plaintext");
     assert.equal(slot.current(), SCREEN_KEY);
     const stored = slot.stored() ?? "";
-    assert.ok(stored.startsWith("enc.v1:") && !stored.includes(SCREEN_KEY));
+    assert.ok(stored.startsWith("enc.v2:") && !stored.includes(SCREEN_KEY));
   });
 
   test("풀 수 없는 값과 빈 값은 저장된 키가 없는 것으로 보고 환경변수 키를 쓴다", () => {

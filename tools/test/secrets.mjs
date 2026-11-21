@@ -84,8 +84,10 @@ export async function run({ bori, mock, report, dataDir }) {
       const text = await raw(llmPath);
       report.check(
         "화면에서 넣은 키는 암호화해 저장한다",
-        changed.status === 200 && typeof saved?.apiKey === "string" && saved.apiKey.startsWith("enc.v1:") && !text.includes(SCREEN_OPENAI_KEY) && !text.includes(ENV_OPENAI_KEY),
+        changed.status === 200 && typeof saved?.apiKey === "string" && saved.apiKey.startsWith("enc.v2:") && !text.includes(SCREEN_OPENAI_KEY) && !text.includes(ENV_OPENAI_KEY),
       );
+      report.check("설정 응답과 서버 로그에 키가 없다", [SCREEN_OPENAI_KEY, ENV_OPENAI_KEY, ENV_ELEVENLABS_KEY].every(key =>
+        !JSON.stringify(changed.body).includes(key) && !server.output().includes(key)));
 
       await server.restart();
       await ready();
@@ -115,7 +117,7 @@ export async function run({ bori, mock, report, dataDir }) {
       const text = await raw(ttsPath);
       report.check(
         "평문으로 저장돼 있던 ElevenLabs 키는 시작할 때 암호문으로 바꾼다",
-        typeof saved?.elevenLabsApiKey === "string" && saved.elevenLabsApiKey.startsWith("enc.v1:") && !text.includes(PLAIN_ELEVENLABS_KEY),
+        typeof saved?.elevenLabsApiKey === "string" && saved.elevenLabsApiKey.startsWith("enc.v2:") && !text.includes(PLAIN_ELEVENLABS_KEY),
       );
     }
   } catch (error) {
