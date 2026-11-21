@@ -47,9 +47,9 @@ describe("대사 쓰기", () => {
     assert.deepEqual(request.schema, narrationSchema(factIds));
   });
 
-  test("스키마는 lines[{factId, emotion, comment}]이고 factId는 사실 id, 감정은 live2d 감정 표 이름만 고른다", () => {
+  test("스키마는 lines[{factId, emotion, comment, backup}]이고 factId는 사실 id, 감정은 live2d 감정 표 이름만 고른다", () => {
     const item = (narrationSchema(factIds) as Schema).properties.lines.items;
-    assert.deepEqual(item.required, ["factId", "emotion", "comment"]);
+    assert.deepEqual(item.required, ["factId", "emotion", "comment", "backup"]);
     assert.deepEqual(item.properties.factId.enum, factIds);
     assert.deepEqual(item.properties.emotion.enum, [...boriEmotionNames]);
     assert.equal(item.properties.comment.type, "string");
@@ -89,7 +89,7 @@ describe("대사 쓰기", () => {
 
   test("Z1: 줄마다 감상을 쓰게 하고, 감상이 서버 문장 바로 뒤에 붙으니 사실을 되풀이하지 말라고 알린다", () => {
     const prompt = prompt0();
-    for (const phrase of ["바로 뒤에 붙", "되풀이하지 않는다", "줄마다 comment를 쓴다", "'캐릭터'·'조합'", "[좋은 감상]", "[버려지는 감상]", "그대로 베끼지", "같은 감상을 두 번", "[종류]", "좋아진 사실에 아쉬움"]) {
+    for (const phrase of ["바로 뒤에 붙", "되풀이하지 않는다", "줄마다 comment를 쓴다", "'캐릭터'·'조합'", "[좋은 감상]", "[버려지는 감상]", "그대로 쓰면 서버가 버린다", "같은 감상을 두 번", "[종류]", "좋아진 사실에 아쉬움"]) {
       assert.ok(prompt.includes(phrase), phrase);
     }
   });
@@ -103,7 +103,7 @@ describe("대사 쓰기", () => {
 
   test("과제 A: 지시에는 고른 예시만 싣고 고르지 않은 예시는 싣지 않는다. 베끼면 버린다고 알린다", () => {
     const prompt = prompt0();
-    const shown = new Set(picked.flatMap(entry => entry.comments));
+    const shown = new Set(picked.samples);
     for (const comment of Object.values(COMMENT_EXAMPLE_POOL).flat()) {
       assert.equal(prompt.includes(`'${comment}'`), shown.has(comment), comment);
     }
@@ -133,6 +133,16 @@ describe("대사 쓰기", () => {
     const fromObject = await writeLines(fakeLlm({ ok: true, raw: goodLines }).llm, facts, options);
     assert.deepEqual(fromString, { ok: true, lines: goodLines.lines });
     assert.deepEqual(fromObject, fromString);
+  });
+
+  test("과제 A: 예비 감상(backup)을 받는다. 없어도 받고, 문자열이 아니면 실패다", async () => {
+    const withBackup = { lines: [{ factId: "f1", emotion: "gaming", comment: "꽤 좋아 보여요.", backup: "흐름이 재미있네요." }] };
+    assert.deepEqual(await writeLines(fakeLlm({ ok: true, raw: withBackup }).llm, facts, options), { ok: true, lines: withBackup.lines });
+    const bad = { lines: [{ factId: "f1", emotion: "gaming", comment: "", backup: 3 }] };
+    assert.equal((await writeLines(fakeLlm({ ok: true, raw: bad }).llm, facts, options)).ok, false);
+    const item = (narrationSchema(factIds) as Schema).properties.lines.items;
+    assert.equal(item.properties.backup.type, "string");
+    assert.ok(prompt0().includes("backup은 comment가 버려질 때"));
   });
 
   test("깨진 JSON·모양이 틀린 응답은 실패다", async () => {

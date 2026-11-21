@@ -7,6 +7,7 @@
  * - 감상이 comment.ts 규칙을 어기거나 합친 줄이 글자 상한을 넘으면 감상만 버린다.
  * - 과제 A(2026-11-22): 규칙을 통과한 감상이라도 예시 묶음을 그대로 베꼈으면(copied),
  *   같은 대사에서 이미 붙인 감상과 같으면(repeated, 두 번째부터) 감상만 버린다. 공백·문장부호만 다른 것도 같다고 본다.
+ * - 과제 A: comment가 비었거나 버려지면 예비 감상(backup)을 같은 검사로 본다. 버린 감상은 둘 다 이유를 센다.
  */
 import type { NarrationLine } from "@bori/shared";
 import { boriEmotionNames } from "@bori/live2d";
@@ -16,8 +17,8 @@ import type { NarrationFact } from "./facts.js";
 import type { NameDictionary } from "./names.js";
 import { renderFact } from "./template.js";
 
-/** LLM 구조화 출력의 한 줄 */
-export type RawLine = { factId: string; emotion: string; comment: string };
+/** LLM 구조화 출력의 한 줄. backup은 comment가 버려질 때 대신 보는 예비 감상이다(과제 A) */
+export type RawLine = { factId: string; emotion: string; comment: string; backup?: string };
 
 /** 만든 줄. 3줄 채우기가 어떤 사실을 이미 말했는지 알 수 있게 factId를 남긴다. */
 export type ComposedLine = NarrationLine & { factId: string };
@@ -56,6 +57,19 @@ export function composeLines(
   /** 이번 대사에 붙인 감상의 열쇠(commentKey) */
   const attached = new Set<string>();
 
+  /** 붙인 줄 문장, 버린 이유, 빈 감상이면 null. 안전 규칙을 먼저 보고, 베낌·되풀이는 규칙을 통과한 감상에만 본다 */
+  const attachComment = (sentence: string, candidate: string): string | { reason: CommentDropReason } | null => {
+    const comment = checkComment(candidate, options.names);
+    if (!comment.ok) return comment.reason === "empty" ? null : { reason: comment.reason };
+    const key = commentKey(comment.text);
+    if (isCopiedExample(comment.text)) return { reason: "copied" };
+    if (attached.has(key)) return { reason: "repeated" };
+    const joined = `${sentence} ${comment.text}`;
+    if ([...joined].length > maxLineLength) return { reason: "length" };
+    attached.add(key);
+    return joined;
+  };
+
   for (const line of lines) {
     const fact = factById.get(line.factId);
     if (!fact) { dropped.push("fact"); continue; }
@@ -64,17 +78,11 @@ export function composeLines(
 
     const sentence = renderFact(fact);
     let text = sentence;
-    // 안전 규칙을 먼저 본다. 베낌·되풀이는 규칙을 통과한 감상에만 본다
-    const comment = checkComment(line.comment, options.names);
-    if (comment.ok) {
-      const key = commentKey(comment.text);
-      const joined = `${sentence} ${comment.text}`;
-      if (isCopiedExample(comment.text)) commentDropped.push("copied");
-      else if (attached.has(key)) commentDropped.push("repeated");
-      else if ([...joined].length > maxLineLength) commentDropped.push("length");
-      else { text = joined; attached.add(key); }
-    } else if (comment.reason !== "empty") {
-      commentDropped.push(comment.reason);
+    for (const candidate of [line.comment, line.backup ?? ""]) {
+      const result = attachComment(sentence, candidate);
+      if (result === null) continue;
+      if (typeof result === "string") { text = result; break; }
+      commentDropped.push(result.reason);
     }
     kept.push({ text, emotion: emotionSet.has(line.emotion) ? line.emotion : FALLBACK_EMOTION, factId: fact.id });
   }

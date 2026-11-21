@@ -15,6 +15,7 @@ const facts = buildFacts({ basis: fixtureBasis, combos: fixtureCombos, player: f
 const options = { names: fixtureNames };
 const [f1, f2, f3, f4, f5, f6] = facts;
 const line = (factId: string, comment = "", emotion = "gaming") => ({ factId, emotion, comment });
+const withBackup = (factId: string, comment: string, backup: string) => ({ factId, emotion: "gaming", comment, backup });
 
 describe("대사 줄 만들기", () => {
   test("줄 문장은 사실의 정해진 문장 뒤에 통과한 감상을 붙인 것이다", () => {
@@ -97,6 +98,40 @@ describe("대사 줄 만들기", () => {
     const result = composeLines([line(longer.id, comment), line(shorter.id, comment)], facts, { ...options, maxLineLength: limit });
     assert.deepEqual(result.kept.map(entry => entry.text), [renderFact(longer), `${renderFact(shorter)} ${comment}`]);
     assert.deepEqual(result.commentDropped, ["length"]);
+  });
+
+  test("과제 A: comment가 버려지면 예비 감상(backup)을 같은 검사로 보고 붙인다. 버린 감상은 이유를 센다", () => {
+    const result = composeLines([
+      withBackup(f1.id, "픽률이 99%예요.", "흐름이 재미있네요."),
+      withBackup(f2.id, COMMENT_EXAMPLE_POOL.top[0], "오늘따라 유난히 반가워요."),
+      withBackup(f3.id, "", "꽤 좋아 보여요."),
+    ], facts, options);
+    assert.deepEqual(result.kept.map(entry => entry.text), [
+      `${renderFact(f1)} 흐름이 재미있네요.`,
+      `${renderFact(f2)} 오늘따라 유난히 반가워요.`,
+      `${renderFact(f3)} 꽤 좋아 보여요.`,
+    ]);
+    assert.deepEqual(result.commentDropped, ["number", "copied"]);
+  });
+
+  test("과제 A: comment가 붙으면 backup은 보지 않는다. 둘 다 버려지면 서버 문장만 남고 이유를 둘 다 센다", () => {
+    const result = composeLines([
+      withBackup(f1.id, "흐름이 재미있네요.", "레온입니다."),
+      withBackup(f2.id, "레온입니다.", "픽률이 99%예요."),
+      withBackup(f3.id, "오늘따라 유난히 반가워요.", "흐름이 재미있네요!"),
+    ], facts, options);
+    assert.deepEqual(result.kept.map(entry => entry.text), [`${renderFact(f1)} 흐름이 재미있네요.`, renderFact(f2), `${renderFact(f3)} 오늘따라 유난히 반가워요.`]);
+    assert.deepEqual(result.commentDropped, ["name", "number"]);
+  });
+
+  test("과제 A: backup도 예시 베낌·되풀이 검사를 받는다", () => {
+    const result = composeLines([
+      line(f1.id, "흐름이 재미있네요."),
+      withBackup(f2.id, "레온입니다.", "흐름이 재미있네요."),
+      withBackup(f3.id, "레온입니다.", COMMENT_EXAMPLE_POOL.basis[0]),
+    ], facts, options);
+    assert.deepEqual(result.kept.map(entry => entry.text), [`${renderFact(f1)} 흐름이 재미있네요.`, renderFact(f2), renderFact(f3)]);
+    assert.deepEqual(result.commentDropped, ["name", "repeated", "name", "copied"]);
   });
 
   test("모르는 감정은 calm으로 바꾼다", () => {
