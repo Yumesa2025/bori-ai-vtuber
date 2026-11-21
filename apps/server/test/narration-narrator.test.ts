@@ -12,7 +12,8 @@ import { createNarrator, type NarratorDeps } from "../src/narration/index.js";
 import { createNarrationStore, type NarrationStore } from "../src/narration/store.js";
 import { renderFact, templateLines } from "../src/narration/template.js";
 import { buildFacts } from "../src/narration/facts.js";
-import type { NarrationLlm } from "../src/narration/writer.js";
+import { COMMENT_EXAMPLE_POOL, pickCommentExamples, seededRandom } from "../src/narration/examples.js";
+import { narrationSystemPrompt, type NarrationLlm } from "../src/narration/writer.js";
 import { FAKE_NICKNAME, fixtureBasis, fixtureCombos, fixturePlayer } from "./narration-fixtures.js";
 
 const topSpoken = "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 8.1%, 평균 순위 3.4위예요.";
@@ -97,6 +98,30 @@ describe("narrator", () => {
     assert.equal(narration.source, "llm");
     assert.ok(!narration.lines.some(line => line.text.includes("레온") || line.text.includes("청룡도")));
     assert.ok(logs.some(message => message.includes("감상 2개") && message.includes("name")));
+  });
+
+  test("과제 A: 예시를 베낀 감상·같은 대사에서 되풀이한 감상은 버리고 로그 요약에 copied·repeated로 남긴다", async () => {
+    const example = COMMENT_EXAMPLE_POOL.riser[0];
+    const lines = [
+      { factId: riserId, emotion: "happy", comment: example },
+      { factId: topId, emotion: "gaming", comment: "오늘따라 유난히 반가워요." },
+      { factId: mainFact.id, emotion: "gaming", comment: "오늘따라 유난히 반가워요!" },
+    ];
+    const narration = await setup({ llm: answer(lines) }).narrator.narrate(input);
+    assert.equal(narration.source, "llm");
+    assert.deepEqual(narration.lines.map(line => line.text), [renderFact(riser), `${topSpoken} 오늘따라 유난히 반가워요.`, renderFact(mainFact)]);
+    assert.ok(logs.some(message => message.includes("감상 2개") && message.includes("copied") && message.includes("repeated")), logs.join(" / "));
+    assert.ok(!logs.some(message => message.includes(example) || message.includes("반가워요")));
+  });
+
+  test("과제 A: 주입한 random으로 지시의 예시를 고른다(같은 시드면 같은 지시)", async () => {
+    const prompts: string[] = [];
+    const llm: NarrationLlm = async request => { prompts.push(request.systemPrompt); return { ok: true, raw: JSON.stringify({ lines: [] }) }; };
+    await setup({ llm, random: seededRandom(5) }).narrator.narrate(input);
+    await setup({ llm, random: seededRandom(5) }).narrator.narrate(input);
+    assert.equal(prompts.length, 2);
+    assert.equal(prompts[0], prompts[1]);
+    assert.equal(prompts[0], narrationSystemPrompt(pickCommentExamples(seededRandom(5))));
   });
 
   test("합친 줄이 maxLineLength를 넘으면 감상만 뺀다", async () => {

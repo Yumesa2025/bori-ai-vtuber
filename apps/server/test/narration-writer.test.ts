@@ -9,13 +9,17 @@ import { boriName, boriPersonaLines, boriScopeLines } from "@bori/character";
 import { boriEmotionNames } from "@bori/live2d";
 import { checkComment, MAX_COMMENT_LENGTH } from "../src/narration/comment.js";
 import { buildFacts } from "../src/narration/facts.js";
-import { BAD_COMMENT_EXAMPLES, FACT_KIND_LABELS, GOOD_COMMENT_EXAMPLES, narrationSchema, narrationSystemPrompt, narrationUserPrompt, writeLines, type NarrationLlm, type NarrationLlmRequest } from "../src/narration/writer.js";
+import { COMMENT_EXAMPLE_POOL, pickCommentExamples, seededRandom } from "../src/narration/examples.js";
+import { BAD_COMMENT_EXAMPLES, FACT_KIND_LABELS, narrationSchema, narrationSystemPrompt, narrationUserPrompt, writeLines, type NarrationLlm, type NarrationLlmRequest } from "../src/narration/writer.js";
 import { FAKE_NICKNAME, fixtureBasis, fixtureCombos, fixtureNames, fixturePlayer } from "./narration-fixtures.js";
 
 const facts = buildFacts({ basis: fixtureBasis, combos: fixtureCombos, player: fixturePlayer });
 const factIds = facts.map(fact => fact.id);
 const goodLines = { lines: [{ factId: "f1", emotion: "gaming", comment: "꽤 좋아 보여요." }, { factId: "f4", emotion: "happy", comment: "" }] };
 const options = { timeoutMs: 1000 };
+/** 검사에서 고정한 예시 고르기 */
+const picked = pickCommentExamples(seededRandom(3));
+const prompt0 = () => narrationSystemPrompt(picked);
 
 type Schema = { properties: { lines: { items: { properties: Record<string, { enum?: string[]; type?: string }>; required: string[]; additionalProperties: boolean } } } };
 
@@ -32,9 +36,9 @@ function fakeLlm(answer: Awaited<ReturnType<NarrationLlm>> | Error) {
 describe("대사 쓰기", () => {
   test("사실 목록을 id와 함께 넘기고 닉네임은 넘기지 않는다", async () => {
     const { llm, requests } = fakeLlm({ ok: true, raw: JSON.stringify(goodLines) });
-    await writeLines(llm, facts, { timeoutMs: 15_000 });
+    await writeLines(llm, facts, { timeoutMs: 15_000, random: seededRandom(3) });
     const request = requests[0];
-    assert.equal(request.systemPrompt, narrationSystemPrompt());
+    assert.equal(request.systemPrompt, narrationSystemPrompt(picked));
     assert.equal(request.userPrompt, narrationUserPrompt(facts));
     for (const fact of facts) assert.ok(request.userPrompt.includes(`${fact.id}: ${fact.text}`));
     assert.ok(!request.userPrompt.includes(FAKE_NICKNAME));
@@ -43,9 +47,9 @@ describe("대사 쓰기", () => {
     assert.deepEqual(request.schema, narrationSchema(factIds));
   });
 
-  test("스키마는 lines[{factId, emotion, comment}]이고 factId는 사실 id, 감정은 live2d 감정 표 이름만 고른다", () => {
+  test("스키마는 lines[{factId, emotion, comment, backup}]이고 factId는 사실 id, 감정은 live2d 감정 표 이름만 고른다", () => {
     const item = (narrationSchema(factIds) as Schema).properties.lines.items;
-    assert.deepEqual(item.required, ["factId", "emotion", "comment"]);
+    assert.deepEqual(item.required, ["factId", "emotion", "comment", "backup"]);
     assert.deepEqual(item.properties.factId.enum, factIds);
     assert.deepEqual(item.properties.emotion.enum, [...boriEmotionNames]);
     assert.equal(item.properties.comment.type, "string");
@@ -54,13 +58,13 @@ describe("대사 쓰기", () => {
   });
 
   test("말투·범위는 @bori/character의 이름·정체성·범위 줄을 그대로 쓴다(손으로 베끼지 않는다)", () => {
-    const prompt = narrationSystemPrompt();
+    const prompt = prompt0();
     assert.ok(prompt.includes(boriName));
     for (const line of [...boriPersonaLines, ...boriScopeLines]) assert.ok(prompt.includes(line), line);
   });
 
   test("시스템 지시: 사실 고르기, 서버가 사실 문장을 읽음, 감상 규칙, 지어내지 않기, 데이터 선언", () => {
-    const prompt = narrationSystemPrompt();
+    const prompt = prompt0();
     for (const phrase of [
       "3~5개",
       "factId",
@@ -84,30 +88,39 @@ describe("대사 쓰기", () => {
   });
 
   test("Z1: 줄마다 감상을 쓰게 하고, 감상이 서버 문장 바로 뒤에 붙으니 사실을 되풀이하지 말라고 알린다", () => {
-    const prompt = narrationSystemPrompt();
-    for (const phrase of ["바로 뒤에 붙", "되풀이하지 않는다", "줄마다 comment를 쓴다", "'캐릭터'·'조합'", "[좋은 감상]", "[버려지는 감상]", "그대로 베끼지", "같은 감상을 두 번", "[종류]", "좋아진 사실에 아쉬움"]) {
+    const prompt = prompt0();
+    for (const phrase of ["바로 뒤에 붙", "되풀이하지 않는다", "줄마다 comment를 쓴다", "'캐릭터'·'조합'", "[좋은 감상]", "[버려지는 감상]", "그대로 쓰면 서버가 버린다", "같은 감상을 두 번", "[종류]", "좋아진 사실에 아쉬움"]) {
       assert.ok(prompt.includes(phrase), phrase);
     }
   });
 
-  test("Z1: 사실 줄 끝에 종류를 붙이고, 모든 종류에 좋은 감상 예시가 있다", () => {
+  test("Z1: 사실 줄 끝에 종류를 붙이고, 지시에 모든 종류의 좋은 감상 예시가 있다", () => {
     const user = narrationUserPrompt(facts);
     for (const fact of facts) assert.ok(user.includes(`${fact.id}: ${fact.text} [종류: ${FACT_KIND_LABELS[fact.kind]}]`), fact.id);
-    const kinds = Object.keys(FACT_KIND_LABELS);
-    assert.deepEqual(GOOD_COMMENT_EXAMPLES.map(example => example.kind).sort(), [...kinds].sort());
-    const prompt = narrationSystemPrompt();
-    for (const example of GOOD_COMMENT_EXAMPLES) assert.ok(prompt.includes(`- ${FACT_KIND_LABELS[example.kind]}:`), example.kind);
+    const prompt = prompt0();
+    for (const kind of Object.keys(FACT_KIND_LABELS) as Array<keyof typeof FACT_KIND_LABELS>) assert.ok(prompt.includes(`- ${FACT_KIND_LABELS[kind]}:`), kind);
   });
 
-  test("Z1: 지시에 싣는 좋은 감상 예시는 모두 검사를 통과하고, 버려지는 예시는 모두 버려진다", () => {
-    const prompt = narrationSystemPrompt();
-    const good = GOOD_COMMENT_EXAMPLES.flatMap(example => example.comments);
-    assert.ok(good.length >= 10);
-    assert.ok(good.includes("요즘 정말 자주 보여요."));
-    for (const comment of good) {
-      assert.ok(prompt.includes(`'${comment}'`), comment);
-      assert.deepEqual(checkComment(comment, fixtureNames), { ok: true, text: comment }, comment);
+  test("과제 A: 지시에는 고른 예시만 싣고 고르지 않은 예시는 싣지 않는다. 베끼면 버린다고 알린다", () => {
+    const prompt = prompt0();
+    const shown = new Set(picked.samples);
+    for (const comment of Object.values(COMMENT_EXAMPLE_POOL).flat()) {
+      assert.equal(prompt.includes(`'${comment}'`), shown.has(comment), comment);
     }
+    assert.ok(prompt.includes("그대로 쓰면 서버가 버린다"));
+  });
+
+  test("과제 A: 같은 random이면 같은 지시, 부를 때마다 random으로 새로 고른다", async () => {
+    const { llm, requests } = fakeLlm({ ok: true, raw: JSON.stringify(goodLines) });
+    const random = seededRandom(11);
+    for (let i = 0; i < 5; i++) await writeLines(llm, facts, { ...options, random });
+    const expected = seededRandom(11);
+    for (const request of requests) assert.equal(request.systemPrompt, narrationSystemPrompt(pickCommentExamples(expected)));
+    assert.ok(new Set(requests.map(request => request.systemPrompt)).size > 1);
+  });
+
+  test("Z1: 버려지는 감상 예시는 모두 지시에 있고 모두 버려진다", () => {
+    const prompt = prompt0();
     assert.ok(BAD_COMMENT_EXAMPLES.length >= 5);
     for (const { comment, why } of BAD_COMMENT_EXAMPLES) {
       assert.ok(prompt.includes(`'${comment}'`) && prompt.includes(why), comment);
@@ -120,6 +133,16 @@ describe("대사 쓰기", () => {
     const fromObject = await writeLines(fakeLlm({ ok: true, raw: goodLines }).llm, facts, options);
     assert.deepEqual(fromString, { ok: true, lines: goodLines.lines });
     assert.deepEqual(fromObject, fromString);
+  });
+
+  test("과제 A: 예비 감상(backup)을 받는다. 없어도 받고, 문자열이 아니면 실패다", async () => {
+    const withBackup = { lines: [{ factId: "f1", emotion: "gaming", comment: "꽤 좋아 보여요.", backup: "흐름이 재미있네요." }] };
+    assert.deepEqual(await writeLines(fakeLlm({ ok: true, raw: withBackup }).llm, facts, options), { ok: true, lines: withBackup.lines });
+    const bad = { lines: [{ factId: "f1", emotion: "gaming", comment: "", backup: 3 }] };
+    assert.equal((await writeLines(fakeLlm({ ok: true, raw: bad }).llm, facts, options)).ok, false);
+    const item = (narrationSchema(factIds) as Schema).properties.lines.items;
+    assert.equal(item.properties.backup.type, "string");
+    assert.ok(prompt0().includes("backup은 comment가 버려질 때"));
   });
 
   test("깨진 JSON·모양이 틀린 응답은 실패다", async () => {

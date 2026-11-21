@@ -8,6 +8,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { composeLines } from "../src/narration/check.js";
+import { isCopiedExample } from "../src/narration/examples.js";
 import { buildFacts } from "../src/narration/facts.js";
 import { renderFact } from "../src/narration/template.js";
 import { fixtureBasis, fixtureCombos, fixtureNames, fixturePlayer } from "./narration-fixtures.js";
@@ -80,16 +81,20 @@ describe("점검 보고서 우회 예문", () => {
   });
 
   test("평범한 감상은 붙는다", () => {
-    for (const comment of ["꽤 좋아 보여요.", "흐름이 재미있네요!", "앞으로가 기대돼요."]) {
+    // 과제 A: 예시 묶음(examples.ts)에 있는 문장은 copied로 버리므로 묶음 밖 문장으로 본다
+    for (const comment of ["꽤 좋아 보여요.", "흐름이 재미있네요!", "앞으로가 기대되네요."]) {
       assert.deepEqual(compose("f1", comment).kept.map(line => line.text), [`${renderFact(byId.get("f1")!)} ${comment}`]);
     }
   });
 
   test("Z1: 보리 말맛 감상(예전에 과하게 버리던 예문 포함)은 붙고, 줄의 숫자는 그대로다", () => {
+    // 과제 A: 예시 묶음에 든 문장("요즘 정말 자주 보여요." 등)은 copied로 버리므로 같은 규칙을 보는 묶음 밖 문장으로 바꿨다.
+    // 묶음 문장이 규칙을 통과하는지는 narration-examples 검사가 본다.
     for (const comment of [
-      "요즘 정말 자주 보여요.", "다들 좋아하나 봐요.", "이번에도 자주 보이네요.", "판도가 흥미로워요.",
-      "위협적인 기세예요.", "분위기가 좋아 보여요.", "점점 자주 보여요.", "제법 많이 모였네요.", "다시 올라오길 바라요.", "새 얼굴이 반가워요!",
+      "요즘 정말 자주 보이네요.", "모두들 좋아하나 봐요.", "이번에도 자주 보이네요.", "판도가 흥미로워요.",
+      "위협적인 기세예요.", "분위기가 좋아 보여요.", "점점 자주 보여요.", "제법 많이 모였어요.", "다시 올라오면 좋겠어요.", "새 얼굴이라 반가워요!",
     ]) {
+      assert.equal(isCopiedExample(comment), false, comment);
       const [kept] = compose("f1", comment).kept;
       assert.equal(kept.text, `${renderFact(byId.get("f1")!)} ${comment}`, comment);
       assert.deepEqual(numbersOf(kept.text), numbersOf(renderFact(byId.get("f1")!)), comment);
