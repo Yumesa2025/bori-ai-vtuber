@@ -14,6 +14,7 @@
  */
 import { join } from "node:path";
 import {
+  availablePort,
   createBoriClient,
   createMockClient,
   createReporter,
@@ -29,8 +30,8 @@ import * as durability from "./durability.mjs";
 import * as usage from "./usage.mjs";
 import * as dashboard from "./dashboard.mjs";
 
-const mockPort = Number(process.env.MOCK_PORT ?? 4390);
-const boriPort = Number(process.env.BORI_TEST_PORT ?? 4391);
+const mockPort = await availablePort(Number(process.env.MOCK_PORT ?? 0));
+const boriPort = await availablePort(Number(process.env.BORI_TEST_PORT ?? 0));
 const mockUrl = `http://127.0.0.1:${mockPort}`;
 const boriUrl = `http://127.0.0.1:${boriPort}`;
 

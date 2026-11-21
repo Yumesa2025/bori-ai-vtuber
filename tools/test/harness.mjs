@@ -5,6 +5,8 @@
  * 단위 테스트가 아니라 서버 하나를 실제로 띄워 라우트를 두드려 보는 쪽에 가깝다.
  */
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { createServer } from "node:net";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -53,6 +55,8 @@ const scripts = new Map();
  * TypeScript는 tsx 로더로 읽는다. npx를 거치지 않으므로 자식이 하나만 생기고 종료가 확실하다.
  */
 export function startScript(scriptPath, { env = {}, label = "", loadTypeScript = false } = {}) {
+  if (label === "bori-server") env = { ...env, BORI_TEST_INSTANCE_ID: randomUUID() };
+  let spawnError = null;
   const args = loadTypeScript ? ["--import", "tsx", scriptPath] : [scriptPath];
   const lines = [];
   const collect = chunk => { lines.push(String(chunk)); };
@@ -65,6 +69,8 @@ export function startScript(scriptPath, { env = {}, label = "", loadTypeScript =
       env: { ...process.env, BORI_ENV_FILE: "", ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    spawnError = null;
+    child.once("error", error => { spawnError = error; });
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
     track(child);
@@ -74,6 +80,8 @@ export function startScript(scriptPath, { env = {}, label = "", loadTypeScript =
   const handle = {
     get child() { return child; },
     label,
+    env,
+    get error() { return spawnError; },
     output: () => lines.join(""),
     async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return;
@@ -112,16 +120,42 @@ export async function stopAll() {
 process.on("exit", () => { for (const child of children) child.kill(); });
 
 /** 서버가 응답할 때까지 기다린다. 정해진 시간 안에 못 뜨면 실패로 본다. */
-export async function waitForHttp(url, { timeoutMs = 25_000, intervalMs = 150, describe = url } = {}) {
+export async function availablePort(port = 0) {
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+  const selected = server.address().port;
+  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  return selected;
+}
+
+export async function waitForHttp(url, { timeoutMs = 25_000, intervalMs = 150, describe = url, instanceId, server } = {}) {
+  // 재시작 시나리오에도 소유권 검사를 적용한다.
+  if (!server && new URL(url).pathname === "/api/health") {
+    const candidate = scripts.get("bori-server");
+    if (candidate?.env.BORI_SERVER_PORT === new URL(url).port) server = candidate;
+  }
+  instanceId ??= server?.env.BORI_TEST_INSTANCE_ID;
   const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
   while (Date.now() - startedAt < timeoutMs) {
+    if (server && (server.error || server.child.exitCode !== null || server.child.signalCode !== null)) throw new Error(`${describe} 자식 서버 종료 또는 실행 실패`);
+    let response, text;
     try {
-      const response = await fetch(url);
-      if (response.ok) return Date.now() - startedAt;
+      response = await fetch(url, { signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+      text = await response.text();
     } catch {
-      // 아직 안 떴다. 다시 시도한다.
+      await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+      continue;
     }
-    await sleep(intervalMs);
+    if (response.ok) {
+      if (instanceId && JSON.parse(text).instanceId !== instanceId) throw new Error(`${describe} instance 소유권 불일치`);
+      if (server && (server.error || server.child.exitCode !== null || server.child.signalCode !== null)) throw new Error(`${describe} 자식 서버 종료`);
+      return Date.now() - startedAt;
+    }
+    await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
   }
   throw new Error(`${describe}이(가) ${timeoutMs}ms 안에 뜨지 않았습니다.`);
 }
@@ -147,7 +181,7 @@ export async function prepareDataDir(fixtures = ["llm-config.json", "tts-config.
 // ── 가짜 API 조작 ────────────────────────────────────────────
 
 export function createMockClient(baseUrl) {
-  const call = async path => (await fetch(`${baseUrl}${path}`)).json();
+  const call = async path => (await fetch(`${baseUrl}${path}`, { signal: AbortSignal.timeout(25_000) })).json();
 
   return {
     baseUrl,
@@ -169,9 +203,12 @@ export function createMockClient(baseUrl) {
 // ── 보리 서버 조작 ───────────────────────────────────────────
 
 export function createBoriClient(baseUrl) {
-  const send = async (path, init) => {
-    const response = await fetch(`${baseUrl}${path}`, init);
-    return { status: response.status, body: await response.json().catch(() => null) };
+  const send = async (path, init, { timeoutMs = 25_000 } = {}) => {
+    const response = await fetch(`${baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(Math.max(1, timeoutMs)) });
+    return { status: response.status, body: await response.json().catch(error => {
+      if (error.name === "AbortError" || error.name === "TimeoutError") throw error;
+      return null;
+    }) };
   };
   const withJson = (method, path, payload) => send(path, {
     method,
@@ -185,7 +222,7 @@ export function createBoriClient(baseUrl) {
     llm: async () => (await send("/api/llm")).body,
     patchLlm: next => withJson("PATCH", "/api/llm", next),
     tts: async () => (await send("/api/tts")).body,
-    dashboard: async () => (await send("/api/dashboard")).body,
+    dashboard: async options => (await send("/api/dashboard", undefined, options)).body,
     /** PUT /api/dashboard/settings. 전적 조회가 끝나야 답한다. */
     putSettings: payload => withJson("PUT", "/api/dashboard/settings", payload),
     post: path => send(path, { method: "POST" }),
