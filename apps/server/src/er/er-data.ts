@@ -1,26 +1,30 @@
 import { resolve } from "node:path";
-import { collectMeta, loadDictionary, lookupPlayer, officialSeasonNumber, type ErClient, type ErDictionary } from "@bori/er";
+import { collectMeta, loadDictionary, lookupPlayer, officialSeasonNumber, type ErClient, type ErDictionary, type ErMetaCollection, type ErPlayerLookup } from "@bori/er";
 import type { ErCharacterStat, ErMetaBasis, ErConnection, ErPlayerReport } from "@bori/shared";
 import { createConfigFile } from "../config-file.js";
+import { STALE_AFTER_MS } from "./auto-refresh.js";
+import { COLLECTION_FORMAT, createErHistory, parseCollection } from "./history.js";
+import { toCharacterStats, toLegacyBasis, toPlayerReport } from "./legacy.js";
 
 /**
- * 이터널리턴 데이터(캐릭터 사전·메타 집계)를 data/ 아래 파일로 두고 읽는다.
+ * 이터널리턴 데이터(캐릭터 사전·조합 집계)를 data/ 아래 파일로 두고 읽는다.
  * - 서버 시작 때 `er-dictionary.json`·`er-meta.json`이 있으면 읽는다. 없으면 missing이다.
- * - `/api/er/refresh`가 백그라운드로 사전과 메타를 다시 받아 두 파일에 원자적으로 쓴다(설정 파일 공통 방식).
+ *   조합 집계가 없는 예전 형식 `er-meta.json`(stats만)은 없는 것으로 본다. 다음 갱신 때 새 형식으로 쓴다.
+ * - 갱신(refresh)이 백그라운드로 사전과 집계를 다시 받아 원자적으로 쓰고(설정 파일 공통 방식),
+ *   집계를 `er-history/`에도 하나 남긴다(최근 10개). 실패하면 지난 파일은 그대로다.
  * - 갱신 중에는 전적 조회를 받지 않는다. 개인 키는 초당 1회라 갱신 요청 뒤에 줄을 서면 몇 분을 기다린다.
  * - 오류 메시지에는 키가 없다(@bori/er 클라이언트가 키·쿼리를 빼고 만든다).
  */
 
+/** 예전 방송 경로용 상태(스튜디오 ER 패널). */
 export type ErStatus = { basis: ErMetaBasis | null; refreshing: boolean; progress: number | null; lastError: string | null };
 
-/** 이보다 오래된 메타는 stale로 보인다. 패치 주기(2주)보다 짧게 잡는다. */
-const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const TOP_COUNT = 5;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
- * 파일에 쓴 시즌 표기 방식. 이 표시가 없는 예전 파일은 API 번호 그대로("시즌 21")라 읽을 때 게임 번호("시즌 12")로 바꾼다.
+ * 파일에 쓴 시즌 표기 방식. 이 표시가 없는 예전 사전은 API 번호 그대로("시즌 21")라 읽을 때 게임 번호("시즌 12")로 바꾼다.
  * 파일 내용은 고치지 않는다(다음 갱신 때 새 표기로 다시 쓴다).
  */
 const SEASON_LABEL = "official";
@@ -49,17 +53,6 @@ function asDictionary(value: Record<string, unknown> | null): ErDictionary | nul
   };
 }
 
-function asMeta(value: Record<string, unknown> | null): { stats: ErCharacterStat[]; basis: ErMetaBasis } | null {
-  if (!value || !Array.isArray(value.stats) || !isRecord(value.basis)) return null;
-  const basis = value.basis;
-  if (typeof basis.seasonName !== "string" || typeof basis.sampleGames !== "number" || typeof basis.collectedAt !== "string" || typeof basis.description !== "string") return null;
-  const stats = value.stats.filter((entry): entry is ErCharacterStat =>
-    isRecord(entry) && typeof entry.code === "number" && typeof entry.name === "string" && typeof entry.picks === "number"
-    && typeof entry.pickRate === "number" && typeof entry.avgRank === "number" && typeof entry.top1Rate === "number" && typeof entry.mainWeapon === "string");
-  const seasonName = value.seasonLabel === SEASON_LABEL ? basis.seasonName : legacySeasonName(basis.seasonName);
-  return { stats, basis: { ...(basis as ErMetaBasis), seasonName } };
-}
-
 export function createErData(options: {
   dataDir: string;
   /** 키가 없으면 null. 갱신·전적 조회를 하지 않는다. */
@@ -71,13 +64,20 @@ export function createErData(options: {
   const now = options.now ?? Date.now;
   const dictionaryFile = createConfigFile(resolve(options.dataDir, "er-dictionary.json"), "이터널리턴 사전");
   const metaFile = createConfigFile(resolve(options.dataDir, "er-meta.json"), "이터널리턴 메타");
+  const history = createErHistory({ dir: resolve(options.dataDir, "er-history") });
+  const refreshedListeners = new Set<() => void>();
   let dictionary: ErDictionary | null = null;
-  let meta: { stats: ErCharacterStat[]; basis: ErMetaBasis } | null = null;
+  let meta: ErMetaCollection | null = null;
+  /** history에서 찾은 직전 집계 */
+  let previous: ErMetaCollection | null = null;
   let refreshing = false;
   let progress: number | null = null;
   let lastError: string | null = null;
 
+  const findPrevious = (current: ErMetaCollection | null) => (current ? history.previous(current.basis.collectedAt) : null);
+
   async function runRefresh(client: ErClient) {
+    let succeeded = false;
     try {
       const nextDictionary = await loadDictionary(client);
       dictionaryFile.write({ ...nextDictionary, seasonLabel: SEASON_LABEL });
@@ -85,12 +85,21 @@ export function createErData(options: {
       const collected = await collectMeta(client, nextDictionary, {
         rankers: options.rankers,
         gamesPerRanker: options.gamesPerRanker,
+        now,
         onProgress: (done, total) => { progress = total > 0 ? Math.min(1, done / total) : 0; },
       });
-      metaFile.write({ ...collected, seasonLabel: SEASON_LABEL });
+      metaFile.write({ format: COLLECTION_FORMAT, ...collected, seasonLabel: SEASON_LABEL });
       meta = collected;
+      try {
+        history.save(collected);
+      } catch (error) {
+        // 기록을 못 남겨도 이번 집계는 쓴다. 다음 비교에서 이번 것이 빠질 뿐이다.
+        console.warn("[bori-server] 이터널리턴 집계 기록을 남기지 못했습니다:", error instanceof Error ? error.message : "알 수 없는 오류");
+      }
+      previous = findPrevious(collected);
       lastError = null;
-      console.log(`[bori-server] 이터널리턴 메타 갱신 완료 (${collected.basis.description})`);
+      succeeded = true;
+      console.log(`[bori-server] 이터널리턴 메타 갱신 완료 (경기 ${collected.basis.games}판, 참가자 ${collected.basis.participants}명, 조합 ${collected.combos.length}개)`);
     } catch (error) {
       lastError = error instanceof Error ? error.message : "이터널리턴 데이터를 받지 못했습니다.";
       console.error("[bori-server] 이터널리턴 메타 갱신 실패:", lastError);
@@ -98,27 +107,48 @@ export function createErData(options: {
       refreshing = false;
       progress = null;
     }
+    if (succeeded) {
+      for (const listener of refreshedListeners) {
+        try {
+          listener();
+        } catch (error) {
+          console.error("[bori-server] 이터널리턴 갱신 알림 처리 실패:", error instanceof Error ? error.message : "알 수 없는 오류");
+        }
+      }
+    }
   }
 
+  /** 대시보드 내 전적 재료. 없으면 null. 실패하면 throw. */
+  function lookupPlayerSummary(nickname: string): Promise<ErPlayerLookup | null> {
+    if (!options.client || !dictionary) return Promise.reject(new Error("이터널리턴 데이터를 쓸 수 없습니다."));
+    return lookupPlayer(options.client, dictionary, nickname);
+  }
+
+  /** 예전 방송 경로용 캐릭터 합계 */
+  const stats = (): ErCharacterStat[] => (meta ? toCharacterStats(meta, dictionary) : []);
+
   return {
-    /** 파일에서 사전과 메타를 읽는다. 없거나 깨졌으면 없는 것으로 둔다. */
+    /** 파일에서 사전·집계·직전 집계를 읽는다. 없거나 깨졌으면 없는 것으로 둔다. */
     load() {
       dictionary = asDictionary(dictionaryFile.read());
-      meta = asMeta(metaFile.read());
+      meta = parseCollection(metaFile.read());
+      previous = findPrevious(meta);
     },
     dictionary: () => dictionary,
-    stats: (): ErCharacterStat[] => meta?.stats ?? [],
-    basis: () => meta?.basis ?? null,
-    top5: (): ErCharacterStat[] => (meta?.stats ?? []).slice(0, TOP_COUNT),
+    /** 최신 조합 집계(원래 개수) */
+    meta: () => meta,
+    /** 직전 갱신의 조합 집계. 없으면 null */
+    previousMeta: () => previous,
+    hasClient: () => options.client !== null,
 
     connection(): ErConnection {
       if (refreshing) return "refreshing";
       if (!dictionary || !meta) return "missing";
       const collectedAt = Date.parse(meta.basis.collectedAt);
-      return Number.isFinite(collectedAt) && now() - collectedAt < STALE_AFTER_MS ? "ready" : "stale";
+      return Number.isFinite(collectedAt) && now() - collectedAt <= STALE_AFTER_MS ? "ready" : "stale";
     },
 
-    status: (): ErStatus => ({ basis: meta?.basis ?? null, refreshing, progress, lastError }),
+    status: (): ErStatus => ({ basis: meta ? toLegacyBasis(meta) : null, refreshing, progress, lastError }),
 
     /** 갱신을 시작한다. 이미 도는 중이거나 키가 없으면 false. */
     refresh(): boolean {
@@ -133,13 +163,25 @@ export function createErData(options: {
       return true;
     },
 
+    /** 갱신이 성공해 새 집계를 쓴 뒤 부른다. 돌려준 함수로 그만 듣는다. */
+    onRefreshed(listener: () => void): () => void {
+      refreshedListeners.add(listener);
+      return () => { refreshedListeners.delete(listener); };
+    },
+
     /** 키와 사전이 있고 갱신 중이 아니면 전적을 볼 수 있다. */
     available: () => options.client !== null && dictionary !== null && !refreshing,
 
+    lookupPlayerSummary,
+
+    // ── 예전 방송 경로(legacy.ts). 방송 코드를 지우면 같이 지운다 ──
+    stats,
+    basis: (): ErMetaBasis | null => (meta ? toLegacyBasis(meta) : null),
+    top5: (): ErCharacterStat[] => stats().slice(0, TOP_COUNT),
     /** 없으면 null. 실패하면 throw. */
-    lookupPlayer(nickname: string): Promise<ErPlayerReport | null> {
-      if (!options.client || !dictionary) return Promise.reject(new Error("이터널리턴 데이터를 쓸 수 없습니다."));
-      return lookupPlayer(options.client, dictionary, nickname);
+    async lookupPlayer(nickname: string): Promise<ErPlayerReport | null> {
+      const found = await lookupPlayerSummary(nickname);
+      return found ? toPlayerReport(found) : null;
     },
   };
 }
