@@ -49,7 +49,7 @@
 
 **Files:** Modify `packages/character/src/index.ts`, Test `packages/character/test/character.test.ts`
 
-- [ ] **Step 1: 실패하는 검사로 바꾼다**
+- [x] **Step 1: 실패하는 검사로 바꾼다**
 
 ```ts
 import assert from "node:assert/strict";
@@ -107,16 +107,16 @@ test("범위는 주어진 수치만 말하고 수치에 없는 게임 내용은 
 });
 ```
 
-- [ ] **Step 2: 실패 확인** — `node --import tsx --test packages/character/test/character.test.ts` → 정체성·낱말·바꾼 문장·범위 검사 실패
-- [ ] **Step 3: `index.ts` 문장 교체** — 보고서 2절 표와 과제 지시의 문장 그대로. 주석: 사람용 원본은 캐릭터 바이블만(페르소나 가이드라인은 기록), 이름 주석은 "대시보드 자막처럼", 정체성 출처 주석 "요구사항 2장, 2026-11-21 메타 분석 진행자로", 범위 주석에서 "서버가 위험 주제를 거른다" 삭제(지금은 그런 필터가 없다; 대사는 narration 숫자·이름 검사가 거른다). "위에 없는 자기 사실을 물으면" 줄은 질문 경로가 없어 지운다(날씨·뉴스 줄과 같이 한 줄로 합친다).
-- [ ] **Step 4: 통과 확인** — 같은 명령 → PASS
-- [ ] **Step 5: 커밋** `캐릭터: 보리 설정을 메타 분석 진행자 기준으로 바꾼다`
+- [x] **Step 2: 실패 확인** — `node --import tsx --test packages/character/test/character.test.ts` → 정체성·낱말·바꾼 문장·범위 검사 실패
+- [x] **Step 3: `index.ts` 문장 교체** — 보고서 2절 표와 과제 지시의 문장 그대로. 주석: 사람용 원본은 캐릭터 바이블만(페르소나 가이드라인은 기록), 이름 주석은 "대시보드 자막처럼", 정체성 출처 주석 "요구사항 2장, 2026-11-21 메타 분석 진행자로", 범위 주석에서 "서버가 위험 주제를 거른다" 삭제(지금은 그런 필터가 없다; 대사는 narration 숫자·이름 검사가 거른다). "위에 없는 자기 사실을 물으면" 줄은 질문 경로가 없어 지운다(날씨·뉴스 줄과 같이 한 줄로 합친다).
+- [x] **Step 4: 통과 확인** — 같은 명령 → PASS
+- [x] **Step 5: 커밋** `캐릭터: 보리 설정을 메타 분석 진행자 기준으로 바꾼다`
 
 ### Task 2: `/studio/` 클릭재킹 방지
 
 **Files:** Modify `apps/server/src/http/static.ts`, Test `apps/server/test/static.test.ts`
 
-- [ ] **Step 1: 실패하는 검사** — `send()`가 `frameAncestors`(content-security-policy)·`frameOptions`·`nosniff` 헤더도 돌려주게 하고 다음을 더한다.
+- [x] **Step 1: 실패하는 검사** — `send()`가 `frameAncestors`(content-security-policy)·`frameOptions`·`nosniff` 헤더도 돌려주게 하고 다음을 더한다.
 
 ```ts
 test("모든 정적 응답은 다른 출처의 iframe을 막고 MIME 추측을 끈다", async () => {
@@ -131,8 +131,8 @@ test("모든 정적 응답은 다른 출처의 iframe을 막고 MIME 추측을 �
 
 (같은 출처 iframe인 스튜디오 → `/companion/`은 `'self'`라 그대로 뜬다. 응답 헤더 CSP는 `frame-ancestors`만 담아 화면의 meta CSP를 넓히지 않는다.)
 
-- [ ] **Step 2: 실패 확인** — `node --import tsx --test apps/server/test/static.test.ts`
-- [ ] **Step 3: 구현**
+- [x] **Step 2: 실패 확인** — `node --import tsx --test apps/server/test/static.test.ts`
+- [x] **Step 3: 구현**
 
 ```ts
 /**
@@ -149,39 +149,39 @@ export const staticSecurityHeaders = {
 
 `serveStatic`에서 접두사가 맞으면 맨 먼저 `for (const [name, value] of Object.entries(staticSecurityHeaders)) response.setHeader(name, value);` (503·404·200 모두에 붙는다).
 
-- [ ] **Step 4: 통과 확인**, 고정 자료 이름 `chat.html`→`page.html`, "채팅"·"1:1" 문구 정리. `guard-path.test.ts`의 `/api/memory/:id` 예시를 `/api/tts/:id`로.
-- [ ] **Step 5: 커밋** `보안: 정적 화면 응답에 frame-ancestors와 X-Frame-Options를 붙인다`
+- [x] **Step 4: 통과 확인**, 고정 자료 이름 `chat.html`→`page.html`, "채팅"·"1:1" 문구 정리. `guard-path.test.ts`의 `/api/memory/:id` 예시를 `/api/tts/:id`로.
+- [x] **Step 5: 커밋** `보안: 정적 화면 응답에 frame-ancestors와 X-Frame-Options를 붙인다`
 
 ### Task 3: 죽은 코드
 
-- [ ] `git grep`으로 `boriExpressionLabels|boriMotionLabels|boriMotionDescriptions` 사용처가 `packages/live2d/src/index.ts` 밖에 없음을 확인하고 지운다. `boriEmotionMap`·`resolveMotion` 주석의 "서버 CharacterResponse·방송 로직"을 지금 쓰임(대사 줄의 감정 이름, 대시보드 reaction.ts)으로 고친다.
-- [ ] `tools/test/mock-openai.mjs`: `/__summary`, `MOCK_COMPANION_SUMMARY`·`broadcastSummary`, `MOCK_DIGEST_MEMORIES`·`DIGEST_ECHO_MARK`·`companionLines`, `replyFor`의 memories·highlights·summary 분기, `/embeddings`·`embeddingFor`·`createHash`, `timing.embed`·`MOCK_EMBED_MS`를 지운다. `/__timing`은 llm·tts만 바꾸고 다른 값(하네스가 보내는 embed)은 무시한다. 주석의 "방송 화면이 재생을 시도" → "대시보드가". `lines` 경로·`reply` 기본 응답은 그대로.
-- [ ] `docs/macros.example.json` 삭제. `docs/progress.md:186`(기록)의 링크는 "삭제된 파일, git 기록에 있음"으로.
-- [ ] `npm run test:unit`, `npm test` 통과 확인 후 커밋 `정리: 쓰지 않는 모션 설명·가짜 API 요약·임베딩 경로·매크로 예시를 지운다`
+- [x] `git grep`으로 `boriExpressionLabels|boriMotionLabels|boriMotionDescriptions` 사용처가 `packages/live2d/src/index.ts` 밖에 없음을 확인하고 지운다. `boriEmotionMap`·`resolveMotion` 주석의 "서버 CharacterResponse·방송 로직"을 지금 쓰임(대사 줄의 감정 이름, 대시보드 reaction.ts)으로 고친다.
+- [x] `tools/test/mock-openai.mjs`: `/__summary`, `MOCK_COMPANION_SUMMARY`·`broadcastSummary`, `MOCK_DIGEST_MEMORIES`·`DIGEST_ECHO_MARK`·`companionLines`, `replyFor`의 memories·highlights·summary 분기, `/embeddings`·`embeddingFor`·`createHash`, `timing.embed`·`MOCK_EMBED_MS`를 지운다. `/__timing`은 llm·tts만 바꾸고 다른 값(하네스가 보내는 embed)은 무시한다. 주석의 "방송 화면이 재생을 시도" → "대시보드가". `lines` 경로·`reply` 기본 응답은 그대로.
+- [x] `docs/macros.example.json` 삭제. `docs/progress.md:186`(기록)의 링크는 "삭제된 파일, git 기록에 있음"으로.
+- [x] `npm run test:unit`, `npm test` 통과 확인 후 커밋 `정리: 쓰지 않는 모션 설명·가짜 API 요약·임베딩 경로·매크로 예시를 지운다`
 
 ### Task 4: 의존 선언과 낡은 설명
 
-- [ ] `apps/admin/package.json`에서 `@bori/live2d` 삭제, `apps/companion/package.json`에 `"@bori/shared": "0.1.0"` 추가. `npm install`로 lock을 맞추고 `git diff package-lock.json`이 두 워크스페이스 의존 줄만 바꿨는지 본다.
-- [ ] `.gitignore` 설명: `data/` "기억 JSON" → "설정·암호화된 API 키·집계·사용량·로그", `obs-shot*.png` 설명은 "예전 OBS 송출 캡처. 구매 모델이 렌더링된 이미지라 패턴은 남긴다", `tools/eval/results/`·`soak*.json`은 "지운 도구가 로컬에 남겼을 수 있는 결과. 실수로 올리지 않게 패턴은 남긴다".
-- [ ] `.env.example` `BORI_ADMIN_URL`: "비우면 `npm run studio`는 `http://127.0.0.1:{BORI_SERVER_PORT}/studio/`, 개발(`npm run dev`, --dev)은 `http://127.0.0.1:5174`. 루프백 주소만 받는다". "관리자 앱" → "스튜디오".
-- [ ] `tools/test/README.md`: 포트 `4310, 4175, 4176, 5174`, mock-openai 설명 "답변·음성 경로", 실패 주입 target `llm|tts`.
-- [ ] `npm run typecheck`, `npm run test:unit` 후 커밋 `정리: 의존 선언을 실제 import에 맞추고 낡은 설명을 고친다`
+- [x] `apps/admin/package.json`에서 `@bori/live2d` 삭제, `apps/companion/package.json`에 `"@bori/shared": "0.1.0"` 추가. `npm install`로 lock을 맞추고 `git diff package-lock.json`이 두 워크스페이스 의존 줄만 바꿨는지 본다.
+- [x] `.gitignore` 설명: `data/` "기억 JSON" → "설정·암호화된 API 키·집계·사용량·로그", `obs-shot*.png` 설명은 "예전 OBS 송출 캡처. 구매 모델이 렌더링된 이미지라 패턴은 남긴다", `tools/eval/results/`·`soak*.json`은 "지운 도구가 로컬에 남겼을 수 있는 결과. 실수로 올리지 않게 패턴은 남긴다".
+- [x] `.env.example` `BORI_ADMIN_URL`: "비우면 `npm run studio`는 `http://127.0.0.1:{BORI_SERVER_PORT}/studio/`, 개발(`npm run dev`, --dev)은 `http://127.0.0.1:5174`. 루프백 주소만 받는다". "관리자 앱" → "스튜디오".
+- [x] `tools/test/README.md`: 포트 `4310, 4175, 4176, 5174`, mock-openai 설명 "답변·음성 경로", 실패 주입 target `llm|tts`.
+- [x] `npm run typecheck`, `npm run test:unit` 후 커밋 `정리: 의존 선언을 실제 import에 맞추고 낡은 설명을 고친다`
 
 ### Task 5: 문서
 
-- [ ] 캐릭터 바이블: 1~5절을 진행자 기준(정체성·성격·말투·세계관·자기 설정·감정 표현·말하는 범위)으로 다시 쓰고, 예전 1~8절은 "부록: 방송·1:1 시절 설정 (기록)"으로 그대로 옮긴다. 5.1절 표는 Task 1 문장과 같아야 한다.
-- [ ] persona-guidelines·evaluation 맨 위에 "방송·1:1 시절 기록. 지금 설정은 캐릭터 바이블" 표시.
-- [ ] README: 상태 표를 #53 기준으로(`/api/dashboard`·자동 갱신·읽어 주기·닉네임 저장 라우트 연결됨, 대시보드 흐름 통합 검사), `/api/er/status` 줄 정리, "현재 한계"에서 "서버에 이어지지 않았다" 삭제하고 "실제 키·Live2D 화면으로 끝까지 확인하지 않았다"는 남긴다. 문서 표의 페르소나 가이드라인 설명과 맞춘다.
-- [ ] `docs/index.html`: meta description·notice·상태 목록을 같은 기준으로.
-- [ ] `docs/operations.md`: 맨 위 "구현 중" 안내 삭제, 4절 상태 줄 → `GET /api/dashboard`, 대시보드 라우트 표 추가(설계 4절의 라우트, 실제 `dashboard-routes.ts`와 대조).
-- [ ] `docs/architecture.md`: "(구현 중)" 표시 삭제, 의존 그림을 실제 import대로(er·llm → shared, character·live2d 의존 없음, server → shared·er·llm·live2d(+character 선언), companion → shared·live2d, admin → shared), 문장 정정. 보안 경계에 정적 응답 헤더 한 줄.
-- [ ] `docs/verification-log.md`: 맨 위에 "0. 자동 검사 (2026-11-21, 메타 대시보드)" 새 절 — 실제로 돌린 typecheck·test:unit·npm test 건수, 커밋, 단위 검사 파일 표. 예전 0절은 "0-기록. 자동 검사 (2026-10-12)"로 내린다. 머리말의 "CI 설정은 없어" 정정.
-- [ ] `docs/progress.md`: 문서 지도를 README 표와 같게(지난 문서는 "기록" 열), 11.1 마무리 상태와 11.5 남은 것 갱신, 11.6 점검 V3 정리 기록.
-- [ ] 설계·총괄 계획의 감정 이름 출처 오기 정정.
-- [ ] 커밋 `문서: …` 몇 개로 나눈다.
+- [x] 캐릭터 바이블: 1~5절을 진행자 기준(정체성·성격·말투·세계관·자기 설정·감정 표현·말하는 범위)으로 다시 쓰고, 예전 1~8절은 "부록: 방송·1:1 시절 설정 (기록)"으로 그대로 옮긴다. 5.1절 표는 Task 1 문장과 같아야 한다.
+- [x] persona-guidelines·evaluation 맨 위에 "방송·1:1 시절 기록. 지금 설정은 캐릭터 바이블" 표시.
+- [x] README: 상태 표를 #53 기준으로(`/api/dashboard`·자동 갱신·읽어 주기·닉네임 저장 라우트 연결됨, 대시보드 흐름 통합 검사), `/api/er/status` 줄 정리, "현재 한계"에서 "서버에 이어지지 않았다" 삭제하고 "실제 키·Live2D 화면으로 끝까지 확인하지 않았다"는 남긴다. 문서 표의 페르소나 가이드라인 설명과 맞춘다.
+- [x] `docs/index.html`: meta description·notice·상태 목록을 같은 기준으로.
+- [x] `docs/operations.md`: 맨 위 "구현 중" 안내 삭제, 4절 상태 줄 → `GET /api/dashboard`, 대시보드 라우트 표 추가(설계 4절의 라우트, 실제 `dashboard-routes.ts`와 대조).
+- [x] `docs/architecture.md`: "(구현 중)" 표시 삭제, 의존 그림을 실제 import대로(er·llm → shared, character·live2d 의존 없음, server → shared·er·llm·live2d(+character 선언), companion → shared·live2d, admin → shared), 문장 정정. 보안 경계에 정적 응답 헤더 한 줄.
+- [x] `docs/verification-log.md`: 맨 위에 "0. 자동 검사 (2026-11-21, 메타 대시보드)" 새 절 — 실제로 돌린 typecheck·test:unit·npm test 건수, 커밋, 단위 검사 파일 표. 예전 0절은 "0-기록. 자동 검사 (2026-10-12)"로 내린다. 머리말의 "CI 설정은 없어" 정정.
+- [x] `docs/progress.md`: 문서 지도를 README 표와 같게(지난 문서는 "기록" 열), 11.1 마무리 상태와 11.5 남은 것 갱신, 11.6 점검 V3 정리 기록.
+- [x] 설계·총괄 계획의 감정 이름 출처 오기 정정.
+- [x] 커밋 `문서: …` 몇 개로 나눈다.
 
 ### Task 6: 검증과 PR
 
-- [ ] `npm run typecheck`, `npm run test:unit`, `npm test` 실제 실행, 건수 기록(verification-log 값과 같은지 확인)
-- [ ] push, `gh pr create --base feature/er-meta-dashboard`, 본문에 캐릭터 문장 전후 표와 export 목록
-- [ ] `gh pr checks --watch`로 CI 통과까지 확인
+- [x] `npm run typecheck`, `npm run test:unit`, `npm test` 실제 실행, 건수 기록(verification-log 값과 같은지 확인)
+- [x] push, `gh pr create --base feature/er-meta-dashboard`, 본문에 캐릭터 문장 전후 표와 export 목록
+- [x] `gh pr checks --watch`로 CI 통과까지 확인
