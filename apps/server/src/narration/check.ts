@@ -1,37 +1,35 @@
 /**
- * LLM이 쓴 대사 검사(설계 3절 3, 점검 V2 1~4·17번). 어긋난 줄은 고치지 않고 버린다.
- * - 한 줄이 밝히는 사실(factIds)은 최대 2개이고, 없는 id가 있으면 버린다.
- * - 줄의 숫자 토큰(tokens.ts)마다 인용한 사실에 단위·값이 같은 토큰이 있어야 한다.
- *   숫자 앞 낱말로 뜻을 짐작했으면(픽률·평균 순위·1등 비율…) 뜻도 맞아야 한다.
- * - 사전의 캐릭터 이름이 나오면 인용한 사실에 있어야 하고, "캐릭터 무기" 조합은 인용한 사실의 조합이어야 한다.
- * 검사 전에 꾸밈(마크다운·이모지)과 보이지 않는 제어 문자를 지운다. 자막과 TTS에 기호가 나가지 않게 한다(점검 V3 7절).
+ * LLM 구조화 출력으로 대사 줄을 만든다(Codex C2 1~3절, 코디네이터 결정 2026-11-21).
+ * 예전에는 LLM이 쓴 자유 문장을 숫자 토큰·이름으로 사후 검사했는데, 주체·지표·시간 방향을 바꾼 거짓 문장과
+ * 한글 수·소유격 이름이 검사를 빠져나갔다. 이제 LLM은 줄마다 사실 id(factId)·감정·짧은 감상(comment)만 고르고,
+ * 줄 문장은 서버가 "사실의 정해진 문장(renderFact) + 통과한 감상"으로 만든다. 수치·이름은 서버 문장에만 있다.
+ * - 없는 factId, 이미 고른 factId, 최대 줄 수를 넘는 줄은 버린다.
+ * - 감상이 comment.ts 규칙을 어기거나 합친 줄이 글자 상한을 넘으면 감상만 버린다.
  */
 import type { NarrationLine } from "@bori/shared";
 import { boriEmotionNames } from "@bori/live2d";
-import { replyLengthOf, stripDecorations } from "@bori/llm";
-import { cleanInputText } from "../input-text.js";
+import { checkComment, type CommentReason } from "./comment.js";
 import type { NarrationFact } from "./facts.js";
-import { findCharacterNames, findPairs, type NameDictionary } from "./names.js";
-import { extractTokens, HINT_MEANINGS, type NumberToken } from "./tokens.js";
+import type { NameDictionary } from "./names.js";
+import { renderFact } from "./template.js";
 
-/** LLM 구조화 출력의 한 줄. 아직 검사 전이다. */
-export type RawLine = { text: string; emotion: string; factIds: string[] };
+/** LLM 구조화 출력의 한 줄 */
+export type RawLine = { factId: string; emotion: string; comment: string };
 
-/** 검사를 통과한 줄. 3줄 채우기가 어떤 사실을 이미 말했는지 알 수 있게 factIds를 남긴다. */
-export type CheckedLine = NarrationLine & { factIds: string[] };
+/** 만든 줄. 3줄 채우기가 어떤 사실을 이미 말했는지 알 수 있게 factId를 남긴다. */
+export type ComposedLine = NarrationLine & { factId: string };
 
-export type DropReason = "empty" | "length" | "facts" | "number" | "name" | "count";
+export type LineDropReason = "fact" | "duplicate" | "count";
 
-export type CheckOptions = {
-  /** 사전의 캐릭터·무기 이름 */
+export type ComposeOptions = {
+  /** 사전의 캐릭터·무기·장비·특성 이름 */
   names: NameDictionary;
-  /** 한 줄 글자 상한(코드포인트). LLM 설정 maxReplyLength를 쓴다 */
+  /** 한 줄 글자 상한(코드포인트). LLM 설정 maxReplyLength를 쓴다. 서버 문장만으로 넘으면 감상만 뺀다 */
   maxLineLength?: number;
 };
 
+export const MIN_LINES = 3;
 export const MAX_LINES = 5;
-/** 한 줄이 밝힐 수 있는 사실 수 */
-export const MAX_FACT_IDS = 2;
 /** maxReplyLength를 받지 못했을 때 쓰는 한 줄 글자 상한(서버 LLM 설정 기본값과 같다) */
 export const DEFAULT_MAX_LINE_LENGTH = 120;
 /** 감정 이름이 목록 밖이면 쓰는 기본 감정 */
@@ -39,43 +37,35 @@ export const FALLBACK_EMOTION = "calm";
 
 const emotionSet = new Set<string>(boriEmotionNames);
 
-/** 자막·음성에 보낼 글: 제어 문자·꾸밈을 지우고 앞뒤 공백을 정리한다. */
-export const cleanLineText = (text: string) => stripDecorations(cleanInputText(text)).trim();
-
-const tokenAllowed = (token: NumberToken, cited: readonly NumberToken[]) =>
-  cited.some(candidate => candidate.unit === token.unit
-    && candidate.value === token.value
-    && (!token.hint || (candidate.meaning !== undefined && HINT_MEANINGS[token.hint].includes(candidate.meaning))));
-
-function reasonFor(text: string, line: RawLine, factById: Map<string, NarrationFact>, options: CheckOptions): DropReason | null {
-  if (text.length === 0) return "empty";
-  if (replyLengthOf(text) > (options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH)) return "length";
-  if (line.factIds.length > MAX_FACT_IDS || line.factIds.some(id => !factById.has(id))) return "facts";
-  const cited = line.factIds.map(id => factById.get(id)!);
-  const tokens = cited.flatMap(fact => fact.tokens);
-  if (!extractTokens(text).every(token => tokenAllowed(token, tokens))) return "number";
-  const names = new Set(cited.flatMap(fact => fact.names));
-  if (findCharacterNames(text, options.names).some(name => !names.has(name))) return "name";
-  const pairs = cited.flatMap(fact => fact.pairs);
-  if (findPairs(text, options.names).some(pair => !pairs.some(known => known.character === pair.character && known.weapon === pair.weapon))) return "name";
-  return null;
-}
-
-export function checkLines(
+export function composeLines(
   lines: readonly RawLine[],
   facts: readonly NarrationFact[],
-  options: CheckOptions,
-): { kept: CheckedLine[]; dropped: { text: string; reason: DropReason }[] } {
+  options: ComposeOptions,
+): { kept: ComposedLine[]; dropped: LineDropReason[]; commentDropped: CommentReason[] } {
   const factById = new Map(facts.map(fact => [fact.id, fact]));
-  const kept: CheckedLine[] = [];
-  const dropped: { text: string; reason: DropReason }[] = [];
+  const maxLineLength = options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH;
+  const kept: ComposedLine[] = [];
+  const dropped: LineDropReason[] = [];
+  const commentDropped: CommentReason[] = [];
 
   for (const line of lines) {
-    const text = cleanLineText(line.text);
-    const reason = reasonFor(text, line, factById, options) ?? (kept.length >= MAX_LINES ? "count" : null);
-    if (reason) { dropped.push({ text, reason }); continue; }
-    kept.push({ text, emotion: emotionSet.has(line.emotion) ? line.emotion : FALLBACK_EMOTION, factIds: [...line.factIds] });
+    const fact = factById.get(line.factId);
+    if (!fact) { dropped.push("fact"); continue; }
+    if (kept.some(entry => entry.factId === fact.id)) { dropped.push("duplicate"); continue; }
+    if (kept.length >= MAX_LINES) { dropped.push("count"); continue; }
+
+    const sentence = renderFact(fact);
+    let text = sentence;
+    const comment = checkComment(line.comment, options.names);
+    if (comment.ok) {
+      const joined = `${sentence} ${comment.text}`;
+      if ([...joined].length <= maxLineLength) text = joined;
+      else commentDropped.push("length");
+    } else if (comment.reason !== "empty") {
+      commentDropped.push(comment.reason);
+    }
+    kept.push({ text, emotion: emotionSet.has(line.emotion) ? line.emotion : FALLBACK_EMOTION, factId: fact.id });
   }
 
-  return { kept, dropped };
+  return { kept, dropped, commentDropped };
 }

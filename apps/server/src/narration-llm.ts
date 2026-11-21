@@ -2,7 +2,7 @@
  * 보리 대사(narration/)가 받는 좁은 LLM 함수(NarrationLlm)를 @bori/llm 클라이언트의 complete<T>에 잇는다.
  * 꺼짐·키 없음·회로 열림·호출 실패는 클라이언트가 { ok: false }로 돌려주고, 사용량(모드 narration)도 클라이언트가 센다.
  * 여기서는 JSON 모양만 본다. 모양이 틀린 응답은 validation 실패라 회로 차단의 연속 실패에 들어간다.
- * 숫자·이름 검사는 narration/check.ts가 한다.
+ * 사실 id·감상 검사와 줄 문장 만들기는 narration/check.ts가 한다.
  */
 import type { LlmSettings } from "@bori/shared";
 import type { LlmOutcome, LlmParse, LlmRequest } from "@bori/llm";
