@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DashboardState, LlmProvider, LlmSettings, LlmStatus, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
+import type { LlmProvider, LlmSettings, LlmStatus, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
 import { buildPatch, clearSaved, pickDrafts, readError, savedSummary, shownText, type DraftValue, type Drafts, type FieldSpec } from '../form';
 import { isSubmitEnter } from '../keys';
 import { createPoller, SETTINGS_POLL_MS, STATUS_POLL_MS } from '../poll';
@@ -73,13 +73,13 @@ export default function SettingsTab() {
   const pollers = useRef<{ status: ReturnType<typeof createPoller>; settings: ReturnType<typeof createPoller> } | null>(null);
   // 자주 바뀌는 것(LLM 회로·이터널리턴 갱신 진행률)만 짧은 간격으로 받는다. 서버 끊김은 /api/llm 응답으로 본다.
   async function refreshStatus() {
-    const [llmResponse, nextDashboard] = await Promise.all([request('/api/llm'), getJson<DashboardState>('/api/dashboard')]);
+    // 가벼운 상태 경로(연결·갱신·기준만). 자동 갱신 판정은 대시보드 화면이 여는 /api/dashboard에만 있다.
+    const [llmResponse, nextStatus] = await Promise.all([request('/api/llm'), getJson<ErDataView>('/api/dashboard/status')]);
     if (!isServerUp(llmResponse)) { setServerOnline(false); return; }
     setServerOnline(true);
     const nextLlm = llmResponse.ok ? await readJson<LlmView>(llmResponse) : null;
     if (nextLlm) setLlm(nextLlm);
-    // 대시보드 상태 중 연결·갱신·기준만 쓴다. 조합 표와 대사는 대시보드 탭이 그린다.
-    if (nextDashboard) setEr({ connection: nextDashboard.connection, refresh: nextDashboard.refresh, basis: nextDashboard.basis });
+    if (nextStatus) setEr({ connection: nextStatus.connection, refresh: nextStatus.refresh, basis: nextStatus.basis });
   }
   // 사용량·음성 설정·닉네임은 드물게 받는다. 이 화면에서 저장하면 저장 응답으로 바로 맞춘다.
   async function refreshSettings() {

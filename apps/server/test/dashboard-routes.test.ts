@@ -102,6 +102,13 @@ describe("대시보드 라우트", () => {
     assert.deepEqual(reply.body, { ...STATE, narration: NARRATION });
   });
 
+  test("GET /api/dashboard/status는 연결·갱신·기준만 주고 자동 갱신을 판정하지 않는다(스튜디오 설정 탭 폴링용)", async () => {
+    const reply = await send("GET", "/api/dashboard/status");
+    assert.equal(reply.status, 200);
+    assert.deepEqual(fake.calls, ["status"]);
+    assert.deepEqual(reply.body, { connection: STATE.connection, refresh: STATE.refresh, basis: STATE.basis });
+  });
+
   test("대사가 아직 없으면 narration은 null이다", async () => {
     latest = null;
     const reply = await send("GET", "/api/dashboard");

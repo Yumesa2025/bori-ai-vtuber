@@ -36,7 +36,7 @@ export function ttsConnection(view: { settings: { enabled: boolean }; hasApiKey:
   return view.settings.enabled && view.hasApiKey ? "connected" : "off";
 }
 
-/** GET /api/dashboard 응답 중 설정 탭이 쓰는 칸. 조합 표·대사는 대시보드 탭이 그린다. */
+/** GET /api/dashboard/status 응답(연결·갱신·기준). 조합 표·대사는 대시보드 탭이 /api/dashboard로 그린다. */
 export type ErDataView = Pick<DashboardState, "connection" | "refresh" | "basis">;
 
 const pad = (value: number) => String(value).padStart(2, "0");

@@ -1,6 +1,7 @@
 /**
  * 대시보드 라우트(설계 4절). 서버 본체(index.ts)가 보안 경계(guard)를 통과시킨 뒤 부른다.
- * - GET  /api/dashboard           DashboardState. 그날 첫 요청이면 자동 갱신을 판정한다
+ * - GET  /api/dashboard           DashboardState. 갱신할 이유가 있으면 자동 갱신을 시작한다(하루 한 번)
+ * - GET  /api/dashboard/status    연결·갱신·기준만. 자동 갱신 판정·조합 계산을 하지 않는다(스튜디오 설정 탭이 몇 초마다 묻는다)
  * - POST /api/er/refresh          갱신 시작. { started }
  * - GET  /api/dashboard/settings  { nickname }
  * - PUT  /api/dashboard/settings  닉네임 저장 후 전적을 다시 조회한다. 앞뒤 공백을 떼고 빈 문자열은 null, 32자 상한
@@ -71,6 +72,7 @@ export function handleDashboardRoute(method: string | undefined, path: string, r
     send(response, 200, { ...dashboard.state(), narration: narrator.latest() });
     return true;
   }
+  if (method === "GET" && path === "/api/dashboard/status") { send(response, 200, dashboard.status()); return true; }
   if (method === "POST" && path === "/api/er/refresh") { send(response, 200, { started: dashboard.refresh() }); return true; }
   if (method === "GET" && path === "/api/dashboard/settings") { send(response, 200, dashboard.settings()); return true; }
   if (method === "PUT" && path === "/api/dashboard/settings") {
