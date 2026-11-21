@@ -62,8 +62,13 @@ const MOCK_USAGE = { prompt_tokens: 120, completion_tokens: 30, total_tokens: 15
  * 이 파일은 불러오면 서버가 뜨므로 dashboard.mjs는 import하지 않고 같은 값을 따로 둔다.
  */
 const NARRATION_FABRICATED_MARK = "지어낸 수치";
-/** 규칙에 맞는 감상. dashboard.mjs가 같은 값으로 붙었는지 본다. */
+/** 규칙에 맞는 감상. dashboard.mjs가 같은 값으로 끝나는지 본다. */
 const NARRATION_GOOD_COMMENT = "좋아 보여요.";
+/**
+ * 둘째 줄부터 붙이는 감상. 서버는 같은 대사에서 되풀이한 감상을 버리므로(repeated) 줄마다 다르게 하되,
+ * 모두 NARRATION_GOOD_COMMENT로 끝나게 한다. 서버 예시 묶음(narration/examples.ts)의 문장은 쓰지 않는다(copied로 버려진다).
+ */
+const NARRATION_GOOD_COMMENTS = [NARRATION_GOOD_COMMENT, `꽤 ${NARRATION_GOOD_COMMENT}`, `정말 ${NARRATION_GOOD_COMMENT}`];
 /** 고르는 사실 수. 서버의 3~5줄 안에 들어가게 한다. */
 const NARRATION_PICK_LIMIT = 4;
 
@@ -85,7 +90,7 @@ function replyFor(schema, user = "") {
     const lines = facts.slice(0, NARRATION_PICK_LIMIT).map((fact, index) => ({
       factId: fact.id,
       emotion: index === 0 ? "happy" : "calm",
-      comment: index === 0 ? `${NARRATION_FABRICATED_MARK} 987.6이 보여요` : NARRATION_GOOD_COMMENT,
+      comment: index === 0 ? `${NARRATION_FABRICATED_MARK} 987.6이 보여요` : NARRATION_GOOD_COMMENTS[(index - 1) % NARRATION_GOOD_COMMENTS.length],
     }));
     return JSON.stringify({ lines });
   }
