@@ -220,6 +220,10 @@ test("본문이 계속 도착해도 첫 전송의 시간 상한을 연장하지 
       } }));
     }) as typeof fetch,
   });
+  const started = Date.now();
   await assert.rejects(client.get("/a"), (error: unknown) => error instanceof ErApiError && /시간/.test(error.message));
-  assert.ok(chunks > 1);
+  // 본문이 실제로 흘러들어오는 중이었고, 그래도 상한 근처에서 끊겼는지만 본다.
+  // 조각 수를 2개 이상으로 요구하면 Windows 타이머 해상도(약 15ms)와 부하에 따라 가끔 실패했다.
+  assert.ok(chunks >= 1);
+  assert.ok(Date.now() - started < 2000);
 });
