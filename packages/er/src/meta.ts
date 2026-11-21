@@ -10,6 +10,8 @@ import { ErApiError, type ErClient } from "./client.js";
 import type { ErDictionary } from "./dictionary.js";
 
 export type MetaProgress = (done: number, total: number) => void;
+/** 건너뛴 것: 랭커(uid를 못 찾음·경기 목록을 못 받음) 또는 경기(상세를 못 받음). 표본이 얼마나 줄었는지 로그로 남기는 데 쓴다. */
+export type MetaSkip = "ranker" | "game";
 
 /** 조합 하나의 원래 개수. 기록 파일에 그대로 쓰므로 코드 키는 문자열이다. */
 export type ErComboTally = {
@@ -42,8 +44,9 @@ export type ErMetaCollectionBasis = {
   games: number;
   /** 센 참가자 수(조합 참가자의 합) */
   participants: number;
-  /** uid를 찾은 랭커 수 */
+  /** 이번 시즌 랭크 경기를 하나라도 낸 랭커 수 */
   rankers: number;
+  /** 랭커마다 고르려 한 경기 수(설정값). 모자라면 다음 쪽을 받아 채운다 */
   gamesPerRanker: number;
   collectedAt: string;
 };
@@ -56,6 +59,8 @@ const RANKED_MODE = 3;
 const SQUAD_TEAM_MODE = 3;
 /** 최종 장비 부위 0~4(무기·옷·머리·팔·다리) */
 const EQUIPMENT_SLOTS = ["0", "1", "2", "3", "4"];
+/** 유저 경기 목록 한 쪽의 경기 수. next가 있으면 ?next=<값>으로 다음 쪽을 받는다(2026-11-21 실제 응답 확인) */
+const GAMES_PAGE_SIZE = 10;
 
 type TopRanksResponse = { topRanks?: Array<{ nickname: string; rank: number }> };
 /** 공식 문서 예시는 uid지만 실제 응답(2026-10-15 확인)은 userId다. 둘 다 받는다. */
@@ -79,7 +84,7 @@ type GameRow = {
   traitFirstCore?: number;
   equipment?: Record<string, number>;
 };
-type GamesResponse = { userGames?: GameRow[] };
+type GamesResponse = { userGames?: GameRow[]; next?: number };
 
 const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 const bump = (counts: Record<string, number>, key: string) => { counts[key] = (counts[key] ?? 0) + 1; };
@@ -132,7 +137,7 @@ async function orSkip<T>(request: Promise<T>): Promise<T | null> {
 export async function collectMeta(
   client: ErClient,
   dict: ErDictionary,
-  options: { rankers: number; gamesPerRanker: number; onProgress?: MetaProgress; now?: () => number },
+  options: { rankers: number; gamesPerRanker: number; onProgress?: MetaProgress; onSkip?: (what: MetaSkip) => void; now?: () => number },
 ): Promise<ErMetaCollection> {
   const { gamesPerRanker } = options;
   const isCurrentRanked = (row: { matchingMode?: number; seasonId?: number }) => row.matchingMode === RANKED_MODE && row.seasonId === dict.seasonId;
@@ -155,21 +160,50 @@ export async function collectMeta(
     const found = await orSkip(client.get<NicknameResponse>(`/v1/user/nickname?query=${encodeURIComponent(ranker.nickname)}`));
     const uid = found?.user?.userId ?? found?.user?.uid;
     if (uid) uids.push(uid);
-    else total -= 1 + gamesPerRanker;
+    else {
+      total -= 1 + gamesPerRanker;
+      options.onSkip?.("ranker");
+    }
     step();
   }
 
   // 3. 랭커마다 최근 이번 시즌 랭크 경기 gamesPerRanker개. 여러 랭커가 같은 경기에 있으면 한 번만 받는다.
-  //    지난 시즌 경기는 여기서 걸러 상세 호출을 아낀다.
+  //    지난 시즌 경기는 여기서 걸러 상세 호출을 아낀다. 한 쪽(10판)으로 모자라면 next로 다음 쪽을 받는다.
   const gameIds = new Set<number>();
+  const maxPages = Math.ceil(gamesPerRanker / GAMES_PAGE_SIZE) + 1;
+  let extraPages = 0;
+  let activeRankers = 0;
   for (const uid of uids) {
-    const games = await orSkip(client.get<GamesResponse>(`/v1/user/games/uid/${encodeURIComponent(uid)}`));
-    for (const game of (games?.userGames ?? []).filter(isCurrentRanked).slice(0, gamesPerRanker)) {
-      gameIds.add(game.gameId);
+    const picked: number[] = [];
+    let next: number | undefined;
+    for (let page = 0; page < maxPages; page += 1) {
+      if (page > 0) {
+        // 더 받는 쪽만큼 진행률 분모를 늘린다
+        extraPages += 1;
+        total += 1;
+      }
+      const query = next === undefined ? "" : `?next=${next}`;
+      const games = await orSkip(client.get<GamesResponse>(`/v1/user/games/uid/${encodeURIComponent(uid)}${query}`));
+      if (page > 0) step();
+      if (!games) {
+        // 첫 쪽을 못 받으면 그 랭커를 건너뛴다. 다음 쪽만 못 받으면 받은 만큼 쓴다.
+        if (page === 0) options.onSkip?.("ranker");
+        break;
+      }
+      const rows = games.userGames ?? [];
+      for (const game of rows.filter(isCurrentRanked)) {
+        if (picked.length < gamesPerRanker) picked.push(game.gameId);
+      }
+      // 목록은 최신 먼저다. 지난 시즌 랭크 경기가 보이면 그 뒤는 볼 필요가 없다.
+      const reachedOlder = rows.some((row) => row.matchingMode === RANKED_MODE && row.seasonId !== dict.seasonId);
+      if (picked.length >= gamesPerRanker || reachedOlder || rows.length === 0 || typeof games.next !== "number") break;
+      next = games.next;
     }
+    if (picked.length > 0) activeRankers += 1;
+    for (const gameId of picked) gameIds.add(gameId);
     step();
   }
-  total = 1 + rankers.length + uids.length + gameIds.size;
+  total = 1 + rankers.length + uids.length + extraPages + gameIds.size;
 
   // 4. 경기마다 이번 시즌 랭크 참가자를 (캐릭터, 무기) 조합으로 센다.
   const tallies = new Map<string, ErComboTally>();
@@ -178,6 +212,7 @@ export async function collectMeta(
   let games = 0;
   for (const gameId of gameIds) {
     const game = await orSkip(client.get<GamesResponse>(`/v1/games/${gameId}`));
+    if (!game) options.onSkip?.("game");
     const rows = (game?.userGames ?? []).filter((row) => isCurrentRanked(row) && !!row.characterNum && !!row.gameRank);
     for (const row of rows) {
       const weaponCode = row.bestWeapon ?? 0;
@@ -209,7 +244,7 @@ export async function collectMeta(
       patch: mostCommonPatch(patches),
       games,
       participants,
-      rankers: uids.length,
+      rankers: activeRankers,
       gamesPerRanker,
       collectedAt: new Date(options.now?.() ?? Date.now()).toISOString(),
     },

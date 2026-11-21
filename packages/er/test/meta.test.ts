@@ -170,3 +170,50 @@ test("경기 수와 참가자 수를 따로 센다", async () => {
   assert.equal(basis.participants, 1234);
   assert.equal(combos[0]?.participants, 1234);
 });
+
+// 유저 경기 목록은 한 쪽에 10판이고 next가 있으면 ?next=<값>으로 다음 쪽을 받는다(2026-11-21 실제 응답 확인)
+test("경기 목록 한 쪽으로 모자라면 next로 다음 쪽을 받아 gamesPerRanker개까지 채운다", async () => {
+  const page1 = { code: 200, message: "Success", next: 77, userGames: [{ gameId: 1001, matchingMode: 3, seasonId: 41 }, { gameId: 1000, matchingMode: 2, seasonId: 0 }] };
+  const page2 = { code: 200, message: "Success", userGames: [{ gameId: 1002, matchingMode: 3, seasonId: 41 }] };
+  const routes = { ...metaRoutes(), "/v1/user/games/uid/uid-a": page1, "/v1/user/games/uid/uid-a?next=77": page2 };
+  const { dict, client } = await setup(routes);
+  const progress: Array<[number, number]> = [];
+  const { basis } = await collectMeta(client, dict, { rankers: 1, gamesPerRanker: 2, onProgress: (done, total) => progress.push([done, total]) });
+  assert.ok(client.calls.includes("/v1/user/games/uid/uid-a?next=77"));
+  assert.equal(basis.games, 2);
+  // 더 받은 쪽도 진행률에 넣고, 끝에서 done === total이다
+  const last = progress.at(-1)!;
+  assert.equal(last[0], last[1]);
+  for (const [done, total] of progress) assert.ok(done <= total);
+});
+
+test("다 채웠거나 지난 시즌 랭크 경기가 보이면 다음 쪽을 받지 않는다", async () => {
+  const older = { code: 200, message: "Success", next: 77, userGames: [{ gameId: 1001, matchingMode: 3, seasonId: 41 }, { gameId: 900, matchingMode: 3, seasonId: 40 }] };
+  const { dict, client } = await setup({ ...metaRoutes(), "/v1/user/games/uid/uid-a": older });
+  await collectMeta(client, dict, { rankers: 1, gamesPerRanker: 5 });
+  assert.equal(client.calls.some((call) => call.includes("next=")), false);
+
+  const full = { code: 200, message: "Success", next: 77, userGames: [{ gameId: 1001, matchingMode: 3, seasonId: 41 }] };
+  const second = await setup({ ...metaRoutes(), "/v1/user/games/uid/uid-a": full });
+  await collectMeta(second.client, second.dict, { rankers: 1, gamesPerRanker: 1 });
+  assert.equal(second.client.calls.some((call) => call.includes("next=")), false);
+});
+
+test("랭커 수는 이번 시즌 랭크 경기를 하나라도 낸 랭커만 센다", async () => {
+  const normalOnly = { code: 200, message: "Success", userGames: [{ gameId: 1000, matchingMode: 2, seasonId: 0 }] };
+  const { dict, client } = await setup({ ...metaRoutes(), "/v1/user/games/uid/uid-b": normalOnly });
+  const { basis } = await collectMeta(client, dict, { rankers: 2, gamesPerRanker: 2 });
+  assert.equal(basis.rankers, 1);
+});
+
+test("건너뛴 랭커(uid 못 찾음·경기 목록 실패)와 경기를 onSkip으로 알린다", async () => {
+  const listA = { code: 200, message: "Success", userGames: [{ gameId: 1001, matchingMode: 3, seasonId: 41 }, { gameId: 1003, matchingMode: 3, seasonId: 41 }] };
+  const routes = { ...metaRoutes(), "/v1/user/games/uid/uid-a": listA, "/v1/user/games/uid/uid-b": new ErApiError(500, 500, "서버 오류") };
+  const { dict, client } = await setup(routes);
+  const skipped: string[] = [];
+  // 랭커C는 닉네임 경로가 없고, 경기 1003은 상세 경로가 없다(둘 다 404)
+  const { basis } = await collectMeta(client, dict, { rankers: 3, gamesPerRanker: 2, onSkip: (what) => skipped.push(what) });
+  assert.deepEqual(skipped.sort(), ["game", "ranker", "ranker"]);
+  assert.equal(basis.rankers, 1);
+  assert.equal(basis.games, 1);
+});

@@ -8,7 +8,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ErApiError } from "@bori/er";
-import { createDashboardData } from "../src/er/dashboard-state.js";
+import type { ErComboStat } from "@bori/shared";
+import { createDashboardData, toPlayerSummary } from "../src/er/dashboard-state.js";
 import { createDashboardSettings } from "../src/er/dashboard-settings.js";
 import { createErData } from "../src/er/er-data.js";
 import { dictionaryRoutes, fakeClient, fixture } from "../../../packages/er/test/fake-client.js";
@@ -33,6 +34,9 @@ const routes = (): Record<string, unknown> => ({
 const HOUR = 60 * 60 * 1000;
 /** 한국 시간 2026-11-21 09:00. 고정 자료의 시즌(41)은 끝 시각이 지난 것으로 보이므로 판정 검사는 시즌 끝을 따로 본다. */
 const START = Date.parse("2026-11-21T00:00:00.000Z");
+
+/** 시즌 끝을 먼 미래로 둔 사전 응답. 24시간 판정만 보려면 이것을 쓴다(고정 자료의 시즌 끝은 이미 지났다). */
+const freshSeason = { code: 200, message: "Success", data: [{ seasonID: 41, seasonName: "Season21", seasonEnd: "2099-01-01 00:00:00", isCurrent: 1 }] };
 
 let dir: string;
 let clock: number;
@@ -106,6 +110,37 @@ describe("대시보드 상태", () => {
     assert.equal(dashboard.maybeAutoRefresh(), true);
   });
 
+  test("같은 날 새것이라 넘긴 뒤 24시간을 넘기면 그날 안에 갱신한다(판정이 이유 없이 하루 문을 닫지 않는다)", async () => {
+    const fresh = routes();
+    fresh["/v2/data/Season"] = freshSeason;
+    // 한국 11-20 20:00에 수집
+    clock = Date.parse("2026-11-20T11:00:00.000Z");
+    const first = setup({ client: fakeClient(fresh) });
+    first.dashboard.refresh();
+    await refreshed(first.erData);
+    // 다시 켜서 한국 11-21 19:00(23시간 뒤)에 연다: 아직 새것
+    clock = Date.parse("2026-11-21T10:00:00.000Z");
+    const { erData, dashboard } = setup({ client: fakeClient(fresh) });
+    assert.equal(dashboard.maybeAutoRefresh(), false);
+    // 같은 날 한국 21:00(25시간 뒤): 오래됐으니 갱신한다
+    clock = Date.parse("2026-11-21T12:00:00.000Z");
+    assert.equal(dashboard.maybeAutoRefresh(), true);
+    await refreshed(erData);
+    // 시작한 뒤에는 그날 다시 시작하지 않는다
+    clock = Date.parse("2026-11-21T14:00:00.000Z");
+    assert.equal(dashboard.maybeAutoRefresh(), false);
+  });
+
+  test("status()는 연결·갱신·기준만 내고 자동 갱신을 시작하지 않는다", () => {
+    const { erData, dashboard } = setup();
+    assert.deepEqual(dashboard.status(), {
+      connection: "missing",
+      refresh: { available: true, running: false, progress: null, lastError: null, autoStarted: false },
+      basis: null,
+    });
+    assert.equal(erData.status().refreshing, false);
+  });
+
   test("갱신 뒤 기준(경기 수·참가자 수 따로)과 픽률 순 조합을 낸다", async () => {
     const { erData, dashboard } = setup();
     assert.equal(dashboard.refresh(), true);
@@ -127,7 +162,7 @@ describe("대시보드 상태", () => {
     assert.equal(aya.change, null);
   });
 
-  test("두 번째 갱신 뒤에는 직전 대비 변화량과 직전 수집 시각이 있다", async () => {
+  test("두 번째 갱신 뒤에는 직전 수집 시각이 있고, 표본 적은 조합은 변화량을 내지 않는다", async () => {
     const second = routes();
     const { erData, dashboard } = setup({ client: fakeClient(second) });
     dashboard.refresh();
@@ -139,9 +174,8 @@ describe("대시보드 상태", () => {
     await refreshed(erData, "둘째 갱신");
     const state = dashboard.state();
     assert.equal(state.basis?.previousCollectedAt, "2026-11-21T00:00:00.000Z");
-    const aya = state.combos.find((c) => c.characterCode === 2 && c.weaponCode === 9)!;
-    // 1.5위 → 2위, 1등 비율 0.5 → 0, 픽률 2/8 → 1/4, MMR 37.5 → 30 (모두 이번 − 직전)
-    assert.deepEqual(aya.change, { avgRank: 0.5, top1Rate: -0.5, pickRate: 0, avgMmrGain: -7.5 });
+    // 고정 자료는 조합마다 참가자가 30명 미만이라 모두 표본 적음 → 변화량 없음. 수치 변화량은 er-combos 검사가 본다
+    assert.ok(state.combos.every((c) => c.lowSample && c.change === null));
   });
 
   test("키가 없으면 missing, 갱신할 수 없고 자동 갱신도 하지 않는다", () => {
@@ -166,11 +200,11 @@ describe("내 전적", () => {
     assert.equal(player.status, "ready");
     assert.equal(player.summary?.nickname, PLAYER);
     assert.equal(player.summary?.mmr, 3107);
-    // 조합 순위에서 그 캐릭터가 처음 나오는 자리: 재키·단검 1위, 아야·권총 2위, 피오라·레이피어 4위
+    // 고정 자료의 조합은 모두 표본이 적어 메타 순위에 들지 않는다(순위 계산은 아래 toPlayerSummary 검사)
     assert.deepEqual(player.summary?.mainCharacters, [
-      { name: "아야", games: 20, avgRank: 2.9, metaRank: 2 },
-      { name: "재키", games: 12, avgRank: 3.8, metaRank: 1 },
-      { name: "피오라", games: 5, avgRank: 4.2, metaRank: 4 },
+      { name: "아야", games: 20, avgRank: 2.9, metaRank: null },
+      { name: "재키", games: 12, avgRank: 3.8, metaRank: null },
+      { name: "피오라", games: 5, avgRank: 4.2, metaRank: null },
     ]);
   });
 
@@ -209,6 +243,35 @@ describe("내 전적", () => {
     await waitFor(() => dashboard.state().player.status === "ready", "전적 조회");
   });
 
+  test("갱신 중에 저장한 뒤 그 갱신이 실패해도, 사전이 있으면 조회해 loading이 풀린다", async () => {
+    const first = setup();
+    first.dashboard.refresh();
+    await refreshed(first.erData, "사전을 만드는 첫 갱신");
+    const broken = routes();
+    delete broken["/v1/rank/top/41/3"];
+    const { erData, dashboard } = setup({ client: fakeClient(broken) });
+    dashboard.refresh();
+    await dashboard.setSettings({ nickname: PLAYER });
+    assert.equal(dashboard.state().player.status, "loading");
+    await refreshed(erData, "실패한 갱신");
+    await waitFor(() => dashboard.state().player.status === "ready", "실패 뒤 전적 조회");
+  });
+
+  test("사전 없이 첫 갱신이 실패하면 전적은 loading이 아니라 error다", async () => {
+    const broken = routes();
+    delete broken["/v1/rank/top/41/3"];
+    const { erData, dashboard } = setup({ client: fakeClient(broken) });
+    await dashboard.setSettings({ nickname: PLAYER });
+    // 아직 갱신 전: 자동 갱신을 기다린다
+    assert.equal(dashboard.state().player.status, "loading");
+    assert.equal(dashboard.maybeAutoRefresh(), true);
+    await refreshed(erData, "실패한 첫 갱신");
+    await waitFor(() => dashboard.state().player.status === "error", "실패 뒤 error");
+    // 그 뒤 다시 저장해도 갱신이 끝난 뒤라 error다
+    await dashboard.setSettings({ nickname: PLAYER });
+    assert.equal(dashboard.state().player.status, "error");
+  });
+
   test("켤 때 닉네임과 사전이 있으면 전적을 조회한다", async () => {
     const first = setup();
     first.dashboard.refresh();
@@ -236,5 +299,23 @@ describe("갱신 알림", () => {
     await refreshed(erData, "둘째 갱신");
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(seen.length, 1);
+  });
+});
+
+describe("주캐릭터 메타 순위", () => {
+  const combo = (characterCode: number, weaponCode: number, lowSample: boolean): ErComboStat => ({
+    characterCode, characterName: `캐릭터 ${characterCode}`, weaponCode, weaponName: "", participants: lowSample ? 5 : 50, pickRate: 0, avgRank: 4, top1Rate: 0,
+    avgMmrGain: null, avgKills: 0, avgAssists: 0, avgDeaths: 0, avgDamage: 0, topTraits: [], topEquipment: [], lowSample, change: null,
+  });
+  const lookup = (codes: number[]) => ({
+    nickname: PLAYER, seasonName: "시즌 12", mmr: null, rankPercent: null, games: 10, avgRank: 4, top1Rate: 0, avgKills: null, avgAssists: null, recent: [],
+    mainCharacters: codes.map((code) => ({ code, name: `캐릭터 ${code}`, games: 3, avgRank: 4 })),
+  });
+
+  test("표본이 충분한 조합 안에서 그 캐릭터가 처음 나오는 자리다. 표본 적은 조합만 있으면 null", () => {
+    // 픽률 순: 1·A, 2·A, 1·B, 3·A(표본 적음), 4·A(표본 적음)
+    const combos = [combo(1, 10, false), combo(2, 10, false), combo(1, 11, false), combo(3, 10, true), combo(4, 10, true)];
+    const summary = toPlayerSummary(lookup([2, 1, 3, 9]), combos);
+    assert.deepEqual(summary.mainCharacters.map((main) => main.metaRank), [2, 1, null, null]);
   });
 });

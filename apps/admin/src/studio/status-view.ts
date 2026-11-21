@@ -36,7 +36,7 @@ export function ttsConnection(view: { settings: { enabled: boolean }; hasApiKey:
   return view.settings.enabled && view.hasApiKey ? "connected" : "off";
 }
 
-/** GET /api/dashboard 응답 중 설정 탭이 쓰는 칸. 조합 표·대사는 대시보드 탭이 그린다. */
+/** GET /api/dashboard/status 응답(연결·갱신·기준). 조합 표·대사는 대시보드 탭이 /api/dashboard로 그린다. */
 export type ErDataView = Pick<DashboardState, "connection" | "refresh" | "basis">;
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -73,8 +73,8 @@ export function erSummary(view: ErDataView | null): {
   };
 }
 
-/** 입력칸 상한. 게임 닉네임 규칙은 여기서 판단하지 않고, 찾을 수 있는지는 서버가 ER API로 본다. */
-const NICKNAME_MAX = 32;
+/** 입력칸 상한. 서버 상한(dashboard-settings.ts)과 같다. 게임 닉네임 규칙은 여기서 판단하지 않고, 찾을 수 있는지는 서버가 ER API로 본다. */
+export const NICKNAME_MAX = 32;
 
 /** PUT /api/dashboard/settings 본문. 앞뒤 공백을 떼고, 비우면 null로 저장한 닉네임을 지운다. */
 export function nicknameBody(input: string): { ok: true; body: { nickname: string | null } } | { ok: false; error: string } {

@@ -6,9 +6,10 @@
  */
 import { afterEach, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ErApiError } from "@bori/er";
 import { createErData } from "../src/er/er-data.js";
 import { dictionaryRoutes, fakeClient, fixture } from "../../../packages/er/test/fake-client.js";
 import { waitFor } from "./wait.js";
@@ -171,6 +172,76 @@ describe("이터널리턴 데이터", () => {
     assert.equal(summary?.mainCharacters[0]?.code, 2);
     assert.deepEqual(summary?.recent.slice(0, 3).map(game => game.rank), [3, 1, 5]);
     assert.equal(await data.lookupPlayerSummary("없는닉"), null);
+  });
+
+  test("집계가 실패하면 사전도 파일·메모리 모두 지난 것 그대로다", async () => {
+    const data = open();
+    data.refresh();
+    await waitFor(() => !data.status().refreshing, "첫 갱신");
+    // 새 시즌 42가 열렸는데 그 시즌 랭커 목록을 못 받는다
+    const nextSeason = routes();
+    nextSeason["/v2/data/Season"] = { code: 200, message: "Success", data: [{ seasonID: 42, seasonName: "Season22", seasonEnd: "2099-01-01 00:00:00", isCurrent: 1 }] };
+    const failing = open(fakeClient(nextSeason));
+    failing.refresh();
+    await waitFor(() => !failing.status().refreshing, "실패한 갱신");
+    assert.ok(failing.status().lastError);
+    assert.equal(failing.dictionary()?.seasonId, 41);
+    assert.equal(JSON.parse(readFileSync(join(dir, "er-dictionary.json"), "utf8")).seasonId, 41);
+    assert.equal(failing.meta()?.basis.seasonId, 41);
+  });
+
+  test("갱신 때 직전 집계는 history가 아니라 화면에 보이던 지난 집계다", async () => {
+    let clock = Date.parse("2026-11-21T00:00:00.000Z");
+    const data = open(fakeClient(routes()), () => clock);
+    data.refresh();
+    await waitFor(() => !data.status().refreshing, "첫 갱신");
+    // 첫 갱신의 history 쓰기가 실패한 것과 같은 상태
+    rmSync(join(dir, "er-history"), { recursive: true, force: true });
+    clock += HOUR;
+    data.refresh();
+    await waitFor(() => !data.status().refreshing, "둘째 갱신");
+    assert.equal(data.previousMeta()?.basis.collectedAt, "2026-11-21T00:00:00.000Z");
+  });
+
+  test("갱신이 실패하면 onRefreshFailed를 부르고, 성공하면 부르지 않는다", async () => {
+    const data = open();
+    let failed = 0;
+    data.onRefreshFailed(() => { failed += 1; });
+    data.refresh();
+    await waitFor(() => !data.status().refreshing, "성공한 갱신");
+    assert.equal(failed, 0);
+
+    const broken = routes();
+    delete broken["/v1/rank/top/41/3"];
+    const failing = open(fakeClient(broken));
+    let seen = 0;
+    const stop = failing.onRefreshFailed(() => {
+      seen += 1;
+      // 알림을 받을 때는 이미 갱신이 끝난 상태다
+      assert.equal(failing.status().refreshing, false);
+    });
+    failing.refresh();
+    await waitFor(() => !failing.status().refreshing, "실패한 갱신");
+    assert.equal(seen, 1);
+    stop();
+    failing.refresh();
+    await waitFor(() => !failing.status().refreshing, "또 실패한 갱신");
+    assert.equal(seen, 1);
+  });
+
+  test("갱신 완료 로그에 건너뛴 랭커·경기 수를 남긴다(닉네임·uid는 없다)", async (t) => {
+    const partial = routes();
+    partial["/v1/games/1002"] = new ErApiError(500, 500, "서버 오류");
+    const lines: string[] = [];
+    t.mock.method(console, "log", (...args: unknown[]) => { lines.push(args.join(" ")); });
+    const data = createErData({ dataDir: dir, client: fakeClient(partial), rankers: 3, gamesPerRanker: 2 });
+    data.load();
+    data.refresh();
+    await waitFor(() => !data.status().refreshing, "갱신 끝");
+    const done = lines.find((line) => line.includes("갱신 완료")) ?? "";
+    // 랭커C는 uid를 못 찾고, 경기 1002는 상세를 못 받는다
+    assert.match(done, /건너뜀 랭커 1명·경기 1판/);
+    assert.ok(!/랭커[ABC]|uid-/.test(done), done);
   });
 
   test("깨진 파일은 없는 것으로 본다", () => {

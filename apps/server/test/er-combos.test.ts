@@ -116,6 +116,27 @@ describe("직전 갱신과 비교", () => {
     assert.equal(stats.find((s) => s.characterCode === 2)?.change, null);
   });
 
+  test("직전이나 이번 중 하나라도 표본이 적으면 변화량은 null이다(화면 ▲▼·오르내림·대사가 같은 기준을 본다)", () => {
+    const low = LOW_SAMPLE_PARTICIPANTS - 1;
+    const previous = collection([
+      tally({ characterCode: 1, weaponCode: 15, participants: 5, rankSum: 31 }),
+      tally({ characterCode: 2, weaponCode: 9, participants: 40 }),
+      tally({ characterCode: 1, weaponCode: 0, participants: low }),
+    ]);
+    const current = collection([
+      tally({ characterCode: 1, weaponCode: 15, participants: 35, rankSum: 133 }),
+      tally({ characterCode: 2, weaponCode: 9, participants: 10 }),
+      tally({ characterCode: 1, weaponCode: 0, participants: low }),
+    ]);
+    const stats = dashboardCombos(current, previous, dict);
+    // 직전 5명(6.2위) → 이번 35명(3.8위): 직전이 잡음이라 내지 않는다
+    assert.equal(stats.find((s) => s.characterCode === 1 && s.weaponCode === 15)?.change, null);
+    // 직전 40명 → 이번 10명: 이번이 잡음
+    assert.equal(stats.find((s) => s.characterCode === 2)?.change, null);
+    // 둘 다 표본 적음
+    assert.equal(stats.find((s) => s.characterCode === 1 && s.weaponCode === 0)?.change, null);
+  });
+
   test("직전 갱신이 없으면 모두 null", () => {
     const stats = dashboardCombos(collection([tally({ characterCode: 1, weaponCode: 15, participants: 50 })]), null, dict);
     assert.equal(stats[0]?.change, null);
