@@ -12,7 +12,7 @@ import { createConfigFile } from "./config-file.js";
 import { allowedOriginsFrom, guardRequest, readBody } from "./http/guard.js";
 import { serveStatic } from "./http/static.js";
 import { staticRoutesFor } from "./http/static-routes.js";
-import { isValidVoice, pickValidSettings, ttsProviders, validateLlmSettingsPatch, validateTtsSettingsPatch, type PatchResult } from "./http/settings.js";
+import { isValidVoice, pickValidSettings, ttsProviders, validateLlmSettingsPatch, validateTtsSettingsPatch, withoutLegacyLlmKeys, type PatchResult } from "./http/settings.js";
 import { buildUsageReport, createUsageStore, loadPriceTable } from "./usage/index.js";
 import { BACKUP_RETENTION_DAYS, purgeExpiredBackups } from "./retention.js";
 import { createErClient } from "@bori/er";
@@ -55,9 +55,6 @@ let llmSettings: LlmSettings = {
   timeoutMs: 8000,
   failureThreshold: 3,
   cooldownSeconds: 60,
-  rollingSummaryEnabled: true,
-  rollingSummaryTurns: 10,
-  macroEnabled: true,
 };
 // 환경변수로도 키를 넣을 수 있다. 저장된 키가 없을 때만 쓰고, 환경변수 키는 파일에 쓰지 않는다.
 const llmKey = createApiKeySlot(process.env.OPENAI_API_KEY);
@@ -81,7 +78,8 @@ function loadLlmConfig() {
   const saved = llmConfigFile.read();
   if (!saved) return;
 
-  const savedSettings = isPlainObject(saved.settings) ? saved.settings : {};
+  // 1:1 대화를 쓰던 때의 칸(누적 요약·매크로)은 잘못된 값으로 보지 않고 조용히 뺀다.
+  const savedSettings = isPlainObject(saved.settings) ? withoutLegacyLlmKeys(saved.settings) : {};
   // 키는 settings 밖의 apiKey에만 둔다. settings 안의 키는 설정으로 받지 않는다.
   const picked = pickValidSettings<LlmSettings>(savedSettings, patch => ("apiKey" in patch ? { ok: false, error: "" } : validateLlmSettingsPatch(patch) as PatchResult<LlmSettings>));
   llmSettings = { ...llmSettings, ...picked.patch };
@@ -184,7 +182,7 @@ async function prepareAudio(text: string): Promise<string | undefined> {
   if (!ttsSettings.enabled || !ttsHasKey()) return undefined;
 
   // 합성 중에 설정이 바뀔 수 있으므로 부를 때의 모델로 센다. 글자 수만 세고 문장은 넘기지 않는다.
-  const usage = { feature: "tts" as const, mode: "companion" as const, model: ttsSettings.model };
+  const usage = { feature: "tts" as const, mode: "narration" as const, model: ttsSettings.model };
   try {
     // 빈 본문·mp3가 아닌 응답은 synthesizeSpeech가 실패로 돌려준다. 화면이 재생 실패를 자동재생 차단으로 오인하지 않게 한다(a4 A4-13).
     const result = await synthesizeSpeech(ttsCredentials(), ttsSettings, text);

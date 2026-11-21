@@ -81,6 +81,8 @@ export async function run({ bori, mock, report, dataDir }) {
       const tts = (await send("GET", "/api/tts")).body;
       report.check("잘못된 음성 설정 값은 기본값으로 쓰고 원본을 남긴다", tts?.settings?.provider === "openai" && typeof tts?.settings?.voice === "string" && typeof tts?.settings?.speed === "number" && (await backupsOf("tts-config")).length === 1, JSON.stringify(tts?.settings));
 
+      // 고정 자료 llm-config.json에는 1:1 대화를 쓰던 때의 칸(누적 요약·매크로)이 남아 있다.
+      report.check("예전 LLM 설정 칸은 잘못된 값으로 보지 않아 원본 백업이 생기지 않는다", (await backupsOf("llm-config")).length === 0, `백업 ${(await backupsOf("llm-config")).length}개`);
       const llm = await bori.llm();
       report.check("풀지 못한 저장 키를 상태로 알린다", llm?.storedKeyUnreadable === true);
       const patched = await send("PATCH", "/api/llm", { cooldownSeconds: 30 });

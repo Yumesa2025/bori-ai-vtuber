@@ -137,13 +137,10 @@ export type LlmSettingsPatch = Partial<LlmSettings> & { apiKey?: string };
  * | enabled               | true 또는 false                                                        |
  * | provider              | 어댑터가 있는 업체(supportedProviders: openai, anthropic)              |
  * | model                 | 모델 이름(영숫자와 . _ : -, 1~100자)                                   |
- * | maxReplyLength        | 20~1000 정수(관리자 화면 하한 20)                                      |
+ * | maxReplyLength        | 20~1000 정수                                                           |
  * | timeoutMs             | 1000~120000 정수                                                       |
  * | failureThreshold      | 1~100 정수                                                             |
  * | cooldownSeconds       | 0~3600                                                                 |
- * | rollingSummaryEnabled | true 또는 false                                                        |
- * | rollingSummaryTurns   | 0~1000 정수. 4 미만은 거부하지 않고 라우트가 4로 올린다(기존 동작)     |
- * | macroEnabled          | true 또는 false                                                        |
  * | apiKey                | 512자 이하 문자열. 공백·개행은 지우고, 보이는 ASCII 밖 문자는 거부한다 |
  */
 const llmRules: { readonly [K in keyof LlmSettingsPatch]-?: FieldRule } = {
@@ -154,11 +151,20 @@ const llmRules: { readonly [K in keyof LlmSettingsPatch]-?: FieldRule } = {
   timeoutMs: { kind: "number", min: 1000, max: 120_000, integer: true },
   failureThreshold: { kind: "number", min: 1, max: 100, integer: true },
   cooldownSeconds: { kind: "number", min: 0, max: 3600 },
-  rollingSummaryEnabled: { kind: "boolean" },
-  rollingSummaryTurns: { kind: "number", min: 0, max: 1000, integer: true },
-  macroEnabled: { kind: "boolean" },
   apiKey: apiKeyRule,
 };
+
+/**
+ * 1:1 대화를 쓰던 때(2026-11-21 이전) LLM 설정에 있던 칸. 누적 요약과 키워드 매크로는 대화와 함께 지웠다.
+ * 예전 llm-config.json에 이 칸이 남아 있어도 잘못된 값으로 보지 않는다(원본 백업·경고 없이 무시).
+ * 다음 저장 때 파일에서 빠진다.
+ */
+export const LEGACY_LLM_SETTING_KEYS: readonly string[] = ["rollingSummaryEnabled", "rollingSummaryTurns", "macroEnabled"];
+
+/** 읽은 LLM 설정에서 지운 칸만 뺀 복사본. 모르는 다른 칸은 그대로 둬서 검증이 거부하게 한다. */
+export function withoutLegacyLlmKeys(saved: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(saved).filter(([key]) => !LEGACY_LLM_SETTING_KEYS.includes(key)));
+}
 
 /** TTS와 같이 모두 검사한 뒤 하나라도 틀리면 아무것도 바꾸지 않는다. */
 export function validateLlmSettingsPatch(input: unknown): PatchResult<LlmSettingsPatch> {

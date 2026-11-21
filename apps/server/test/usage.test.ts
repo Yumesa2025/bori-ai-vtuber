@@ -30,7 +30,7 @@ const at = (year: number, month: number, day: number, hour = 12) => new Date(yea
 const silent = () => {};
 const noPrices = { prices: new Map(), fileLoaded: false, fileError: null };
 
-const reply = (extra: Partial<UsageEvent> = {}): UsageEvent => ({ feature: "reply", mode: "broadcast", model: "gpt-4o-mini", ok: true, usage: { inputTokens: 100, outputTokens: 20 }, ...extra });
+const reply = (extra: Partial<UsageEvent> = {}): UsageEvent => ({ feature: "reply", mode: "narration", model: "gpt-4o-mini", ok: true, usage: { inputTokens: 100, outputTokens: 20 }, ...extra });
 
 describe("사용량 저장소", () => {
   test("같은 날·기능·모드·모델은 한 줄로 더하고 실패는 토큰을 세지 않는다", () => {
@@ -41,18 +41,27 @@ describe("사용량 저장소", () => {
     store.record(reply());
     store.record(reply({ ok: false, usage: undefined }));
     store.record(reply({ usage: undefined }));
-    store.record(reply({ mode: "companion" }));
+    store.record(reply({ model: "gpt-4o" }));
 
     const today = store.days()["2026-10-12"];
     assert.equal(today.length, 2);
-    assert.deepEqual(today[0], { feature: "reply", mode: "broadcast", model: "gpt-4o-mini", calls: 4, failures: 1, inputTokens: 200, outputTokens: 40, callsWithoutTokens: 1, characters: 0 });
-    assert.equal(today[1].mode, "companion");
+    assert.deepEqual(today[0], { feature: "reply", mode: "narration", model: "gpt-4o-mini", calls: 4, failures: 1, inputTokens: 200, outputTokens: 40, callsWithoutTokens: 1, characters: 0 });
+    assert.equal(today[1].model, "gpt-4o");
+  });
+
+  test("예전 방송·1:1 줄(broadcast·companion)은 버리지 않고 읽는다(R5)", () => {
+    const filePath = join(tempDir(), "usage.json");
+    const legacy = (mode: string, feature: string) => ({ feature, mode, model: "gpt-4o-mini", calls: 2, failures: 0, inputTokens: 10, outputTokens: 5, callsWithoutTokens: 0, characters: 0 });
+    writeFileSync(filePath, JSON.stringify({ version: 1, days: { "2026-10-12": [legacy("broadcast", "reply"), legacy("companion", "summary"), legacy("narration", "reply")] } }), "utf8");
+    const store = createUsageStore(filePath, { now: () => at(2026, 10, 12), log: silent });
+    store.load();
+    assert.deepEqual(store.days()["2026-10-12"].map(row => `${row.feature}:${row.mode}`), ["reply:broadcast", "summary:companion", "reply:narration"]);
   });
 
   test("모드가 없는 호출은 none으로, 음성은 글자 수로 센다", () => {
     const store = createUsageStore(join(tempDir(), "usage.json"), { now: () => at(2026, 10, 12), log: silent });
     store.record({ feature: "embedding", mode: null, model: "text-embedding-3-small", ok: true });
-    store.record({ feature: "tts", mode: "companion", model: "tts-1", ok: true, characters: 12 });
+    store.record({ feature: "tts", mode: "narration", model: "tts-1", ok: true, characters: 12 });
     const today = store.days()["2026-10-12"];
     assert.equal(today[0].mode, "none");
     assert.equal(today[0].callsWithoutTokens, 1);
@@ -150,6 +159,8 @@ describe("비용 추정", () => {
     // 500k 입력 × 2 + 100k 출력 × 10 = 1 + 1
     assert.ok(Math.abs((report.last31Days.byFeature.summary.estimatedCostUsd ?? 0) - 2) < 1e-9);
     assert.equal(report.last31Days.byMode.companion.calls, 2);
+    // 새 모드도 합계 칸이 있다. 이 기간에는 호출이 없다.
+    assert.equal(report.last31Days.byMode.narration.calls, 0);
     assert.equal(report.last31Days.totals.costComplete, true);
     assert.equal(report.prices.defaultAsOf, DEFAULT_PRICES_AS_OF);
     assert.match(report.prices.note, /추정치/);
