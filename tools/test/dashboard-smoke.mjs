@@ -32,7 +32,33 @@ try {
   page.setDefaultTimeout(10_000);
   page.setDefaultNavigationTimeout(10_000);
   page.on("pageerror", error => errors.push(error.message));
+  await page.route('**/private-core/live2dcubismcore.js', route => route.fulfill({ contentType: 'text/javascript', body: '' }));
+  await page.route('**/*bori-missing-cubism-sdk*', route => route.fulfill({ contentType: 'text/javascript', body: `
+    let instance;
+    export class LAppDelegate {
+      static getInstance() { return instance ??= new LAppDelegate(); }
+      static releaseInstance() { instance = null; }
+      initialize() { this.canvas = document.createElement('canvas'); document.body.appendChild(this.canvas); return true; }
+      run() { const loop = () => { if (!this.canvas.isConnected) throw new Error('해제된 모델 그리기'); requestAnimationFrame(loop); }; loop(); }
+      getLoadedModel() { return { isInitialized: () => true, setExpression() {}, clearExpression() {}, startMotion() {}, setManualLipSync() {} }; }
+      lookAt() {}
+    }
+  ` }));
   await page.goto(`${base}/companion/`);
+  const canvas = page.locator('.live2d-layer canvas');
+  await expect(canvas).toBeVisible();
+  await canvas.evaluate(node => {
+    const event = new Event('webglcontextlost', { cancelable: true });
+    node.dispatchEvent(event);
+    if (!event.defaultPrevented) throw new Error('복구 허용 누락');
+  });
+  await expect(page.getByText('캐릭터 화면을 다시 불러오는 중')).toBeVisible();
+  await expect(canvas).toBeHidden();
+  await canvas.evaluate(node => node.dispatchEvent(new Event('webglcontextrestored')));
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveCount(1);
+  await canvas.evaluate(node => node.dispatchEvent(new Event('webglcontextlost', { cancelable: true })));
+  await expect(page.getByText('캐릭터를 표시할 수 없어요. 자막과 음성은 그대로 나와요.')).toBeVisible({ timeout: 15000 });
   const table = page.getByRole("region", { name: "메타 TOP" });
   await expect(table.getByRole("table")).toBeVisible();
   const row = table.locator("tbody tr").nth(1).getByRole("button");
@@ -49,7 +75,7 @@ try {
   await expect(page.getByRole("alert").filter({ hasText: "키" })).toBeVisible();
   await expect(page.locator(".refresh button")).toBeDisabled();
   expect(errors).toEqual([]);
-  console.log("PASS dashboard smoke: 표, 상세 선택, 1280×720 행 선택, 다시 듣기 POST, 키 없음 (5/5)");
+  console.log("PASS dashboard smoke: 표, 상세 선택, 1280×720 행 선택, 다시 듣기 POST, 키 없음 WebGL 손실·복구·시간 초과 (8/8)");
 } catch (error) {
   console.error(output);
   throw error;
