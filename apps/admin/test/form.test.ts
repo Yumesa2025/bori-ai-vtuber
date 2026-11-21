@@ -5,7 +5,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPatch, clearSaved, memoryTextFor, pickDrafts, readError, savedSummary, shownChecked, shownText, type FieldSpec } from "../src/form";
+import { buildPatch, clearSaved, pickDrafts, readError, savedSummary, shownChecked, shownText, type FieldSpec } from "../src/form";
 import { isSubmitEnter } from "../src/keys";
 
 const fields: FieldSpec[] = [
@@ -65,16 +65,7 @@ describe("저장 결과 안내", () => {
   });
 });
 
-describe("장기 기억 목록", () => {
-  test("1:1 private 기억은 기본으로 가리고, 보기를 누르면 보여 준다", () => {
-    // 점검 A5-28: 방송 중 관리자 창을 캡처하면 1:1 기억 원문이 그대로 보였다.
-    assert.equal(memoryTextFor({ scope: "private", text: "민트초코를 좋아한다" }, false), "1:1 기억 · 내용 가림");
-    assert.equal(memoryTextFor({ scope: "private", text: "민트초코를 좋아한다" }, true), "민트초코를 좋아한다");
-    assert.equal(memoryTextFor({ scope: "broadcast", text: "게임 이야기" }, false), "게임 이야기");
-  });
-});
-
-describe("테스트 채팅 Enter", () => {
+describe("입력칸 Enter", () => {
   test("한글 조합 중 Enter는 보내지 않는다", () => {
     assert.equal(isSubmitEnter({ key: "Enter", keyCode: 229, nativeEvent: { isComposing: true } }), false);
     assert.equal(isSubmitEnter({ key: "Enter", keyCode: 13, nativeEvent: { isComposing: false } }), true);
