@@ -5,6 +5,9 @@
  * 캐릭터·무기 이름은 게임의 공개 이름이고 수치는 지어낸 값이다. 특성·장비 이름은 "예시"로 표시한 가짜 이름이다.
  * 플레이어 닉네임도 가짜다.
  *
+ * 크기는 실제 집계와 비슷하게 맞춘다: 조합 116개 중 표본 충분(참가자 30명 이상) 35개.
+ * 화면 넘침을 보려고 긴 이름(예: "데비&마를렌 양손검")과 실제처럼 긴 장비 이름 길이를 섞는다.
+ *
  * 상태(시나리오)는 `POST /__mock/scenario { "name": "refreshing" }`으로 바꾼다. 목록은 mockScenarios.
  */
 import type { DashboardPlayerStatus, DashboardState, ErComboStat, ErMetaBasisV2, ErPlayerSummary, Narration } from "@bori/shared";
@@ -59,7 +62,54 @@ const SEEDS: Seed[] = [
   [13, "레녹스", 19, "채찍", 150, 4.31, 0.093, null, [0.05, 0, 0, null]],
   [14, "유키", 13, "쌍검", 21, 2.9, 0.24, 18.2, [-1.4, 0.1, 0.001, 9]],
   [15, "쇼우", 3, "단검", 9, 5.6, 0, -9, null],
+  // 이름이 긴 조합. 오르고 내린 조합·표·상세에서 넘치지 않는지 본다.
+  [16, "데비&마를렌", 21, "양손검", 141, 3.71, 0.121, 7.9, [-0.38, 0.012, 0.003, 2.6]],
+  [17, "레온", 22, "톤파", 133, 4.66, 0.07, -2.2, [0.41, -0.015, -0.002, -3.1]],
 ];
+
+/** 표본 충분하지만 순위가 낮은 조합(참가자 30~130명). 실제 집계처럼 표가 길어진다. */
+const FILLER_ENOUGH: Array<[name: string, weapon: string]> = [
+  ["아이솔", "권총"], ["샬럿", "아르카나"], ["엠마", "아르카나"], ["루크", "방망이"], ["캐시", "단검"], ["아델라", "아르카나"],
+  ["버니스", "저격총"], ["바바라", "톤파"], ["알렉스", "권총"], ["수아", "망치"], ["레니", "권총"], ["츠바메", "투척"],
+  ["카티야", "저격총"], ["에키온", "쌍검"], ["펠릭스", "창"], ["엘레나", "레이피어"], ["타지아", "단검"], ["에이든", "양손검"],
+  ["제니", "권총"],
+];
+/** 표본 적은 조합(참가자 30명 미만). 실제 집계에서 이런 줄이 대부분이다. */
+const FILLER_LOW: Array<[name: string, weapon: string]> = [
+  ["로지", "권총"], ["프리야", "기타"], ["가넷", "방망이"], ["비앙카", "아르카나"], ["셀린", "투척"], ["마르티나", "석궁"],
+  ["아비게일", "도끼"], ["알론소", "글러브"], ["띠아", "방망이"], ["에스텔", "도끼"], ["얀", "톤파"], ["이렘", "투척"],
+  ["리오", "활"], ["윌리엄", "투척"], ["니키", "글러브"], ["클로에", "단검"], ["일레븐", "망치"], ["헤이즈", "돌격 소총"],
+  ["다니엘", "단검"], ["이바", "레이피어"], ["실비아", "권총"], ["마이", "채찍"], ["칼라", "석궁"], ["아드리아나", "투척"],
+  ["치아라", "레이피어"], ["피올로", "쌍절곤"], ["요한", "아르카나"], ["라우라", "채찍"], ["테오도르", "저격총"], ["이안", "단검"],
+];
+/** 위 이름들을 무기만 바꿔 한 번 더 써서 실제처럼 116개를 맞춘다. 같은 캐릭터 코드에 다른 무기 코드라 조합 키가 겹치지 않는다. */
+const ALT_WEAPONS = ["창", "도끼", "쌍검", "글러브", "활", "석궁", "방망이", "망치", "톤파", "권총", "투척", "암기"];
+
+function fillerSeeds(): Seed[] {
+  const seeds: Seed[] = [];
+  FILLER_ENOUGH.forEach(([name, weapon], index) => {
+    const code = 30 + index;
+    seeds.push([code, name, 40 + (index % 12), weapon, 128 - index * 5, 4.2 + (index % 7) * 0.12, 0.11 - (index % 5) * 0.008, ((index * 37) % 13) - 5, [((index % 5) - 2) * 0.03, 0, 0, 0]]);
+  });
+  const lows: Array<[number, string, string]> = [
+    ...FILLER_LOW.map(([name, weapon], index): [number, string, string] => [60 + index, name, weapon]),
+    ...FILLER_LOW.map(([name], index): [number, string, string] => [60 + index, name, ALT_WEAPONS[index % ALT_WEAPONS.length]]),
+    ...FILLER_ENOUGH.map(([name], index): [number, string, string] => [30 + index, name, ALT_WEAPONS[(index + 5) % ALT_WEAPONS.length]]),
+  ];
+  lows.forEach(([code, name, weapon], index) => {
+    seeds.push([code, name, 60 + (index % 40), weapon, 28 - (index % 27), 3.6 + (index % 9) * 0.25, (index % 4) * 0.05, ((index * 11) % 17) - 8, index % 3 === 0 ? null : [0.2, 0, 0, 0]]);
+  });
+  return seeds;
+}
+
+/** 실제 장비 이름 길이(예: "아흐라만의 손길", "틴달로스의 팔찌")에 맞춘 가짜 이름. 부위마다 길이를 섞는다. */
+const EQUIPMENT_NAMES: Record<string, [string, string]> = {
+  무기: ["예시 무기 아흐라만의 손길", "예시 무기 틴달로스의 팔찌"],
+  옷: ["예시 옷 미스릴 갑옷", "예시 옷 붉은 별빛의 망토와 장식"],
+  머리: ["예시 머리 기사단 투구", "예시 머리 빛나는 왕관"],
+  팔: ["예시 팔 드라우프니르의 팔찌", "예시 팔 은빛 손목 보호대"],
+  다리: ["예시 다리 질주의 장화", "예시 다리 강철 군화"],
+};
 
 const TOTAL_PARTICIPANTS = 7_200;
 
@@ -85,8 +135,8 @@ function seedCombo([characterCode, characterName, weaponCode, weaponName, partic
     topEquipment: ["무기", "옷", "머리", "팔", "다리"].map((part, slot) => ({
       slot,
       items: [
-        { code: 100_000 + characterCode * 100 + slot * 2, name: `예시 ${part} ${characterCode}A`, rate: 0.46 },
-        { code: 100_001 + characterCode * 100 + slot * 2, name: `예시 ${part} ${characterCode}B`, rate: 0.21 },
+        { code: 100_000 + characterCode * 100 + slot * 2, name: EQUIPMENT_NAMES[part][0], rate: 0.513 - slot * 0.04 },
+        { code: 100_001 + characterCode * 100 + slot * 2, name: EQUIPMENT_NAMES[part][1], rate: 0.235 - slot * 0.02 },
       ],
     })),
     lowSample: participants < 30,
@@ -94,7 +144,7 @@ function seedCombo([characterCode, characterName, weaponCode, weaponName, partic
   };
 }
 
-const baseCombos = () => SEEDS.map(seedCombo).sort((a, b) => b.pickRate - a.pickRate);
+const baseCombos = () => [...SEEDS, ...fillerSeeds()].map(seedCombo).sort((a, b) => b.pickRate - a.pickRate);
 
 const HOUR = 3_600_000;
 

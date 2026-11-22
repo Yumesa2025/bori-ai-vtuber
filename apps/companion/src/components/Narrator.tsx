@@ -121,29 +121,56 @@ export function Narrator({ narration, ttsEnabled, onToggleTts, visible, tabActiv
 
   const lines = shown?.lines ?? [];
   const current = lineIndex === null ? null : lines[lineIndex] ?? null;
+  // 읽는 중이 아니면 대사 첫 줄(가장 중요한 요약)을 인용으로 보여 주고, 아래에 다시 듣기 안내를 단다.
+  const quote = current?.text ?? lines[0]?.text ?? null;
+  const caption = current && lineIndex !== null
+    ? `읽는 중 · ${lineIndex + 1}/${lines.length}줄`
+    : lines.length > 0 ? "다시 듣기를 누르면 보리가 다시 읽어 드려요." : "데이터를 갱신하면 보리가 분석을 읽어 드려요.";
 
   return (
     <section className="narrator" aria-label="보리">
       <div className="character-stage">
         <div className="live2d-layer" ref={live2d.layerRef} />
-        {live2d.status.state !== "ready" && <p className="character-badge" role="status">{live2d.status.message}</p>}
+        {live2d.status.state !== "ready" && (
+          <div className="stage-placeholder">
+            {/* 모델이 없거나 다시 불러오는 동안 보이는 자리표시. 캐릭터 그림이 아니라 이니셜이다. */}
+            <svg className="stage-monogram" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true" focusable="false">
+              <circle cx="60" cy="60" r="56" className="monogram-ring" />
+              <circle cx="60" cy="60" r="46" className="monogram-fill" />
+              <text x="60" y="60" className="monogram-text" textAnchor="middle" dominantBaseline="central">보리</text>
+            </svg>
+            <p className="character-badge" role="status">{live2d.status.message}</p>
+          </div>
+        )}
       </div>
-      <div className="subtitle" aria-live="polite">
-        {current ? <p className="subtitle-now">{current.text}</p> : <p className="subtitle-idle">{lines.length > 0 ? "다시 듣기를 누르면 보리가 다시 읽어 드려요." : "데이터를 갱신하면 보리가 분석을 읽어 드려요."}</p>}
-      </div>
-      {lines.length > 0 && (
-        <ol className="script" aria-label="보리 대사">
-          {lines.map((line, index) => <li key={index} className={index === lineIndex ? "now" : ""}>{line.text}</li>)}
-        </ol>
-      )}
-      {shown && <p className="narrator-hint">{formatCollectedAt(shown.createdAt)} 분석{shown.source === "template" ? ` · ${TEMPLATE_NARRATION_HINT}` : ""}</p>}
-      {notice && <p className="narrator-notice" role="status">{notice}</p>}
-      <div className="narrator-actions">
-        {playing
-          ? <button type="button" className="ghost-button" onClick={stop}>멈추기</button>
-          : <button type="button" className="primary-button" disabled={!narration || replaying} onClick={() => void replay()}>다시 듣기</button>}
-        {/* 이름은 "음성"으로 고정하고 켜짐 여부는 aria-pressed로 알린다. 글자와 상태가 겹쳐 읽히지 않게 한다. */}
-        <button type="button" className="ghost-button toggle-button" aria-pressed={ttsEnabled} onClick={onToggleTts}>음성<span className="toggle-state" aria-hidden="true">{ttsEnabled ? "켬" : "끔"}</span></button>
+      <div className="narrator-body">
+        <div className="narrator-id">
+          <span className="narrator-name">보리</span>
+          <span className="narrator-role">메타 해설</span>
+          {shown && <span className="narrator-hint">{formatCollectedAt(shown.createdAt)} 분석{shown.source === "template" ? ` · ${TEMPLATE_NARRATION_HINT}` : ""}</span>}
+        </div>
+        <figure className={`subtitle${current ? " subtitle-live" : ""}`}>
+          <blockquote aria-live="polite">
+            {quote ? <p className={current ? "subtitle-now" : "subtitle-idle"}>{quote}</p> : <p className="subtitle-empty">{caption}</p>}
+          </blockquote>
+          {quote && <figcaption>{current && <i className="live-dot" aria-hidden="true" />}{caption}</figcaption>}
+        </figure>
+        {notice && <p className="narrator-notice" role="status">{notice}</p>}
+        <div className="narrator-actions">
+          {playing
+            ? <button type="button" className="ghost-button" onClick={stop}>멈추기</button>
+            : <button type="button" className="primary-button" disabled={!narration || replaying} onClick={() => void replay()}>다시 듣기</button>}
+          {/* 이름은 "음성"으로 고정하고 켜짐 여부는 aria-pressed로 알린다. 글자와 상태가 겹쳐 읽히지 않게 한다. */}
+          <button type="button" className="ghost-button toggle-button" aria-pressed={ttsEnabled} onClick={onToggleTts}>음성<span className="toggle-state" aria-hidden="true">{ttsEnabled ? "켬" : "끔"}</span></button>
+        </div>
+        {lines.length > 0 && (
+          <details className="script-details" open>
+            <summary>대사 전체 <span className="muted-text">{lines.length}줄</span></summary>
+            <ol className="script" aria-label="보리 대사">
+              {lines.map((line, index) => <li key={index} className={index === lineIndex ? "now" : ""}>{line.text}</li>)}
+            </ol>
+          </details>
+        )}
       </div>
     </section>
   );
