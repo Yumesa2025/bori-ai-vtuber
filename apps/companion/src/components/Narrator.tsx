@@ -123,17 +123,34 @@ export function Narrator({ narration, ttsEnabled, onToggleTts, visible, tabActiv
   const current = lineIndex === null ? null : lines[lineIndex] ?? null;
 
   return (
-    <section className="narrator" aria-label="보리">
+    <section className={`narrator${playing ? " is-playing" : ""}`} aria-label="보리">
+      <div className="narrator-head" aria-hidden="true">
+        <span className="narrator-role">해설</span>
+        <span className="narrator-name">보리</span>
+        <span className="onair"><span className="onair-dot" />{playing ? "읽는 중" : "대기"}</span>
+      </div>
       <div className="character-stage">
+        {/* 모델이 없거나 불러오는 동안 보이는 자리 표시. Live2D 캔버스가 뜨면 위를 덮는다. */}
+        <svg className="stage-emblem" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+          <path d="M60 6 107 33v54L60 114 13 87V33z" fill="none" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M60 22 93 41v38L60 98 27 79V41z" fill="none" stroke="currentColor" strokeWidth=".8" strokeDasharray="3 4" />
+          <g className="stage-wave">
+            <rect x="38" y="52" width="5" height="16" /><rect x="47" y="44" width="5" height="32" /><rect x="56" y="36" width="5" height="48" />
+            <rect x="65" y="44" width="5" height="32" /><rect x="74" y="52" width="5" height="16" />
+          </g>
+        </svg>
+        <span className="stage-corner stage-corner-tl" aria-hidden="true" /><span className="stage-corner stage-corner-tr" aria-hidden="true" />
+        <span className="stage-corner stage-corner-bl" aria-hidden="true" /><span className="stage-corner stage-corner-br" aria-hidden="true" />
         <div className="live2d-layer" ref={live2d.layerRef} />
         {live2d.status.state !== "ready" && <p className="character-badge" role="status">{live2d.status.message}</p>}
-      </div>
-      <div className="subtitle" aria-live="polite">
-        {current ? <p className="subtitle-now">{current.text}</p> : <p className="subtitle-idle">{lines.length > 0 ? "다시 듣기를 누르면 보리가 다시 읽어 드려요." : "데이터를 갱신하면 보리가 분석을 읽어 드려요."}</p>}
+        <div className="subtitle" aria-live="polite">
+          <span className="subtitle-tag" aria-hidden="true">보리</span>
+          {current ? <p className="subtitle-now">{current.text}</p> : <p className="subtitle-idle">{lines.length > 0 ? "다시 듣기를 누르면 보리가 다시 읽어 드려요." : "데이터를 갱신하면 보리가 분석을 읽어 드려요."}</p>}
+        </div>
       </div>
       {lines.length > 0 && (
         <ol className="script" aria-label="보리 대사">
-          {lines.map((line, index) => <li key={index} className={index === lineIndex ? "now" : ""}>{line.text}</li>)}
+          {lines.map((line, index) => <li key={index} className={index === lineIndex ? "now" : ""}><span className="script-no" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><span>{line.text}</span></li>)}
         </ol>
       )}
       {shown && <p className="narrator-hint">{formatCollectedAt(shown.createdAt)} 분석{shown.source === "template" ? ` · ${TEMPLATE_NARRATION_HINT}` : ""}</p>}

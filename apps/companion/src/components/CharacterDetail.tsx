@@ -1,6 +1,7 @@
 import type { ErComboStat } from "@bori/shared";
 import { cell, comboKey, EQUIPMENT_SLOT_LABELS } from "../dashboard";
 import { formatCount, formatDecimal, formatPercent } from "../format";
+import { ComboChip } from "./ComboChip";
 
 type Props = { combos: readonly ErComboStat[]; selected: ErComboStat | null; onSelect: (combo: ErComboStat) => void };
 
@@ -19,11 +20,15 @@ export function CharacterDetail({ combos, selected, onSelect }: Props) {
 
   return (
     <section className="panel detail" aria-labelledby="detail-title">
-      <div className="panel-head">
-        <h2 id="detail-title">{selected.characterName} 상세</h2>
-        <span className="panel-hint">{selected.weaponName || "무기 모름"} · 참가자 {formatCount(selected.participants)}명{selected.lowSample ? " · 표본 적음" : ""}</span>
+      <div className="detail-head">
+        <ComboChip code={selected.characterCode} name={selected.characterName} size="lg" />
+        <div className="detail-titles">
+          <h2 id="detail-title"><span className="detail-name">{selected.characterName}</span> <span className="detail-suffix">상세</span></h2>
+          <span className="panel-hint">{selected.weaponName || "무기 모름"} · 참가자 {formatCount(selected.participants)}명{selected.lowSample ? " · 표본 적음" : ""}</span>
+        </div>
       </div>
 
+      <h3>무기별</h3>
       <table className="weapon-table">
         <thead><tr><th scope="col" className="th-left">무기</th><th scope="col">픽률</th><th scope="col">평균 순위</th><th scope="col">1등 비율</th><th scope="col">평균 MMR</th></tr></thead>
         <tbody>
@@ -50,7 +55,12 @@ export function CharacterDetail({ combos, selected, onSelect }: Props) {
         <div>
           <h3>코어 특성</h3>
           {selected.topTraits.length === 0 ? <p className="empty">기록 없음</p> : (
-            <ol>{selected.topTraits.map(trait => <li key={trait.code}><span>{trait.name}</span><span className="rate">{formatPercent(trait.rate)}</span></li>)}</ol>
+            <ol className="traits">{selected.topTraits.map(trait => (
+              <li key={trait.code}>
+                <span>{trait.name}</span><span className="rate">{formatPercent(trait.rate)}</span>
+                <span className="rate-bar" aria-hidden="true"><span style={{ width: `${Math.min(100, trait.rate * 100)}%` }} /></span>
+              </li>
+            ))}</ol>
           )}
         </div>
         <div>

@@ -1,6 +1,7 @@
 import type { ErComboStat } from "@bori/shared";
 import { comboKey, comboLabel, moverChangeText, previousRank, selectMovers } from "../dashboard";
 import { formatRank } from "../format";
+import { ComboChip } from "./ComboChip";
 
 type Props = { combos: readonly ErComboStat[]; onSelect: (combo: ErComboStat) => void };
 
@@ -11,13 +12,13 @@ export function Movers({ combos, onSelect }: Props) {
 
   const list = (title: string, items: ErComboStat[], tone: "up" | "down") => (
     <div className={`movers-list movers-${tone}`}>
-      <h3>{title}</h3>
+      <h3><span className="movers-glyph" aria-hidden="true">{tone === "up" ? "▲" : "▼"}</span>{title}</h3>
       {items.length === 0 ? <p className="empty">{comparable ? "눈에 띄게 움직인 조합이 없어요." : "비교할 지난 갱신이 없어요."}</p> : (
         <ol>
           {items.map(combo => (
             <li key={comboKey(combo)}>
               <button type="button" className="mover" onClick={() => onSelect(combo)}>
-                <span className="mover-name">{comboLabel(combo)}</span>
+                <span className="mover-name"><ComboChip code={combo.characterCode} name={combo.characterName} size="sm" />{comboLabel(combo)}</span>
                 <span className="mover-rank">{formatRank(previousRank(combo))}위 → <strong>{formatRank(combo.avgRank)}위</strong></span>
                 <span className={`trend trend-${tone}`} role="img" aria-label={`평균 순위 ${moverChangeText(combo)} ${tone === "up" ? "좋아짐" : "나빠짐"}`}>{tone === "up" ? "▲" : "▼"} {moverChangeText(combo)}</span>
               </button>

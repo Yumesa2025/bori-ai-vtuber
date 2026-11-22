@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { ErComboStat, ErMetaBasisV2 } from "@bori/shared";
 import { cell, comboKey, comboLabel, defaultDirection, isNewCombo, pickPlaces, sortCombos, type SortDirection, type SortKey } from "../dashboard";
 import { formatCount } from "../format";
+import { ComboChip } from "./ComboChip";
 import { Trend } from "./Trend";
 
 type Props = { combos: readonly ErComboStat[]; basis: ErMetaBasisV2 | null; selectedKey: string | null; onSelect: (combo: ErComboStat) => void };
@@ -22,6 +23,8 @@ export function MetaTable({ combos, basis, selectedKey, onSelect }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: "pickRate", direction: "desc" });
   const rows = useMemo(() => sortCombos(combos, sort.key, sort.direction), [combos, sort]);
   const places = useMemo(() => pickPlaces(combos), [combos]);
+  // 픽률 칸 뒤 막대의 기준(가장 높은 픽률). 막대는 눈짐작용이고 숫자가 본 값이다.
+  const maxPick = useMemo(() => Math.max(0, ...combos.map(combo => combo.pickRate)), [combos]);
 
   const toggle = (key: SortKey) => setSort(current => (current.key === key
     ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
@@ -32,6 +35,7 @@ export function MetaTable({ combos, basis, selectedKey, onSelect }: Props) {
       <div className="panel-head">
         <h2 id="meta-title">메타 TOP</h2>
         <span className="panel-hint"># 픽률 순 · ▲▼ 지난번 대비 · 흐린 줄은 참가자 30명 미만(정렬하면 뒤로)</span>
+        {combos.length > 0 && <span className="panel-count">{combos.length}개 조합</span>}
       </div>
       {combos.length === 0 ? <p className="empty">아직 집계한 조합이 없어요.</p> : (
         <div className="table-scroll">
@@ -41,7 +45,7 @@ export function MetaTable({ combos, basis, selectedKey, onSelect }: Props) {
                 <th scope="col" className="col-rank" title="픽률 순위">#</th>
                 <th scope="col" className="th-left">조합</th>
                 {COLUMNS.map(column => (
-                  <th key={column.key} scope="col" aria-sort={sort.key === column.key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
+                  <th key={column.key} scope="col" className={sort.key === column.key ? "col-sorted" : undefined} aria-sort={sort.key === column.key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
                     <button type="button" className="sort-button" onClick={() => toggle(column.key)}>
                       {column.label}{sort.key === column.key ? (sort.direction === "asc" ? " ↑" : " ↓") : ""}
                     </button>
@@ -55,14 +59,16 @@ export function MetaTable({ combos, basis, selectedKey, onSelect }: Props) {
                 const selected = key === selectedKey;
                 return (
                   <tr key={key} className={`${combo.lowSample ? "low-sample" : ""}${selected ? " selected" : ""}`} onClick={() => onSelect(combo)}>
-                    <td className="col-rank">{places.get(key)}</td>
+                    <td className="col-rank">{String(places.get(key) ?? "").padStart(2, "0")}</td>
                     <th scope="row">
+                      <ComboChip code={combo.characterCode} name={combo.characterName} size="sm" />
                       <button type="button" className="row-button" aria-pressed={selected} onClick={event => { event.stopPropagation(); onSelect(combo); }}>{comboLabel(combo)}</button>
                       {combo.lowSample && <span className="tag">표본 적음</span>}
                       {isNewCombo(combo, basis) && <span className="tag tag-new" title="지난 갱신에는 없던 조합">새로</span>}
                     </th>
                     {COLUMNS.map(column => (
-                      <td key={column.key}>
+                      <td key={column.key} className={`col-${column.key}${sort.key === column.key ? " col-sorted" : ""}`}>
+                        {column.key === "pickRate" && maxPick > 0 && <span className="pick-bar" aria-hidden="true" style={{ width: `${(combo.pickRate / maxPick) * 100}%` }} />}
                         <span className="value">{column.render(combo)}</span>
                         {column.trend && <Trend metric={column.trend} change={combo.change} />}
                       </td>

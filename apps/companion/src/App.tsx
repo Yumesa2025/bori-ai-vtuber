@@ -5,6 +5,7 @@ import { loadTtsEnabled, saveTtsEnabled } from "./preferences";
 import { useDashboard } from "./useDashboard";
 import { CharacterDetail } from "./components/CharacterDetail";
 import { Header } from "./components/Header";
+import { MetaHighlights } from "./components/MetaHighlights";
 import { MetaTable } from "./components/MetaTable";
 import { Movers } from "./components/Movers";
 import { Narrator } from "./components/Narrator";
@@ -12,7 +13,7 @@ import { PlayerCard } from "./components/PlayerCard";
 
 /**
  * 이터널리턴 메타 대시보드(설계 2.1). 1920×1080 창 기준.
- * 위 띠: 기준·상태·갱신 / 왼쪽: 보리 / 가운데: 메타 TOP·오르고 내린 조합 / 오른쪽: 캐릭터 상세·내 전적
+ * 위 띠: 기준·상태·갱신 / 왼쪽: 보리(해설자) / 가운데: 오늘의 메타 하이라이트·메타 TOP·오르고 내린 조합 / 오른쪽: 캐릭터 상세·내 전적
  */
 export function App() {
   const { state, disconnected, loadNotice, actionNotice, requesting, refresh, reload, visible, tabActive } = useDashboard();
@@ -38,6 +39,7 @@ export function App() {
       <main className="dashboard-body">
         <Narrator narration={state?.narration ?? null} ttsEnabled={ttsEnabled} onToggleTts={toggleTts} visible={visible} tabActive={tabActive} />
         <div className="dashboard-center">
+          <MetaHighlights combos={combos} selectedKey={selected ? comboKey(selected) : null} onSelect={select} />
           <MetaTable combos={combos} basis={state?.basis ?? null} selectedKey={selected ? comboKey(selected) : null} onSelect={select} />
           <Movers combos={combos} onSelect={select} />
         </div>
