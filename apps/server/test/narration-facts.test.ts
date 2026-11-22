@@ -4,11 +4,37 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { buildFacts, rankMovers, withParticle } from "../src/narration/facts.js";
+import { buildFacts, rankMovers, spokenLabeler, withParticle } from "../src/narration/facts.js";
 import { selectMovers } from "../../companion/src/dashboard.js";
 import { combo, FAKE_NICKNAME, fixtureBasis, fixtureCombos, fixturePlayer } from "./narration-fixtures.js";
 
 const input = { basis: fixtureBasis, combos: fixtureCombos, player: fixturePlayer };
+
+describe("대사 속 이름(무기 빼기)", () => {
+  const jackieDual = combo({ characterCode: 1, characterName: "재키", weaponCode: 13, weaponName: "쌍검", participants: 412, pickRate: 0.081, avgRank: 3.4, top1Rate: 0.14 });
+  const jackieAxe = combo({ characterCode: 1, characterName: "재키", weaponCode: 11, weaponName: "도끼", participants: 205, pickRate: 0.028, avgRank: 4.1, top1Rate: 0.11 });
+  const aya = combo({ characterCode: 2, characterName: "아야", weaponCode: 10, weaponName: "권총", participants: 380, pickRate: 0.075, avgRank: 4.1, top1Rate: 0.1 });
+
+  test("대사는 캐릭터 이름만 읽고, 사실 문장(text)과 화면은 무기까지 둔다", () => {
+    const facts = buildFacts(input);
+    const top = facts.find(fact => fact.kind === "top");
+    assert.equal(top?.spoken, "지금 가장 많이 고른 건 재키예요. 픽률 8.1%, 평균 순위 3.4위예요.");
+    assert.match(top?.text ?? "", /재키 쌍검/);
+    for (const fact of facts) assert.ok(!/쌍검|권총|글러브/.test(fact.spoken), fact.spoken);
+  });
+
+  test("같은 캐릭터가 다른 무기로 함께 나오면 그 캐릭터만 무기까지 읽는다", () => {
+    const say = spokenLabeler([jackieDual, jackieAxe, aya]);
+    assert.equal(say(jackieDual), "재키 쌍검");
+    assert.equal(say(jackieAxe), "재키 도끼");
+    assert.equal(say(aya), "아야");
+  });
+
+  test("같은 조합이 두 번 나오는 것(TOP 1이면서 크게 오름)은 구분할 필요가 없어 무기를 뺀다", () => {
+    const say = spokenLabeler([jackieDual, jackieDual, aya]);
+    assert.equal(say(jackieDual), "재키");
+  });
+});
 
 describe("사실 목록", () => {
   /** 글 속 숫자(소수·쉼표 포함) */

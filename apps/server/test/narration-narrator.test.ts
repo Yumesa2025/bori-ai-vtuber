@@ -16,7 +16,7 @@ import { COMMENT_EXAMPLE_POOL, pickCommentExamples, seededRandom } from "../src/
 import { narrationSystemPrompt, type NarrationLlm } from "../src/narration/writer.js";
 import { FAKE_NICKNAME, fixtureBasis, fixtureCombos, fixturePlayer } from "./narration-fixtures.js";
 
-const topSpoken = "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 8.1%, 평균 순위 3.4위예요.";
+const topSpoken = "지금 가장 많이 고른 건 재키예요. 픽률 8.1%, 평균 순위 3.4위예요.";
 
 const input = { basis: fixtureBasis, combos: fixtureCombos, player: fixturePlayer };
 const facts = buildFacts(input);
