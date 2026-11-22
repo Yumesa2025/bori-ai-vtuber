@@ -22,6 +22,9 @@ const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
+  ".svg": "image/svg+xml",
+  // 화면에 함께 넣은 글꼴(Pretendard).
+  ".woff2": "font/woff2",
   ".moc3": "application/octet-stream",
   ".wav": "audio/wav",
   ".mp3": "audio/mpeg",

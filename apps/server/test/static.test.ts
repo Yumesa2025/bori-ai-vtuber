@@ -34,6 +34,7 @@ test("MIME", () => {
   assert.equal(contentTypeFor("a.js"), "text/javascript; charset=utf-8");
   assert.equal(contentTypeFor("a.moc3"), "application/octet-stream");
   assert.equal(contentTypeFor("a.frag"), "text/plain; charset=utf-8");
+  assert.equal(contentTypeFor("a.woff2"), "font/woff2");
   assert.equal(contentTypeFor("a.model3.json"), "application/json; charset=utf-8");
 });
 

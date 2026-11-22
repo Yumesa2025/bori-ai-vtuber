@@ -35,7 +35,7 @@ const loadingPage = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctyp
 
 function createWindow() {
   // preload가 없어 렌더러에 열어 둔 IPC가 없으므로 sandbox를 켜도 잃는 기능이 없다.
-  const window = new BrowserWindow({ title: WINDOW_TITLE, width: 1180, height: 860, show: true, backgroundColor: "#17131a", webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  const window = new BrowserWindow({ title: WINDOW_TITLE, width: 1180, height: 860, show: true, backgroundColor: "#faf8f4", webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
   const target = resolveAdminUrl(process.env.BORI_ADMIN_URL);
   if (target.rejected) log(`[bori-admin] BORI_ADMIN_URL은 이 컴퓨터 주소만 쓸 수 있어 기본 주소를 엽니다: ${target.rejected}`);
   const url = process.env.BORI_ADMIN_URL && !target.rejected ? target.url : defaultUrl;
