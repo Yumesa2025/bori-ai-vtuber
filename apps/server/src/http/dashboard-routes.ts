@@ -6,6 +6,8 @@
  * - GET  /api/dashboard/settings  { nickname }
  * - PUT  /api/dashboard/settings  닉네임 저장 후 전적을 다시 조회한다. 앞뒤 공백을 떼고 빈 문자열은 null, 32자 상한
  * - POST /api/narration/replay    다시 듣기. { narration }, 대사가 없으면 404
+ * - POST /api/narration/regenerate 지금 집계로 대사를 새로 만든다(ER 데이터는 다시 받지 않음). { narration }
+ *                                  집계가 없으면 404, 갱신·다시 만들기 중이면 409
  * 닉네임은 로그와 오류 응답에 넣지 않는다.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -16,8 +18,27 @@ import { readBody } from "./guard.js";
 
 export type DashboardRouteDeps = {
   dashboard: DashboardData;
-  narrator: Pick<Narrator, "latest" | "replay">;
+  narrator: Pick<Narrator, "latest" | "replay" | "narrate">;
 };
+
+/** 다시 만들기는 LLM·음성 호출이라 한 번에 하나만 받는다. */
+let regenerating = false;
+
+async function regenerate(response: ServerResponse, { dashboard, narrator }: DashboardRouteDeps) {
+  const state = dashboard.state();
+  if (!state.basis || state.combos.length === 0) { send(response, 404, { error: "아직 집계한 데이터가 없습니다." }); return; }
+  if (state.refresh.running || regenerating) { send(response, 409, { error: "지금은 갱신 또는 대사 만들기가 진행 중입니다." }); return; }
+  regenerating = true;
+  try {
+    const narration = await narrator.narrate({ basis: state.basis, combos: state.combos, player: state.player.summary });
+    console.log(`[bori-server] 보리 대사 ${narration.lines.length}줄을 다시 만들었습니다 (${narration.source})`);
+    send(response, 200, { narration });
+  } catch (error) {
+    sendFailure(response, "대사를 다시 만들지 못했습니다", error);
+  } finally {
+    regenerating = false;
+  }
+}
 
 function send(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status);
@@ -80,5 +101,6 @@ export function handleDashboardRoute(method: string | undefined, path: string, r
     return true;
   }
   if (method === "POST" && path === "/api/narration/replay") { void replay(response, narrator); return true; }
+  if (method === "POST" && path === "/api/narration/regenerate") { void regenerate(response, deps); return true; }
   return false;
 }
