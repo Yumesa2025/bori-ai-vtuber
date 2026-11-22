@@ -1,0 +1,46 @@
+@import "./fonts/fonts.css";
+
+/*
+ * 시안 B의 색·글꼴·간격 토큰. 대시보드(apps/companion)와 스튜디오(apps/admin)가 이 파일 하나를 함께 쓴다.
+ * 원칙: 밝은 바탕 + 잉크색 글자 + 강조색 하나(남색). 카드 테두리 대신 여백·구획·얇은 구분선으로 나눈다.
+ * 글자 대비는 모두 바탕 대비 4.5:1 이상이다(주석의 비율은 --bg #faf8f4 기준).
+ */
+:root {
+  /* 바탕 */
+  --bg: #faf8f4;          /* 따뜻한 흰색 */
+  --surface: #ffffff;
+  --sunken: #f2efe8;      /* 보리 칸·표 머리 같은 구획 바탕 */
+  --line: #e6e1d8;        /* 얇은 구분선 */
+  --line-strong: #d3cdc1;
+  /* 글자 */
+  --ink: #1a1c22;         /* 16.5:1 */
+  --ink-2: #474b57;       /* 8.3:1 보조 글자 */
+  --ink-3: #62666f;       /* 5.4:1 라벨·흐린 글자 (--sunken 위 4.9:1) */
+  /* 강조색 하나: 남색 */
+  --accent: #26398a;      /* 9.4:1 */
+  --accent-hover: #1d2d70;
+  --accent-soft: #eaedf7;
+  --accent-tint: #c9d0ec;
+  --bar: #8e9bd0;         /* 픽률 막대(글자 아님) */
+  /* 뜻이 있는 색(오름·내림·주의)만 따로 둔다 */
+  --up: #17744a;          /* 5.5:1 */
+  --up-soft: #e4f2ea;
+  --down: #b3313a;        /* 6.0:1 */
+  --down-soft: #f8e6e6;
+  --warn: #8a5300;        /* 5.8:1 */
+  --warn-soft: #fbf0dc;
+  --danger: #9b1c24;
+  --danger-soft: #fbe7e7;
+  --low-sample-text: var(--ink-3);
+
+  /* 글꼴·간격 */
+  --font: "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --radius: 10px;
+}

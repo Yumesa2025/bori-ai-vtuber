@@ -1,46 +1,10 @@
+@import "./theme.css";
+
 /*
- * 시안 B "깔끔한 데이터 대시보드". 색·크기·간격은 여기 :root에서만 정한다. 기준 창은 1920×1080, 1280×720까지 무너지지 않게 한다.
- * 원칙: 밝은 바탕 + 잉크색 글자 + 강조색 하나(남색). 카드 테두리 대신 여백·구획·얇은 구분선으로 나눈다.
- * 글자 대비는 모두 바탕 대비 4.5:1 이상이다(주석의 비율은 --bg #faf8f4 기준).
+ * 시안 B "깔끔한 데이터 대시보드". 색·글꼴·간격 토큰은 theme.css(스튜디오와 공용), 이 화면의 배치 치수는 아래 :root에서 정한다.
+ * 기준 창은 1920×1080, 1280×720까지 무너지지 않게 한다.
  */
 :root {
-  /* 바탕 */
-  --bg: #faf8f4;          /* 따뜻한 흰색 */
-  --surface: #ffffff;
-  --sunken: #f2efe8;      /* 보리 칸·표 머리 같은 구획 바탕 */
-  --line: #e6e1d8;        /* 얇은 구분선 */
-  --line-strong: #d3cdc1;
-  /* 글자 */
-  --ink: #1a1c22;         /* 16.5:1 */
-  --ink-2: #474b57;       /* 8.3:1 보조 글자 */
-  --ink-3: #62666f;       /* 5.4:1 라벨·흐린 글자 (--sunken 위 4.9:1) */
-  /* 강조색 하나: 남색 */
-  --accent: #26398a;      /* 9.4:1 */
-  --accent-hover: #1d2d70;
-  --accent-soft: #eaedf7;
-  --accent-tint: #c9d0ec;
-  --bar: #8e9bd0;         /* 픽률 막대(글자 아님) */
-  /* 뜻이 있는 색(오름·내림·주의)만 따로 둔다 */
-  --up: #17744a;          /* 5.5:1 */
-  --up-soft: #e4f2ea;
-  --down: #b3313a;        /* 6.0:1 */
-  --down-soft: #f8e6e6;
-  --warn: #8a5300;        /* 5.8:1 */
-  --warn-soft: #fbf0dc;
-  --danger: #9b1c24;
-  --danger-soft: #fbe7e7;
-  --low-sample-text: var(--ink-3);
-
-  /* 글꼴·간격 */
-  --font: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 40px;
-  --radius: 10px;
   --header-height: 72px;
   --narrator-width: 380px;
   --side-width: 460px;
@@ -153,20 +117,26 @@ h3 { margin-bottom: var(--space-2); color: var(--ink-3); font-size: 12px; font-w
 .dashboard-side { min-height: 0; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-2) var(--gutter) var(--space-5); border-left: 1px solid var(--line); overflow-y: auto; }
 
 /* ── 보리 프로필 카드 ── */
-.narrator { min-height: 0; display: flex; flex-direction: column; margin-bottom: var(--space-5); overflow: hidden; border-radius: 16px; background: var(--sunken); }
-.character-stage { position: relative; flex: 1 0 180px; min-height: 180px; overflow: hidden; display: grid; place-items: center; background:
-  radial-gradient(ellipse 70% 55% at 50% 100%, #e3e6f3 0%, transparent 70%),
-  linear-gradient(180deg, #f6f4ef 0%, #ece9e1 100%); }
-/* 바닥선: 캐릭터가 떠 보이지 않게 아래쪽에 얇은 선을 깐다 */
+.narrator { min-height: 0; display: flex; flex-direction: column; margin-bottom: var(--space-5); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 1px 2px rgba(26, 28, 34, .04), 0 8px 24px -12px rgba(26, 28, 34, .12); }
+/*
+ * 보리 무대. 실제 모델은 밝은 금발에 남색 옷이고 캔버스 배경이 투명하다.
+ * 따뜻한 흰 바탕이면 금발이 묻혀서, 위쪽(머리 뒤)은 서늘한 옅은 남색, 아래(옷 뒤)는 밝게 둔다. 남색 옷은 밝은 아래쪽에서 또렷하다.
+ * 무대 높이는 카드의 절반 가까이를 먼저 잡고(좁은 창에서도 캐릭터가 작아지지 않게), 남는 높이는 대사 칸이 스크롤한다.
+ */
+.character-stage { position: relative; flex: 1 0 46%; min-height: 220px; overflow: hidden; display: grid; place-items: center; background:
+  radial-gradient(ellipse 60% 44% at 50% 38%, rgba(255, 255, 255, .6) 0%, rgba(255, 255, 255, 0) 75%),
+  linear-gradient(180deg, #dce2f0 0%, #e8ebf3 58%, #f3f2ee 100%); }
+/* 바닥선 */
 .character-stage::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--line); }
-/* Live2D 캔버스가 이 영역을 채운다. SDK가 캔버스에 vw/vh 크기를 직접 넣으므로 덮어쓴다. */
-.live2d-layer { position: absolute; inset: 0; pointer-events: none; }
-.live2d-layer canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
-.stage-placeholder { position: relative; z-index: 1; display: grid; justify-items: center; gap: var(--space-4); padding: var(--space-5); text-align: center; }
-.monogram-ring { fill: none; stroke: var(--accent-tint); stroke-width: 1.5; stroke-dasharray: 3 5; }
-.monogram-fill { fill: var(--surface); stroke: var(--line); }
+/* Live2D 캔버스가 이 영역을 채운다. SDK가 캔버스에 vw/vh 크기를 직접 넣으므로 덮어쓴다. 투명 배경이라 그림자가 캐릭터 윤곽을 따른다. */
+.live2d-layer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.live2d-layer canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; filter: drop-shadow(0 10px 18px rgba(26, 34, 72, .18)); }
+.stage-placeholder { position: relative; z-index: 2; display: grid; justify-items: center; gap: var(--space-4); padding: var(--space-5); text-align: center; }
+.stage-monogram { filter: drop-shadow(0 6px 14px rgba(26, 34, 72, .12)); }
+.monogram-ring { fill: none; stroke: #b7c0e2; stroke-width: 1.5; stroke-dasharray: 3 5; }
+.monogram-fill { fill: var(--surface); stroke: #d5daea; }
 .monogram-text { fill: var(--accent); font-family: var(--font); font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
-.character-badge { max-width: 260px; margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+.character-badge { max-width: 260px; margin: 0; padding: 6px 12px; border-radius: 8px; background: rgba(255, 255, 255, .72); color: var(--ink-2); font-size: 13px; line-height: 1.5; }
 .narrator-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5); }
 .narrator-id { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); }
 .narrator-name { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
@@ -224,7 +194,7 @@ h3 { margin-bottom: var(--space-2); color: var(--ink-3); font-size: 12px; font-w
 .mover { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 52px 52px; align-items: center; gap: var(--space-3); padding: 7px var(--space-2); border: 0; border-radius: 6px; background: none; text-align: left; }
 .mover:hover { background: var(--surface); }
 .mover-text { display: grid; min-width: 0; }
-.mover-name { overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.mover-name { display: -webkit-box; overflow: hidden; font-size: 14px; font-weight: 700; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .mover-rank { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
 .mover-rank strong { color: var(--ink-2); font-weight: 700; }
 .mover .trend { font-size: 13px; text-align: right; }
@@ -244,6 +214,7 @@ h3 { margin-bottom: var(--space-2); color: var(--ink-3); font-size: 12px; font-w
 /* ── 표 ── */
 .meta-table { min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .table-scroll { min-height: 0; flex: 1; overflow-y: auto; }
+.meta-table > .empty { padding: var(--space-7) var(--space-5); border-radius: var(--radius); background: var(--sunken); text-align: center; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; height: 36px; padding: 0 var(--space-3); border-bottom: 1px solid var(--line-strong); background: var(--bg); color: var(--ink-3); font-size: 12px; font-weight: 600; text-align: right; white-space: nowrap; }
 .data-table th, .data-table td { padding: 0 var(--space-3); border-bottom: 1px solid #ece8e0; white-space: nowrap; text-align: right; }
@@ -291,18 +262,24 @@ tr.low-sample .bar-fill { background: var(--line-strong); }
 .weapon-table { font-size: 13px; }
 .weapon-table thead th { position: static; height: 30px; }
 .weapon-table tbody th, .weapon-table tbody td { height: 36px; }
-.build { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: var(--space-5); }
-.traits, .equipment { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
-.traits li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px var(--space-2); }
-.trait-name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.rate { color: var(--ink-3); font-size: 12px; }
+.traits, .equipment { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+/* 코어 특성: 두 칸. 이름이 길면 줄바꿈한다. */
+.traits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-5); }
+.traits li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px var(--space-2); }
+.trait-name { font-weight: 600; line-height: 1.4; }
+.rate { color: var(--ink-3); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .rate-bar { grid-column: 1 / -1; position: relative; height: 4px; overflow: hidden; border-radius: 2px; background: #ece8e0; }
 .rate-bar span { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--bar); }
-.equipment li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--space-2); align-items: baseline; }
+/* 부위별 장비: 부위 | 1위 | 2위. 장비 이름은 잘라 내지 않고 칸 안에서 줄바꿈하며, 비율은 이름 뒤에 붙어 함께 내려간다. */
+.equipment-legend { margin-left: 6px; color: var(--ink-3); font-weight: 500; }
+.equipment li { display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; gap: var(--space-4); padding: 7px 0; border-top: 1px solid #efebe4; }
+.equipment li:first-child { border-top: 0; padding-top: 2px; }
 .equipment .slot { color: var(--ink-3); font-size: 12px; font-weight: 600; }
-.equipment .items { display: flex; gap: var(--space-3); min-width: 0; overflow: hidden; white-space: nowrap; }
-.equipment .item { overflow: hidden; color: var(--ink-3); text-overflow: ellipsis; }
-.equipment .item-first { flex: none; color: var(--ink); font-weight: 600; }
+.equipment .item { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--space-2); color: var(--ink-2); line-height: 1.45; }
+.equipment .item-name { word-break: keep-all; overflow-wrap: anywhere; }
+.equipment .item-first { color: var(--ink); }
+.equipment .item-first .item-name { font-weight: 600; }
+.equipment .item-empty { color: var(--ink-3); }
 
 /* ── 내 전적 ── */
 .player { display: flex; flex-direction: column; gap: var(--space-3); padding-top: 20px; border-top: 1px solid var(--line-strong); }

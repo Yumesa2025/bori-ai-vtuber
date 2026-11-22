@@ -56,38 +56,38 @@ export function CharacterDetail({ combos, selected, onSelect }: Props) {
         </table>
       </div>
 
-      <div className="build">
-        <div className="detail-block">
-          <h3>코어 특성</h3>
-          {selected.topTraits.length === 0 ? <p className="empty">기록 없음</p> : (
-            <ol className="traits">
-              {selected.topTraits.map(trait => (
-                <li key={trait.code}>
-                  <span className="trait-name">{trait.name}</span>
-                  <span className="rate">{formatPercent(trait.rate)}</span>
-                  <span className="rate-bar" aria-hidden="true"><span style={{ width: rateWidth(trait.rate) }} /></span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-        <div className="detail-block">
-          <h3>부위별 장비</h3>
-          {selected.topEquipment.length === 0 ? <p className="empty">기록 없음</p> : (
-            <ul className="equipment">
-              {selected.topEquipment.map(slot => (
-                <li key={slot.slot}>
-                  <span className="slot">{EQUIPMENT_SLOT_LABELS[slot.slot] ?? `부위 ${slot.slot}`}</span>
-                  <span className="items">
-                    {slot.items.map((item, index) => (
-                      <span key={item.code} className={index === 0 ? "item item-first" : "item"}>{item.name} <span className="rate">{formatPercent(item.rate)}</span></span>
-                    ))}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* 코어 특성은 짧아 두 칸으로, 장비는 이름이 길어(예: "아흐라만의 손길") 부위마다 1위·2위를 나란히 두고 이름은 줄바꿈한다. 잘라 내지 않는다. */}
+      <div className="detail-block">
+        <h3>코어 특성</h3>
+        {selected.topTraits.length === 0 ? <p className="empty">기록 없음</p> : (
+          <ol className="traits">
+            {selected.topTraits.map(trait => (
+              <li key={trait.code}>
+                <span className="trait-name">{trait.name}</span>
+                <span className="rate">{formatPercent(trait.rate)}</span>
+                <span className="rate-bar" aria-hidden="true"><span style={{ width: rateWidth(trait.rate) }} /></span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+      <div className="detail-block">
+        <h3>부위별 장비 <span className="equipment-legend">1위 · 2위</span></h3>
+        {selected.topEquipment.length === 0 ? <p className="empty">기록 없음</p> : (
+          <ul className="equipment">
+            {selected.topEquipment.map(slot => (
+              <li key={slot.slot}>
+                <span className="slot">{EQUIPMENT_SLOT_LABELS[slot.slot] ?? `부위 ${slot.slot}`}</span>
+                {[0, 1].map(index => {
+                  const item = slot.items[index];
+                  return item
+                    ? <span key={item.code} className={index === 0 ? "item item-first" : "item"}><span className="item-name">{item.name}</span> <span className="rate">{formatPercent(item.rate)}</span></span>
+                    : <span key={`empty-${index}`} className="item item-empty" aria-hidden="true">—</span>;
+                })}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );

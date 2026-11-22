@@ -220,4 +220,10 @@ describe("대시보드 화면 CSP", () => {
     assert.match(directive("img-src"), /'self'/);
     assert.match(directive("style-src"), /'unsafe-inline'/);
   });
+
+  test("글꼴은 저장소에 넣은 파일만 쓰고 외부 글꼴 서비스로 나가지 않는다", () => {
+    assert.equal(directive("font-src"), "font-src 'self'");
+    assert.equal(directive("style-src"), "style-src 'self' 'unsafe-inline'");
+    assert.ok(!/https?:\/\//.test(html), "index.html에 외부 주소(글꼴 서비스 등)가 없다");
+  });
 });

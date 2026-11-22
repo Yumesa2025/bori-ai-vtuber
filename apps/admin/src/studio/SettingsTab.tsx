@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LlmProvider, LlmSettings, LlmStatus, UsageFeature, UsageMode, UsageReport, UsageRow, UsageTotals } from '@bori/shared';
 import { buildPatch, clearSaved, pickDrafts, readError, savedSummary, shownText, type DraftValue, type Drafts, type FieldSpec } from '../form';
 import { isSubmitEnter } from '../keys';
@@ -168,74 +168,113 @@ export default function SettingsTab() {
   // 숫자·글자 입력칸. 고친 값은 draft로만 들고 있고, 서버 값은 고치지 않은 칸에만 보인다.
   const numberInput = (group: DraftGroup, field: FieldSpec, serverValue: number, props: { min?: string; max?: string; step?: string; disabled?: boolean; onBlur?: () => void } = {}) =>
     <input type="number" {...props} value={shownText(group.drafts, field.key, serverValue)} onChange={event => group.set(field.key, event.target.value)} />;
+  const erProgress = Math.round((er?.refresh.progress ?? 0) * 100);
+  // 숫자 묶음(호출·실패 등). 라벨 위, 값 아래로 대시보드의 수치 칸과 같은 모양이다.
+  const stats = (items: Array<[label: string, value: string | number]>) =>
+    <dl className="stats">{items.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;
+  // 설정 한 묶음: 왼쪽에 제목·설명, 오른쪽에 조작. 묶음 사이는 얇은 선으로만 나눈다(시안 B).
+  const section = (id: string, title: ReactNode, intro: ReactNode, body: ReactNode) =>
+    <section className="settings-section" aria-labelledby={`settings-${id}`}>
+      <div className="section-intro"><h2 id={`settings-${id}`}>{title}</h2>{intro}</div>
+      <div className="section-body">{body}</div>
+    </section>;
   return <main className="admin-shell">
-    <header className="admin-header"><div><p className="eyebrow">BORI · ETERNAL RETURN META</p><h1>설정</h1></div><span className={`status ${serverOnline ? '' : 'status-offline'}`}>{serverOnline ? '서버 연결됨' : '서버 끊김'}</span></header>
+    <header className="admin-header">
+      <div><p className="eyebrow">이터널리턴 메타 · 보리</p><h1>설정</h1></div>
+      <span className={`status ${serverOnline ? 'status-online' : 'status-offline'}`}><i className="status-dot" aria-hidden="true" />{serverOnline ? '서버 연결됨' : '서버 끊김'}</span>
+    </header>
     {!serverOnline && <div className="server-alert"><strong>API 서버에 연결할 수 없습니다.</strong> 대시보드와 설정이 동작하지 않습니다. 스튜디오가 띄운 서버가 꺼졌다면 스튜디오를 다시 실행하세요. 서버 로그는 데이터 폴더의 <code>studio-server.log</code>에 있습니다.</div>}
-    {notice && <div className="panel notice" role="status">{notice}</div>}
-    <section className="control-grid">
-      <article className="panel"><h2>이터널리턴 데이터 <span className={`badge badge-${summary.badge.tone}`}>{summary.badge.text}</span></h2>
-        <div className="er-title">{summary.title}</div>
-        <p className="hint">{summary.updated}{summary.description ? ` · ${summary.description}` : ''}</p>
-        {summary.progress && <div className="progress" role="progressbar" aria-valuenow={Math.round((er?.refresh.progress ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}><div style={{ width: `${Math.round((er?.refresh.progress ?? 0) * 100)}%` }} /><span>{summary.progress}</span></div>}
-        {summary.lastError && <div className="notice">마지막 갱신 오류: {summary.lastError}</div>}
-        <div className="button-row"><button onClick={() => void refreshEr()} disabled={!serverOnline || !summary.canRefresh}>데이터 갱신</button></div>
-        <p className="hint">이터널리턴 Open API 키는 저장소 루트 <code>.env</code>의 <code>ER_API_KEY</code>에서 읽습니다. 키가 없으면 상태가 "데이터 없음"이고 갱신 버튼이 꺼집니다. 갱신에 실패하면 마지막으로 저장한 데이터를 그대로 씁니다.</p>
-      </article>
-      <article className="panel"><h2>게임 닉네임</h2><p>대시보드 "내 전적" 칸에 쓸 이터널리턴 닉네임입니다. 이 컴퓨터의 데이터 폴더에만 저장하고, 로그와 보리 대사에는 넣지 않습니다.</p>
-        <p className="hint">지금 저장된 닉네임: {nickname ?? '없음'}</p>
-        <div className="chat-input-row"><input value={nicknameInput} onChange={event => setNicknameInput(event.target.value)} onKeyDown={event => { if (isSubmitEnter(event)) void saveNickname(nicknameInput); }} aria-label="게임 닉네임" placeholder="게임 닉네임" maxLength={NICKNAME_MAX} /><button onClick={() => void saveNickname(nicknameInput)} disabled={!serverOnline || !nicknameInput.trim()}>저장</button>{nickname && <button onClick={() => void saveNickname('')} disabled={!serverOnline}>지우기</button>}</div>
-      </article>
-    </section>
-    {llm && <section className="panel"><h2>외부 LLM</h2><p>메타 분석을 갱신하면 보리가 읽을 대사를 LLM이 수치 목록만 근거로 씁니다. 꺼져 있거나 실패하면 정해진 문장으로 읽습니다. 대화 기능은 없습니다.</p>
-      <div className="connection-item"><span className="connection-name">상태</span><span className={`badge badge-${llmBadge.tone}`}>{llmBadge.text}</span><span className="connection-detail">{llm.status.lastError ?? llm.settings.model}</span></div>
-      <label className="toggle-row"><input type="checkbox" checked={llm.settings.enabled} onChange={event => void saveLlm({ enabled: event.target.checked })} /><span>LLM 사용</span></label>
-      <div className="settings-grid">
-        <label>제공 업체<select value={llm.settings.provider} onChange={event => void saveLlm({ provider: event.target.value as LlmProvider })}>{llm.providers.map(provider => <option key={provider} value={provider}>{providerLabels[provider] ?? provider}</option>)}</select></label>
-        <label>모델<input value={shownText(llmDrafts.drafts, 'model', llm.settings.model)} onChange={event => llmDrafts.set('model', event.target.value)} onBlur={() => saveLlmField(llmFields.model)} /></label>
-        <label>응답 제한(ms){numberInput(llmDrafts, llmFields.timeoutMs, llm.settings.timeoutMs, { min: '1000', step: '500', onBlur: () => saveLlmField(llmFields.timeoutMs) })}</label>
-      </div>
-      <div className="chat-input-row"><input type="password" value={apiKeyInput} onChange={event => setApiKeyInput(event.target.value)} aria-label="LLM API 키" placeholder={llm.status.hasApiKey ? 'API 키가 저장되어 있습니다. 바꾸려면 새 키를 입력하세요' : 'API 키를 입력하세요'} /><button onClick={() => void saveLlm({ apiKey: apiKeyInput })} disabled={!apiKeyInput.trim()}>키 저장</button>{llm.status.hasApiKey && <button onClick={() => void saveLlm({ apiKey: '' })}>키 지우기</button>}</div>
-      <div className="metrics llm-metrics"><div><strong>{llm.status.hasApiKey ? '있음' : '없음'}</strong><span>API 키</span></div><div><strong>{llm.status.callCount}</strong><span>호출</span></div><div><strong>{llm.status.failureCount}</strong><span>호출 실패</span></div><div><strong>{llm.status.validationFailureCount}</strong><span>검증 실패</span></div><div><strong>{llm.status.averageLatencyMs}ms</strong><span>평균 지연</span></div></div>
-      {llm.status.circuitOpen && <div className="notice">연속 실패로 LLM 호출을 잠시 멈췄습니다. {llm.settings.cooldownSeconds}초 뒤 다시 시도합니다.</div>}
-      <p className="hint">화면에서 입력한 API 키는 데이터 폴더(<code>BORI_DATA_DIR</code>, 기본 <code>data/</code>)의 <code>llm-config.json</code>에 암호화해 저장하며 다시 표시하지 않습니다. 환경변수 <code>OPENAI_API_KEY</code>로 준 키는 파일에 쓰지 않고, "키 지우기"를 눌러도 환경변수 키로 돌아갑니다. 데이터 폴더는 Git에서 제외되어 있습니다.</p>
-    </section>}
-    {tts && <section className="panel"><h2>음성 (TTS)</h2><p>보리가 메타 분석 대사를 고른 업체(OpenAI·ElevenLabs·Fish Audio)의 음성으로 읽습니다. 대시보드에서 재생되고 입 모양도 소리에 맞춰 움직입니다. OpenAI는 LLM과 같은 API 키를 쓰고, Fish Audio는 .env의 FISH_API_KEY를 씁니다.</p>
-      <label className="toggle-row"><input type="checkbox" checked={tts.settings.enabled} disabled={!tts.hasApiKey} onChange={event => void saveTts({ enabled: event.target.checked })} /><span>음성 사용{!tts.hasApiKey && ' (API 키를 먼저 저장하세요)'}</span></label>
-      <div className="settings-grid">
-        <label>업체<select value={tts.settings.provider} onChange={event => void saveTts({ provider: event.target.value })}>{tts.providers.map(provider => <option key={provider} value={provider}>{providerLabels[provider] ?? provider}</option>)}</select></label>
-        <label>목소리<select value={tts.settings.voice} onChange={event => void saveTts({ voice: event.target.value })}>{tts.voices.length === 0 && <option value={tts.settings.voice}>{tts.settings.voice}</option>}{tts.voices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}{voice.description ? ` — ${voice.description}` : ''}</option>)}</select></label>
-        <label>모델<input value={shownText(ttsDrafts.drafts, 'model', tts.settings.model)} onChange={event => ttsDrafts.set('model', event.target.value)} onBlur={() => saveTtsField(ttsFields.model)} /></label>
-        <label>합성 실패<input value={`${tts.failureCount}회`} readOnly /></label>
-      </div>
-      {tts.settings.provider === 'openai'
-        ? <div className="settings-grid"><label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.25', max: '4', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label></div>
-        : tts.settings.provider === 'fish'
-        ? <>
-          <div className="settings-grid">
-            <label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.5', max: '2', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label>
-            <label>안정성{numberInput(ttsDrafts, ttsFields.stability, tts.settings.stability, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.stability) })}</label>
-          </div>
-          <div className="chat-input-row"><input value={fishVoiceInput} onChange={event => setFishVoiceInput(event.target.value)} aria-label="Fish Audio 목소리 ID" placeholder="목소리 ID 32자리 (fish.audio/m/ 뒤의 값)" /><button onClick={() => { void saveTts({ voice: fishVoiceInput.trim() }); setFishVoiceInput(''); }} disabled={!fishVoiceInput.trim()}>목소리 적용</button></div>
-          <p className="hint">{tts.hasFishKey ? 'Fish Audio 키를 .env에서 읽었습니다.' : '.env에 FISH_API_KEY를 넣고 스튜디오를 다시 켜 주세요.'} 목록에는 내 계정에서 만든 목소리만 나옵니다. 공개 목소리는 fish.audio 목소리 페이지 주소(fish.audio/m/…)의 ID를 위 칸에 넣습니다. 속도는 0.5~2.0입니다. 목소리가 합성마다 달라지면 안정성을 0.7~0.8로 올려 보세요(높을수록 일정하고, 낮을수록 표현이 커집니다).</p>
-        </>
-        : <>
-          <div className="settings-grid">
-            <label>안정성{numberInput(ttsDrafts, ttsFields.stability, tts.settings.stability, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.stability) })}</label>
-            <label>유사도{numberInput(ttsDrafts, ttsFields.similarity, tts.settings.similarity, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.similarity) })}</label>
-          </div>
-          <div className="chat-input-row"><input type="password" value={elevenKeyInput} onChange={event => setElevenKeyInput(event.target.value)} aria-label="ElevenLabs API 키" placeholder={tts.hasElevenLabsKey ? 'ElevenLabs 키가 저장되어 있습니다' : 'ElevenLabs API 키를 입력하세요'} /><button onClick={() => void saveTts({ elevenLabsApiKey: elevenKeyInput })} disabled={!elevenKeyInput.trim()}>키 저장</button>{tts.hasElevenLabsKey && <button onClick={() => void saveTts({ elevenLabsApiKey: '' })}>키 지우기</button>}</div>
-          <p className="hint">안정성이 낮을수록 감정 표현이 커지고, 높을수록 톤이 일정해집니다. 목소리 목록은 ElevenLabs 계정에 담긴 것만 나옵니다. Voice Library에서 마음에 드는 목소리를 내 계정에 추가하면 여기에 표시됩니다.</p>
-        </>}
-      {tts.settings.enabled && <p className="hint">합성에 실패한 줄은 자막만 보입니다.</p>}
-      {tts.lastError && <div className="notice">마지막 오류: {tts.lastError}</div>}
-    </section>}
-    {usage && <section className="panel"><h2>API 사용량</h2><p>LLM·음성 호출을 기능과 모드별로 셉니다. 숫자만 기록하고 대사 내용은 남기지 않습니다. 방송·1:1 대화를 쓰던 때의 기록은 '이전 방송'·'이전 1:1'로 보입니다. 비용은 단가표로 계산한 추정치입니다.</p>
-      <div className="metrics llm-metrics"><div><strong>{usage.today.totals.calls}</strong><span>오늘 호출</span></div><div><strong>{usage.today.totals.failures}</strong><span>오늘 실패</span></div><div><strong>{formatTokens(usage.today.totals)}</strong><span>오늘 입력/출력 토큰</span></div><div><strong>{usage.today.totals.characters.toLocaleString()}</strong><span>오늘 음성 글자</span></div><div><strong>{formatCost(usage.today.totals.estimatedCostUsd, usage.today.totals.costComplete)}</strong><span>오늘 추정 비용</span></div></div>
-      <div className="metrics llm-metrics"><div><strong>{usage.last7Days.totals.calls}</strong><span>7일 호출</span></div><div><strong>{usage.last7Days.totals.failures}</strong><span>7일 실패</span></div><div><strong>{formatTokens(usage.last7Days.totals)}</strong><span>7일 입력/출력 토큰</span></div><div><strong>{usage.last7Days.totals.characters.toLocaleString()}</strong><span>7일 음성 글자</span></div><div><strong>{formatCost(usage.last7Days.totals.estimatedCostUsd, usage.last7Days.totals.costComplete)}</strong><span>7일 추정 비용</span></div></div>
-      {usage.last7Days.rows.length > 0 && <table className="usage-table"><thead><tr><th>기능</th><th>모드</th><th>모델</th><th>호출</th><th>실패</th><th>입력/출력 토큰·글자</th><th>7일 추정 비용</th></tr></thead><tbody>{usage.last7Days.rows.map(row => <tr key={`${row.feature}-${row.mode}-${row.model}`}><td>{usageFeatureLabels[row.feature]}</td><td>{usageModeLabel(row.mode)}</td><td>{row.model}</td><td>{row.calls}</td><td>{row.failures}</td><td>{row.feature === 'tts' ? `${row.characters.toLocaleString()}자` : formatTokens(row)}</td><td>{formatRowCost(row)}</td></tr>)}</tbody></table>}
-      {usage.last7Days.unpricedModels.length > 0 && <div className="notice">단가 없음: {usage.last7Days.unpricedModels.join(', ')}. 이 모델의 비용은 합계에서 빠졌습니다. 데이터 폴더의 <code>usage-prices.json</code>에 단가를 넣으면 계산합니다.</div>}
-      {usage.prices.fileError && <div className="notice">단가 파일 오류: {usage.prices.fileError} 기본 단가만 씁니다.</div>}
-      <p className="hint">{usage.prices.note} 단가 파일 {usage.prices.fileLoaded ? '적용 중' : '없음'}. 금액 뒤의 +는 단가나 토큰 정보가 없어 일부 호출이 빠졌다는 뜻입니다. 최근 31일 호출 {usage.last31Days.totals.calls}회, 추정 {formatCost(usage.last31Days.totals.estimatedCostUsd, usage.last31Days.totals.costComplete)}.</p>
-    </section>}
+    {notice && <div className="notice-bar" role="status">{notice}</div>}
+
+    {section('er', '이터널리턴 데이터',
+      <p>이터널리턴 Open API 키는 저장소 루트 <code>.env</code>의 <code>ER_API_KEY</code>에서 읽습니다. 키가 없으면 상태가 "데이터 없음"이고 갱신 버튼이 꺼집니다. 갱신에 실패하면 마지막으로 저장한 데이터를 그대로 씁니다.</p>,
+      <>
+        <div className="er-status">
+          <span className={`badge badge-${summary.badge.tone}`}><i className="badge-dot" aria-hidden="true" />{summary.badge.text}</span>
+          <div className="er-title">{summary.title}</div>
+          <p className="hint">{summary.updated}{summary.description ? ` · ${summary.description}` : ''}</p>
+        </div>
+        {summary.progress && <div className="progress" role="progressbar" aria-valuenow={erProgress} aria-valuemin={0} aria-valuemax={100}>
+          <span className="progress-text">{summary.progress}</span>
+          <span className="progress-track"><span className="progress-bar" style={{ width: `${erProgress}%` }} /></span>
+        </div>}
+        {summary.lastError && <div className="notice notice-error">마지막 갱신 오류: {summary.lastError}</div>}
+        <div className="button-row"><button className="primary-button" onClick={() => void refreshEr()} disabled={!serverOnline || !summary.canRefresh}>데이터 갱신</button></div>
+      </>)}
+
+    {section('nickname', '게임 닉네임',
+      <p>대시보드 "내 전적" 칸에 쓸 이터널리턴 닉네임입니다. 이 컴퓨터의 데이터 폴더에만 저장하고, 로그와 보리 대사에는 넣지 않습니다.</p>,
+      <>
+        <div className="current-value"><span>지금 저장된 닉네임</span><strong>{nickname ?? '없음'}</strong></div>
+        <div className="input-row"><input value={nicknameInput} onChange={event => setNicknameInput(event.target.value)} onKeyDown={event => { if (isSubmitEnter(event)) void saveNickname(nicknameInput); }} aria-label="게임 닉네임" placeholder="게임 닉네임" maxLength={NICKNAME_MAX} /><button className="primary-button" onClick={() => void saveNickname(nicknameInput)} disabled={!serverOnline || !nicknameInput.trim()}>저장</button>{nickname && <button className="ghost-button" onClick={() => void saveNickname('')} disabled={!serverOnline}>지우기</button>}</div>
+      </>)}
+
+    {llm && section('llm', '외부 LLM',
+      <>
+        <p>메타 분석을 갱신하면 보리가 읽을 대사를 LLM이 수치 목록만 근거로 씁니다. 꺼져 있거나 실패하면 정해진 문장으로 읽습니다. 대화 기능은 없습니다.</p>
+        <p className="hint">화면에서 입력한 API 키는 데이터 폴더(<code>BORI_DATA_DIR</code>, 기본 <code>data/</code>)의 <code>llm-config.json</code>에 암호화해 저장하며 다시 표시하지 않습니다. 환경변수 <code>OPENAI_API_KEY</code>로 준 키는 파일에 쓰지 않고, "키 지우기"를 눌러도 환경변수 키로 돌아갑니다. 데이터 폴더는 Git에서 제외되어 있습니다.</p>
+      </>,
+      <>
+        <div className="section-toolbar">
+          <label className="toggle-row"><input type="checkbox" className="switch" checked={llm.settings.enabled} onChange={event => void saveLlm({ enabled: event.target.checked })} /><span>LLM 사용</span></label>
+          <div className="connection-item"><span className={`badge badge-${llmBadge.tone}`}><i className="badge-dot" aria-hidden="true" />{llmBadge.text}</span><span className="connection-detail">{llm.status.lastError ?? llm.settings.model}</span></div>
+        </div>
+        <div className="settings-grid">
+          <label>제공 업체<select value={llm.settings.provider} onChange={event => void saveLlm({ provider: event.target.value as LlmProvider })}>{llm.providers.map(provider => <option key={provider} value={provider}>{providerLabels[provider] ?? provider}</option>)}</select></label>
+          <label>모델<input value={shownText(llmDrafts.drafts, 'model', llm.settings.model)} onChange={event => llmDrafts.set('model', event.target.value)} onBlur={() => saveLlmField(llmFields.model)} /></label>
+          <label>응답 제한(ms){numberInput(llmDrafts, llmFields.timeoutMs, llm.settings.timeoutMs, { min: '1000', step: '500', onBlur: () => saveLlmField(llmFields.timeoutMs) })}</label>
+        </div>
+        <div className="input-row"><input type="password" value={apiKeyInput} onChange={event => setApiKeyInput(event.target.value)} aria-label="LLM API 키" placeholder={llm.status.hasApiKey ? 'API 키가 저장되어 있습니다. 바꾸려면 새 키를 입력하세요' : 'API 키를 입력하세요'} /><button className="primary-button" onClick={() => void saveLlm({ apiKey: apiKeyInput })} disabled={!apiKeyInput.trim()}>키 저장</button>{llm.status.hasApiKey && <button className="ghost-button" onClick={() => void saveLlm({ apiKey: '' })}>키 지우기</button>}</div>
+        {stats([['API 키', llm.status.hasApiKey ? '있음' : '없음'], ['호출', llm.status.callCount], ['호출 실패', llm.status.failureCount], ['검증 실패', llm.status.validationFailureCount], ['평균 지연', `${llm.status.averageLatencyMs}ms`]])}
+        {llm.status.circuitOpen && <div className="notice notice-warn">연속 실패로 LLM 호출을 잠시 멈췄습니다. {llm.settings.cooldownSeconds}초 뒤 다시 시도합니다.</div>}
+      </>)}
+
+    {tts && section('tts', '음성 (TTS)',
+      <p>보리가 메타 분석 대사를 고른 업체(OpenAI·ElevenLabs·Fish Audio)의 음성으로 읽습니다. 대시보드에서 재생되고 입 모양도 소리에 맞춰 움직입니다. OpenAI는 LLM과 같은 API 키를 쓰고, Fish Audio는 .env의 FISH_API_KEY를 씁니다.</p>,
+      <>
+        <div className="section-toolbar">
+          <label className="toggle-row"><input type="checkbox" className="switch" checked={tts.settings.enabled} disabled={!tts.hasApiKey} onChange={event => void saveTts({ enabled: event.target.checked })} /><span>음성 사용{!tts.hasApiKey && ' (API 키를 먼저 저장하세요)'}</span></label>
+        </div>
+        <div className="settings-grid">
+          <label>업체<select value={tts.settings.provider} onChange={event => void saveTts({ provider: event.target.value })}>{tts.providers.map(provider => <option key={provider} value={provider}>{providerLabels[provider] ?? provider}</option>)}</select></label>
+          <label>목소리<select value={tts.settings.voice} onChange={event => void saveTts({ voice: event.target.value })}>{tts.voices.length === 0 && <option value={tts.settings.voice}>{tts.settings.voice}</option>}{tts.voices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}{voice.description ? ` — ${voice.description}` : ''}</option>)}</select></label>
+          <label>모델<input value={shownText(ttsDrafts.drafts, 'model', tts.settings.model)} onChange={event => ttsDrafts.set('model', event.target.value)} onBlur={() => saveTtsField(ttsFields.model)} /></label>
+          <label>합성 실패<input value={`${tts.failureCount}회`} readOnly /></label>
+        </div>
+        {tts.settings.provider === 'openai'
+          ? <div className="settings-grid"><label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.25', max: '4', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label></div>
+          : tts.settings.provider === 'fish'
+          ? <>
+            <div className="settings-grid">
+              <label>속도{numberInput(ttsDrafts, ttsFields.speed, tts.settings.speed, { min: '0.5', max: '2', step: '0.05', onBlur: () => saveTtsField(ttsFields.speed) })}</label>
+              <label>안정성{numberInput(ttsDrafts, ttsFields.stability, tts.settings.stability, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.stability) })}</label>
+            </div>
+            <div className="input-row"><input value={fishVoiceInput} onChange={event => setFishVoiceInput(event.target.value)} aria-label="Fish Audio 목소리 ID" placeholder="목소리 ID 32자리 (fish.audio/m/ 뒤의 값)" /><button className="primary-button" onClick={() => { void saveTts({ voice: fishVoiceInput.trim() }); setFishVoiceInput(''); }} disabled={!fishVoiceInput.trim()}>목소리 적용</button></div>
+            <p className="hint">{tts.hasFishKey ? 'Fish Audio 키를 .env에서 읽었습니다.' : '.env에 FISH_API_KEY를 넣고 스튜디오를 다시 켜 주세요.'} 목록에는 내 계정에서 만든 목소리만 나옵니다. 공개 목소리는 fish.audio 목소리 페이지 주소(fish.audio/m/…)의 ID를 위 칸에 넣습니다. 속도는 0.5~2.0입니다. 목소리가 합성마다 달라지면 안정성을 0.7~0.8로 올려 보세요(높을수록 일정하고, 낮을수록 표현이 커집니다).</p>
+          </>
+          : <>
+            <div className="settings-grid">
+              <label>안정성{numberInput(ttsDrafts, ttsFields.stability, tts.settings.stability, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.stability) })}</label>
+              <label>유사도{numberInput(ttsDrafts, ttsFields.similarity, tts.settings.similarity, { min: '0', max: '1', step: '0.05', onBlur: () => saveTtsField(ttsFields.similarity) })}</label>
+            </div>
+            <div className="input-row"><input type="password" value={elevenKeyInput} onChange={event => setElevenKeyInput(event.target.value)} aria-label="ElevenLabs API 키" placeholder={tts.hasElevenLabsKey ? 'ElevenLabs 키가 저장되어 있습니다' : 'ElevenLabs API 키를 입력하세요'} /><button className="primary-button" onClick={() => void saveTts({ elevenLabsApiKey: elevenKeyInput })} disabled={!elevenKeyInput.trim()}>키 저장</button>{tts.hasElevenLabsKey && <button className="ghost-button" onClick={() => void saveTts({ elevenLabsApiKey: '' })}>키 지우기</button>}</div>
+            <p className="hint">안정성이 낮을수록 감정 표현이 커지고, 높을수록 톤이 일정해집니다. 목소리 목록은 ElevenLabs 계정에 담긴 것만 나옵니다. Voice Library에서 마음에 드는 목소리를 내 계정에 추가하면 여기에 표시됩니다.</p>
+          </>}
+        {tts.settings.enabled && <p className="hint">합성에 실패한 줄은 자막만 보입니다.</p>}
+        {tts.lastError && <div className="notice notice-error">마지막 오류: {tts.lastError}</div>}
+      </>)}
+
+    {usage && section('usage', 'API 사용량',
+      <p>LLM·음성 호출을 기능과 모드별로 셉니다. 숫자만 기록하고 대사 내용은 남기지 않습니다. 방송·1:1 대화를 쓰던 때의 기록은 '이전 방송'·'이전 1:1'로 보입니다. 비용은 단가표로 계산한 추정치입니다.</p>,
+      <>
+        <h3>오늘</h3>
+        {stats([['호출', usage.today.totals.calls], ['실패', usage.today.totals.failures], ['입력/출력 토큰', formatTokens(usage.today.totals)], ['음성 글자', usage.today.totals.characters.toLocaleString()], ['추정 비용', formatCost(usage.today.totals.estimatedCostUsd, usage.today.totals.costComplete)]])}
+        <h3>최근 7일</h3>
+        {stats([['호출', usage.last7Days.totals.calls], ['실패', usage.last7Days.totals.failures], ['입력/출력 토큰', formatTokens(usage.last7Days.totals)], ['음성 글자', usage.last7Days.totals.characters.toLocaleString()], ['추정 비용', formatCost(usage.last7Days.totals.estimatedCostUsd, usage.last7Days.totals.costComplete)]])}
+        {usage.last7Days.rows.length > 0 && <table className="usage-table"><thead><tr><th>기능</th><th>모드</th><th>모델</th><th className="num">호출</th><th className="num">실패</th><th className="num">입력/출력 토큰·글자</th><th className="num">7일 추정 비용</th></tr></thead><tbody>{usage.last7Days.rows.map(row => <tr key={`${row.feature}-${row.mode}-${row.model}`}><td>{usageFeatureLabels[row.feature]}</td><td>{usageModeLabel(row.mode)}</td><td className="model">{row.model}</td><td className="num">{row.calls}</td><td className="num">{row.failures}</td><td className="num">{row.feature === 'tts' ? `${row.characters.toLocaleString()}자` : formatTokens(row)}</td><td className="num">{formatRowCost(row)}</td></tr>)}</tbody></table>}
+        {usage.last7Days.unpricedModels.length > 0 && <div className="notice notice-warn">단가 없음: {usage.last7Days.unpricedModels.join(', ')}. 이 모델의 비용은 합계에서 빠졌습니다. 데이터 폴더의 <code>usage-prices.json</code>에 단가를 넣으면 계산합니다.</div>}
+        {usage.prices.fileError && <div className="notice notice-error">단가 파일 오류: {usage.prices.fileError} 기본 단가만 씁니다.</div>}
+        <p className="hint">{usage.prices.note} 단가 파일 {usage.prices.fileLoaded ? '적용 중' : '없음'}. 금액 뒤의 +는 단가나 토큰 정보가 없어 일부 호출이 빠졌다는 뜻입니다. 최근 31일 호출 {usage.last31Days.totals.calls}회, 추정 {formatCost(usage.last31Days.totals.estimatedCostUsd, usage.last31Days.totals.costComplete)}.</p>
+      </>)}
   </main>;
 }

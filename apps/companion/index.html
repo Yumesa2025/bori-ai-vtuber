@@ -5,11 +5,8 @@
          이 출처의 스크립트와 /api만 쓰고 외부 스크립트·외부 전송을 막는다. 개발 서버는 vite.config.ts에서 HMR에 필요한 것만 더한다.
          Live2D: Cubism Core 5-r.5는 wasm2js(자바스크립트로 바꾼 wasm)라 eval·WebAssembly·blob이 필요 없다. 텍스처는 이 출처 이미지(/private-model/)다.
          음성은 /api/tts/:id를 Audio로 튼다(media-src). style-src 'unsafe-inline'은 React style 속성(진행률 막대)에 필요하다.
-         글꼴: Google Fonts의 Noto Sans KR만 더 연다(style-src fonts.googleapis.com, font-src fonts.gstatic.com). 못 받으면 시스템 글꼴로 보인다. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'none'; form-action 'none'" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" />
+         글꼴은 저장소에 넣은 Pretendard(src/fonts)를 이 출처에서 받는다. 외부 글꼴 서비스로 나가는 요청은 없다. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>보리 메타 대시보드</title><link rel="icon" href="data:," /></head>
   <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
 </html>
