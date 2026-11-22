@@ -68,6 +68,7 @@ export default function SettingsTab() {
   const [er, setEr] = useState<ErDataView | null>(null);
   const [nickname, setNickname] = useState<string | null>(null);
   const [nicknameInput, setNicknameInput] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
   const llmDrafts = useDrafts();
   const ttsDrafts = useDrafts();
   const pollers = useRef<{ status: ReturnType<typeof createPoller>; settings: ReturnType<typeof createPoller> } | null>(null);
@@ -156,6 +157,21 @@ export default function SettingsTab() {
     setNotice(body?.started ? '이터널리턴 데이터 갱신을 시작했습니다. 몇 분 걸릴 수 있습니다.' : '갱신을 시작하지 못했습니다. 이미 갱신 중이거나 ER_API_KEY가 없습니다.');
     pollers.current?.status.runNow();
   }
+  /** 지금 집계로 보리 대사만 새로 만든다(ER 데이터는 다시 받지 않는다). LLM과 음성 5줄이라 시간 상한을 넉넉히 둔다. */
+  async function regenerateNarration() {
+    setRegenerating(true);
+    setNotice('보리 대사를 다시 만드는 중입니다. 대사와 음성을 만드느라 30초쯤 걸릴 수 있습니다.');
+    try {
+      const response = await postAction('/api/narration/regenerate', 120_000);
+      if (!isServerUp(response)) { setServerOnline(false); setNotice('서버에 연결할 수 없어 요청을 보내지 못했습니다.'); return; }
+      const body = await readJson<{ narration?: { lines: unknown[] }; error?: string }>(response);
+      setNotice(response.ok && body?.narration
+        ? `보리 대사 ${body.narration.lines.length}줄을 새로 만들었습니다. 대시보드에서 다시 듣기로 들을 수 있습니다.`
+        : body?.error ?? '보리 대사를 다시 만들지 못했습니다.');
+    } finally {
+      setRegenerating(false);
+    }
+  }
   // 폴링은 앞 요청이 끝난 뒤에 다음 요청을 예약해 겹치지 않는다(poll.ts).
   useEffect(() => {
     const status = createPoller(refreshStatus, STATUS_POLL_MS);
@@ -199,7 +215,11 @@ export default function SettingsTab() {
           <span className="progress-track"><span className="progress-bar" style={{ width: `${erProgress}%` }} /></span>
         </div>}
         {summary.lastError && <div className="notice notice-error">마지막 갱신 오류: {summary.lastError}</div>}
-        <div className="button-row"><button className="primary-button" onClick={() => void refreshEr()} disabled={!serverOnline || !summary.canRefresh}>데이터 갱신</button></div>
+        <div className="button-row">
+          <button className="primary-button" onClick={() => void refreshEr()} disabled={!serverOnline || !summary.canRefresh}>데이터 갱신</button>
+          <button className="ghost-button" onClick={() => void regenerateNarration()} disabled={!serverOnline || regenerating || !er?.basis || Boolean(er?.refresh.running)}>{regenerating ? '대사 만드는 중…' : '보리 대사 다시 만들기'}</button>
+        </div>
+        <p className="hint">보리 대사 다시 만들기: 데이터는 그대로 두고, 지금 집계로 대사와 음성만 새로 만듭니다.</p>
       </>)}
 
     {section('nickname', '게임 닉네임',

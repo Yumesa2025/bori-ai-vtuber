@@ -12,6 +12,7 @@ import type { LlmRequest } from "@bori/llm";
 import type { DashboardData, DashboardDataState } from "../src/er/dashboard-state.js";
 import { handleDashboardRoute } from "../src/http/dashboard-routes.js";
 import { narrationLlmFrom, parseNarrationJson, type CompleteFn } from "../src/narration-llm.js";
+import { fixtureBasis, fixtureCombos } from "./narration-fixtures.js";
 
 // ── 가짜 의존성 ───────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ function fakeDashboard() {
 let fake = fakeDashboard();
 let latest: Narration | null = NARRATION;
 let replayed: Narration | null = NARRATION;
+const narrated: unknown[] = [];
 
 let server: Server;
 let baseUrl = "";
@@ -67,7 +69,11 @@ before(async () => {
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     const handled = handleDashboardRoute(request.method, path, request, response, {
       dashboard: fake.dashboard,
-      narrator: { latest: () => latest, replay: async () => replayed },
+      narrator: {
+        latest: () => latest,
+        replay: async () => replayed,
+        narrate: async input => { narrated.push(input); return { ...NARRATION, id: "regen" }; },
+      },
     });
     if (!handled) { response.writeHead(404); response.end(JSON.stringify({ error: "다음 라우트" })); }
   });
@@ -81,6 +87,7 @@ beforeEach(() => {
   fake = fakeDashboard();
   latest = NARRATION;
   replayed = NARRATION;
+  narrated.length = 0;
 });
 
 async function send(method: string, path: string, body?: string) {
@@ -190,6 +197,23 @@ describe("대시보드 라우트", () => {
     const reply = await send("POST", "/api/narration/replay");
     assert.equal(reply.status, 404);
     assert.equal(typeof reply.body.error, "string");
+  });
+
+  test("POST /api/narration/regenerate는 지금 집계로 대사를 새로 만든다(ER 갱신은 하지 않는다)", async () => {
+    fake.dashboard.state = () => ({ ...STATE, basis: fixtureBasis, combos: fixtureCombos });
+    const reply = await send("POST", "/api/narration/regenerate");
+    assert.equal(reply.status, 200);
+    assert.equal((reply.body.narration as Narration).id, "regen");
+    assert.equal(narrated.length, 1);
+    assert.ok(!fake.calls.includes("refresh"));
+  });
+
+  test("집계가 없으면 다시 만들기는 404, 갱신 중이면 409다", async () => {
+    fake.dashboard.state = () => ({ ...STATE, basis: null, combos: [] });
+    assert.equal((await send("POST", "/api/narration/regenerate")).status, 404);
+    fake.dashboard.state = () => ({ ...STATE, basis: fixtureBasis, combos: fixtureCombos, refresh: { ...STATE.refresh, running: true } });
+    assert.equal((await send("POST", "/api/narration/regenerate")).status, 409);
+    assert.equal(narrated.length, 0);
   });
 
   test("모르는 경로와 메서드는 다음 라우트로 넘긴다", async () => {

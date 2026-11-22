@@ -13,8 +13,8 @@ describe("정해진 문장", () => {
     const facts = buildFacts({ basis: fixtureBasis, combos: fixtureCombos, player: fixturePlayer });
     const lines = templateLines(facts);
     assert.deepEqual(lines.map(line => line.text), [
-      "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 8.1%, 평균 순위 3.4위예요.",
-      "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요.",
+      "지금 가장 많이 고른 건 재키예요. 픽률 8.1%, 평균 순위 3.4위예요.",
+      "재키는 평균 순위가 3.9위에서 3.4위로 좋아졌어요.",
       "자주 하시는 재키는 지금 메타 조합 순위 2위예요.",
     ]);
     assert.deepEqual(lines.map(line => line.emotion), ["gaming", "happy", "gaming"]);
@@ -35,8 +35,8 @@ describe("정해진 문장", () => {
     const fresh = fixtureCombos.map(entry => ({ ...entry, change: null }));
     const facts = buildFacts({ basis: { ...fixtureBasis, previousCollectedAt: null }, combos: fresh, player: null });
     assert.deepEqual(templateLines(facts).map(line => line.text), [
-      "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 8.1%, 평균 순위 3.4위예요.",
-      "아야 권총도 픽률 7.5%로 많이 보이고, 평균 순위는 4.1위예요.",
+      "지금 가장 많이 고른 건 재키예요. 픽률 8.1%, 평균 순위 3.4위예요.",
+      "아야도 픽률 7.5%로 많이 보이고, 평균 순위는 4.1위예요.",
       "이번 분석은 시즌 13 랭크 경기 300판, 참가자 7,200명을 모은 거예요.",
     ]);
   });
@@ -62,7 +62,7 @@ describe("3줄 채우기", () => {
     const lines = fillLines([riserLine], facts);
     assert.deepEqual(lines?.map(line => line.text), [
       riserLine.text,
-      "지금 가장 많이 고른 조합은 재키 쌍검이에요. 픽률 8.1%, 평균 순위 3.4위예요.",
+      "지금 가장 많이 고른 건 재키예요. 픽률 8.1%, 평균 순위 3.4위예요.",
       "자주 하시는 재키는 지금 메타 조합 순위 2위예요.",
     ]);
   });
@@ -71,7 +71,7 @@ describe("3줄 채우기", () => {
     const lines = fillLines([{ text: renderFact(top), emotion: "gaming", factId: top.id }], facts);
     assert.deepEqual(lines?.map(line => line.text), [
       renderFact(top),
-      "재키 쌍검은 평균 순위가 3.9위에서 3.4위로 좋아졌어요.",
+      "재키는 평균 순위가 3.9위에서 3.4위로 좋아졌어요.",
       "자주 하시는 재키는 지금 메타 조합 순위 2위예요.",
     ]);
   });

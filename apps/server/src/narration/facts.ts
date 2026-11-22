@@ -45,6 +45,23 @@ export function withParticle(name: string, withoutFinal: string, withFinal: stri
 export const comboLabel = (combo: Pick<ErComboStat, "characterName" | "weaponName">) =>
   combo.weaponName ? `${combo.characterName} ${combo.weaponName}` : combo.characterName;
 
+/** 보리가 읽는 이름. 사실 문장(text)과 화면은 무기까지, 대사(spoken)는 캐릭터 이름만 쓴다(2026-11-23 사용자 요청). */
+type SpokenLabel = (combo: ErComboStat) => string;
+
+/**
+ * 대사에서 쓸 이름 규칙. 기본은 캐릭터 이름만("테오도르").
+ * 같은 대사 안에 같은 캐릭터가 다른 무기로 함께 나오면 어느 쪽인지 구분되지 않으므로 그 캐릭터만 무기까지 붙인다.
+ */
+export function spokenLabeler(combos: readonly ErComboStat[]): SpokenLabel {
+  const weapons = new Map<number, Set<number>>();
+  for (const combo of combos) {
+    const set = weapons.get(combo.characterCode) ?? new Set<number>();
+    set.add(combo.weaponCode);
+    weapons.set(combo.characterCode, set);
+  }
+  return combo => ((weapons.get(combo.characterCode)?.size ?? 0) > 1 ? comboLabel(combo) : combo.characterName);
+}
+
 
 /** 직전 갱신의 평균 순위. change는 "이번 값 − 직전 값"이다(코디네이터 확인 2026-11-21). */
 const previousRank = (combo: ErComboStat) => combo.avgRank - (combo.change?.avgRank ?? 0);
@@ -85,15 +102,16 @@ function newTopCombos(ranked: readonly ErComboStat[]): ErComboStat[] {
 
 type Draft = Omit<NarrationFact, "id">;
 
-function topFact(combo: ErComboStat, place: number): Draft {
+function topFact(combo: ErComboStat, place: number, say: SpokenLabel): Draft {
   const label = comboLabel(combo);
+  const spokenName = say(combo);
   const pick = formatPercent(combo.pickRate);
   const rank = formatRank(combo.avgRank);
   const top1 = formatPercent(combo.top1Rate);
   const participants = formatCount(combo.participants);
   const spoken = place === 1
-    ? `지금 가장 많이 고른 조합은 ${withParticle(label, "예요", "이에요")}. 픽률 ${pick}, 평균 순위 ${rank}위예요.`
-    : `${label}도 픽률 ${pick}로 많이 보이고, 평균 순위는 ${rank}위예요.`;
+    ? `지금 가장 많이 고른 건 ${withParticle(spokenName, "예요", "이에요")}. 픽률 ${pick}, 평균 순위 ${rank}위예요.`
+    : `${spokenName}도 픽률 ${pick}로 많이 보이고, 평균 순위는 ${rank}위예요.`;
   return {
     kind: "top",
     // "메타 N위"라고 쓰면 LLM이 "가장 강한 조합"으로 바꿔 말할 여지가 있어 픽률 순위라고 밝힌다(점검 V2 15번).
@@ -102,7 +120,7 @@ function topFact(combo: ErComboStat, place: number): Draft {
   };
 }
 
-function moverFact(combo: ErComboStat, kind: "riser" | "faller"): Draft {
+function moverFact(combo: ErComboStat, kind: "riser" | "faller", say: SpokenLabel): Draft {
   const label = comboLabel(combo);
   const before = formatRank(previousRank(combo));
   const after = formatRank(combo.avgRank);
@@ -110,17 +128,17 @@ function moverFact(combo: ErComboStat, kind: "riser" | "faller"): Draft {
   return {
     kind,
     text: `${label} 평균 순위 ${before}위 → ${after}위 (참가자 ${participants}명)`,
-    spoken: `${withParticle(label, "는", "은")} 평균 순위가 ${before}위에서 ${after}위로 ${kind === "riser" ? "좋아졌어요" : "내려갔어요"}.`,
+    spoken: `${withParticle(say(combo), "는", "은")} 평균 순위가 ${before}위에서 ${after}위로 ${kind === "riser" ? "좋아졌어요" : "내려갔어요"}.`,
   };
 }
 
-function newTopFact(combo: ErComboStat): Draft {
+function newTopFact(combo: ErComboStat, say: SpokenLabel): Draft {
   const label = comboLabel(combo);
   const pick = formatPercent(combo.pickRate);
   return {
     kind: "newTop",
     text: `새로 픽률 TOP ${NEW_TOP_RANGE}에 든 조합: ${label} (픽률 ${pick})`,
-    spoken: `${withParticle(label, "가", "이")} 새로 픽률 TOP ${NEW_TOP_RANGE}에 들어왔어요.`,
+    spoken: `${withParticle(say(combo), "가", "이")} 새로 픽률 TOP ${NEW_TOP_RANGE}에 들어왔어요.`,
   };
 }
 
@@ -167,11 +185,16 @@ export function buildFacts(input: NarrationInput): NarrationFact[] {
 
   const ranked = byPickRate(combos);
   const movers = rankMovers(combos, Math.max(RISER_COUNT, FALLER_COUNT));
+  const tops = ranked.slice(0, TOP_COUNT);
+  const risers = movers.risers.slice(0, RISER_COUNT);
+  const fallers = movers.fallers.slice(0, FALLER_COUNT);
+  const newTops = basis.previousCollectedAt ? newTopCombos(ranked) : [];
+  const say = spokenLabeler([...tops, ...risers, ...fallers, ...newTops]);
   const drafts: Draft[] = [
-    ...ranked.slice(0, TOP_COUNT).map((combo, index) => topFact(combo, index + 1)),
-    ...movers.risers.slice(0, RISER_COUNT).map(combo => moverFact(combo, "riser")),
-    ...movers.fallers.slice(0, FALLER_COUNT).map(combo => moverFact(combo, "faller")),
-    ...(basis.previousCollectedAt ? newTopCombos(ranked).map(newTopFact) : []),
+    ...tops.map((combo, index) => topFact(combo, index + 1, say)),
+    ...risers.map(combo => moverFact(combo, "riser", say)),
+    ...fallers.map(combo => moverFact(combo, "faller", say)),
+    ...newTops.map(combo => newTopFact(combo, say)),
   ];
   const main = player?.mainCharacters[0];
   if (player && main && main.games > 0 && Number.isFinite(main.avgRank) && main.avgRank > 0) drafts.push(mainFact(main, player.seasonName));
