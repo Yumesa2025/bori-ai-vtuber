@@ -7,11 +7,13 @@ import { useBoriLive2D } from "../live2d/useBoriLive2D";
 import { createGeneration, createPlayback, type Playback } from "../narration-player";
 import { loadLastNarrationId, saveLastNarrationId } from "../preferences";
 import { speechNotice, TEMPLATE_NARRATION_HINT } from "../ui";
+import { StagePortrait } from "./StagePortrait";
 
 type Props = {
   narration: Narration | null;
   ttsEnabled: boolean;
   onToggleTts: () => void;
+  onSpokenLine: (line: string | null) => void;
   /** 화면이 보이고 스튜디오 탭도 활성인지. 아니면 자동 읽기를 미룬다 */
   visible: boolean;
   /** 스튜디오에서 대시보드 탭이 활성인지. 다른 탭으로 가면 읽던 대사를 멈춘다(Codex C2 6절) */
@@ -31,7 +33,7 @@ const AUTO_PLAY_DELAY_MS = 300;
  * - 새 대사가 재생을 바꾸면 이전 재생의 콜백은 무시한다.
  * - 언마운트하면 전체 재생을 취소하고, 늦게 온 다시 듣기 응답은 무시한다.
  */
-export function Narrator({ narration, ttsEnabled, onToggleTts, visible, tabActive }: Props) {
+export function Narrator({ narration, ttsEnabled, onToggleTts, visible, tabActive, onSpokenLine }: Props) {
   const live2d = useBoriLive2D();
   const [shown, setShown] = useState<Narration | null>(narration);
   const [lineIndex, setLineIndex] = useState<number | null>(null);
@@ -122,22 +124,22 @@ export function Narrator({ narration, ttsEnabled, onToggleTts, visible, tabActiv
   const lines = shown?.lines ?? [];
   const current = lineIndex === null ? null : lines[lineIndex] ?? null;
 
+  useEffect(() => { onSpokenLine(current?.text ?? null); }, [current?.text, onSpokenLine]);
+
   return (
     <section className="narrator" aria-label="보리">
       <div className="character-stage">
+        <div className="stage-heading">
+          <h2>보리</h2>
+          {current && <span className="stage-speaking"><span aria-hidden="true" />읽는 중</span>}
+        </div>
+        {live2d.status.state !== "ready" && <StagePortrait />}
         <div className="live2d-layer" ref={live2d.layerRef} />
         {live2d.status.state !== "ready" && <p className="character-badge" role="status">{live2d.status.message}</p>}
       </div>
-      <div className="subtitle" aria-live="polite">
+      <div className="subtitle" aria-live="polite" data-speaking={current !== null}>
         {current ? <p className="subtitle-now">{current.text}</p> : <p className="subtitle-idle">{lines.length > 0 ? "다시 듣기를 누르면 보리가 다시 읽어 드려요." : "데이터를 갱신하면 보리가 분석을 읽어 드려요."}</p>}
       </div>
-      {lines.length > 0 && (
-        <ol className="script" aria-label="보리 대사">
-          {lines.map((line, index) => <li key={index} className={index === lineIndex ? "now" : ""}>{line.text}</li>)}
-        </ol>
-      )}
-      {shown && <p className="narrator-hint">{formatCollectedAt(shown.createdAt)} 분석{shown.source === "template" ? ` · ${TEMPLATE_NARRATION_HINT}` : ""}</p>}
-      {notice && <p className="narrator-notice" role="status">{notice}</p>}
       <div className="narrator-actions">
         {playing
           ? <button type="button" className="ghost-button" onClick={stop}>멈추기</button>
@@ -145,6 +147,16 @@ export function Narrator({ narration, ttsEnabled, onToggleTts, visible, tabActiv
         {/* 이름은 "음성"으로 고정하고 켜짐 여부는 aria-pressed로 알린다. 글자와 상태가 겹쳐 읽히지 않게 한다. */}
         <button type="button" className="ghost-button toggle-button" aria-pressed={ttsEnabled} onClick={onToggleTts}>음성<span className="toggle-state" aria-hidden="true">{ttsEnabled ? "켬" : "끔"}</span></button>
       </div>
+      {lines.length > 0 && (
+        <details className="script-panel" open>
+          <summary>보리 대사</summary>
+          <ol className="script" aria-label="보리 대사">
+            {lines.map((line, index) => <li key={index} aria-current={index === lineIndex ? "true" : undefined}>{line.text}</li>)}
+          </ol>
+        </details>
+      )}
+      {shown && <p className="narrator-hint">{formatCollectedAt(shown.createdAt)} 분석{shown.source === "template" ? ` · ${TEMPLATE_NARRATION_HINT}` : ""}</p>}
+      {notice && <p className="narrator-notice" role="status">{notice}</p>}
     </section>
   );
 }

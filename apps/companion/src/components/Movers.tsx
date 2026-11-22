@@ -2,10 +2,10 @@ import type { ErComboStat } from "@bori/shared";
 import { comboKey, comboLabel, moverChangeText, previousRank, selectMovers } from "../dashboard";
 import { formatRank } from "../format";
 
-type Props = { combos: readonly ErComboStat[]; onSelect: (combo: ErComboStat) => void };
+type Props = { combos: readonly ErComboStat[]; spokenKeys: ReadonlySet<string>; onSelect: (combo: ErComboStat) => void };
 
 /** 오르고 내린 조합: 평균 순위 변화 상위·하위 5개씩. 보리 대사와 같은 규칙(selectMovers). */
-export function Movers({ combos, onSelect }: Props) {
+export function Movers({ combos, spokenKeys, onSelect }: Props) {
   const { risers, fallers } = selectMovers(combos, 5);
   const comparable = combos.some(combo => combo.change !== null);
 
@@ -16,7 +16,7 @@ export function Movers({ combos, onSelect }: Props) {
         <ol>
           {items.map(combo => (
             <li key={comboKey(combo)}>
-              <button type="button" className="mover" onClick={() => onSelect(combo)}>
+              <button type="button" className="mover" data-spoken={spokenKeys.has(comboKey(combo))} onClick={() => onSelect(combo)}>
                 <span className="mover-name">{comboLabel(combo)}</span>
                 <span className="mover-rank">{formatRank(previousRank(combo))}위 → <strong>{formatRank(combo.avgRank)}위</strong></span>
                 <span className={`trend trend-${tone}`} role="img" aria-label={`평균 순위 ${moverChangeText(combo)} ${tone === "up" ? "좋아짐" : "나빠짐"}`}>{tone === "up" ? "▲" : "▼"} {moverChangeText(combo)}</span>
