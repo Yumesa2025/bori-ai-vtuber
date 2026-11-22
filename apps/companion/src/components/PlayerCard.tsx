@@ -1,6 +1,7 @@
 import type { DashboardState } from "@bori/shared";
 import { playerMessage } from "../dashboard";
 import { formatCount, formatDecimal, formatMmr, formatPercent, formatRank } from "../format";
+import { CharacterChip } from "./CharacterChip";
 
 type Props = { player: DashboardState["player"] | null; erAvailable: boolean };
 
@@ -15,37 +16,42 @@ export function PlayerCard({ player, erAvailable }: Props) {
   const summary = player?.status === "ready" ? player.summary : null;
 
   return (
-    <section className="panel player" aria-labelledby="player-title">
-      <div className="panel-head">
+    <section className="player" aria-labelledby="player-title">
+      <div className="section-head">
         <h2 id="player-title">내 전적</h2>
-        {summary && <span className="panel-hint">{summary.nickname} · {summary.seasonName}</span>}
+        {summary && <span className="section-hint">{summary.nickname} · {summary.seasonName}</span>}
       </div>
-      {!summary ? <p className={`empty${player?.status === "error" || player?.status === "not-found" ? " empty-warn" : ""}`}>{playerMessage(player && player.status !== "ready" ? player.status : "loading", erAvailable)}</p> : (
+      {!summary ? (
+        <p className={`empty empty-box${player?.status === "error" || player?.status === "not-found" ? " empty-warn" : ""}`}>{playerMessage(player && player.status !== "ready" ? player.status : "loading", erAvailable)}</p>
+      ) : (
         <>
-          <dl className="stat-row">
-            <div><dt>MMR</dt><dd>{summary.mmr === null ? "—" : formatCount(summary.mmr)}</dd></div>
-            <div><dt>순위</dt><dd>{summary.rankPercent === null ? "—" : `상위 ${formatPercent(summary.rankPercent)}`}</dd></div>
+          <dl className="player-figures">
+            <div className="player-mmr"><dt>MMR</dt><dd>{summary.mmr === null ? "—" : formatCount(summary.mmr)}</dd></div>
+            <div className="player-percent"><dt>순위</dt><dd>{summary.rankPercent === null ? "—" : `상위 ${formatPercent(summary.rankPercent)}`}</dd></div>
             <div><dt>판수</dt><dd>{formatCount(summary.games)}</dd></div>
             <div><dt>평균 순위</dt><dd>{whenPlayed(summary.games, `${formatRank(summary.avgRank)}위`)}</dd></div>
             <div><dt>1등 비율</dt><dd>{whenPlayed(summary.games, formatPercent(summary.top1Rate))}</dd></div>
             <div><dt>평균 킬</dt><dd>{summary.avgKills === null ? "—" : whenPlayed(summary.games, formatDecimal(summary.avgKills))}</dd></div>
           </dl>
           <div className="player-grid">
-            <div>
+            <div className="detail-block">
               <h3>주캐릭터</h3>
               {summary.mainCharacters.length === 0 ? <p className="empty">기록 없음</p> : (
                 <ol className="mains">
                   {summary.mainCharacters.map(main => (
                     <li key={main.name}>
-                      <span>{main.name}</span>
-                      <span className="muted-text">{formatCount(main.games)}판 · {whenPlayed(main.games, `${formatRank(main.avgRank)}위`)}</span>
+                      <CharacterChip name={main.name} />
+                      <span className="main-text">
+                        <span className="main-name">{main.name}</span>
+                        <span className="muted-text">{formatCount(main.games)}판 · {whenPlayed(main.games, `${formatRank(main.avgRank)}위`)}</span>
+                      </span>
                       <span className="meta-place">{main.metaRank === null ? "메타 순위 밖" : `메타 ${main.metaRank}위`}</span>
                     </li>
                   ))}
                 </ol>
               )}
             </div>
-            <div>
+            <div className="detail-block">
               <h3>{summary.recent.length > 0 ? `최근 ${summary.recent.length}판` : "최근 경기"}</h3>
               {summary.recent.length === 0 ? <p className="empty">최근 경기 기록이 없어요.</p> : (
                 <ol className="recent">
@@ -53,7 +59,7 @@ export function PlayerCard({ player, erAvailable }: Props) {
                     <li key={index} className={game.rank === 1 ? "win" : ""}>
                       <span className="recent-rank">{game.rank}위</span>
                       <span className="recent-name">{game.characterName} {game.weaponName}</span>
-                      <span className="muted-text">{game.kills}킬</span>
+                      <span className="muted-text recent-kills">{game.kills}킬</span>
                       <span className={mmrClass(game.mmrGain)}>{game.mmrGain === null ? "—" : formatMmr(game.mmrGain).replace(/\.0$/, "")}</span>
                     </li>
                   ))}
